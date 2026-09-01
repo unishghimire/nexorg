@@ -1,0 +1,17 @@
+export { DashboardTab } from './DashboardTab';
+export { TournamentsTab } from './TournamentsTab';
+export { OrgApprovalsTab } from './OrgApprovalsTab';
+export { OrgTournamentsTab } from './OrgTournamentsTab';
+export { UsersTab } from './UsersTab';
+export { OrganizersTab } from './OrganizersTab';
+export { OrgEarningsTab } from './OrgEarningsTab';
+export { PendingDepositsTab } from './PendingDepositsTab';
+export { PendingWithdrawalsTab } from './PendingWithdrawalsTab';
+export { GamesTab } from './GamesTab';
+export { PaymentsTab } from './PaymentsTab';
+export { PromoTab } from './PromoTab';
+export { MediaTab } from './MediaTab';
+export { default as NewsTab } from './NewsTab';
+export { DisputesTab } from './DisputesTab';
+export { SettingsTab } from './SettingsTab';
+export type { AdminPanelTabProps } from './types';

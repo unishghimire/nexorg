@@ -1,0 +1,50 @@
+import { Tournament, TournamentGroup, Match, TournamentEarning } from '../../../../shared/types/types';
+
+// ponytail: shared props type — all tabs get the full set, each destructures what it needs
+export interface TournamentAdminTabProps {
+    tournament: Tournament;
+    tournamentEarning: TournamentEarning | null;
+    participants: any[];
+    fetchingParticipants: boolean;
+    selectedGroup: TournamentGroup | null;
+    selectedMatch: { groupId: string; match: Match } | null;
+    matchScore: { score1: number; score2: number; status: 'scheduled' | 'live' | 'completed'; map: string };
+    newGroup: { name: string; teamLimit: number; isPublic: boolean; passCode: string };
+    newMatchData: any;
+    gameStartGroupId: string;
+    discordSending: string | null;
+    isCreateGroupModalOpen: boolean;
+    isManageTeamsModalOpen: boolean;
+    isUpdateScoreModalOpen: boolean;
+    isResultUploaderOpen: boolean;
+    isAddMatchModalOpen: boolean;
+    setTournament: (v: any) => void;
+    setParticipants: (v: any) => void;
+    setSelectedMatch: (v: any) => void;
+    setNewGroup: (v: any) => void;
+    setSelectedGroup: (v: TournamentGroup | null) => void;
+    setGameStartGroupId: (v: string) => void;
+    setMatchScore: (v: any) => void;
+    setNewMatchData: (v: any) => void;
+    setIsCreateGroupModalOpen: (v: boolean) => void;
+    setIsManageTeamsModalOpen: (v: boolean) => void;
+    setIsUpdateScoreModalOpen: (v: boolean) => void;
+    setIsResultUploaderOpen: (v: boolean) => void;
+    setIsAddMatchModalOpen: (v: boolean) => void;
+    handleUpdateStatus: (status: 'upcoming' | 'live' | 'completed' | 'paused') => void;
+    handleUpdateStage: (stage: string) => void;
+    handleAdvanceRound: () => void;
+    handleAutoGenerateGroups: () => void;
+    handleCreateGroup: () => void;
+    handleDeleteGroup: (groupId: string) => void;
+    handleSetGroupRoom: (groupId: string, field: 'roomId' | 'roomPass', value: string) => void;
+    handleAssignTeam: (participantId: string) => void;
+    handleRemoveTeam: (teamId: string) => void;
+    handleDiscord: (action: string) => void;
+    handleAddMatch: () => void;
+    handleUpdateScore: () => void;
+    handleGenerateBracket: () => void;
+    handleGenerateGroupMatches: (groupId: string, mode?: 'round-robin' | 'single') => void;
+    getTeamName: (teamId: string) => string;
+    showToast: (msg: string, type: string) => void;
+}

@@ -1,0 +1,40 @@
+# NexPlay — Nepal's Esports Tournament & Scrim Platform
+
+> NexPlay is the premier esports platform for Nepal, offering tournament hosting, daily scrims, secure wallet-based entry systems, real-time leaderboards, and team management for PUBG Mobile, Free Fire, Valorant, and Mobile Legends. www.nexplayorg.app serves Nepali gamers with free-to-enter daily scrims, premium refereed tournaments, and a national ranking system.
+
+## Core Pages
+
+- [Tournaments](https://www.nexplayorg.app/tournaments): Browse and register for active esports tournaments in Nepal
+- [Scrims](https://www.nexplayorg.app/scrims): Join daily practice scrims for PUBG Mobile, Free Fire, and more
+- [Games](https://www.nexplayorg.app/games): Explore supported esports titles and their competitive modes
+- [Organizations](https://www.nexplayorg.app/organizations): Discover esports organizations and gaming teams in Nepal
+- [Leaderboard](https://www.nexplayorg.app/leaderboard): National esports rankings and player statistics
+- [Teams](https://www.nexplayorg.app/teams): Browse competitive esports teams in Nepal
+- [News](https://www.nexplayorg.app/news): Esports news, updates, and community content
+
+## About
+
+- [About NexPlay](https://www.nexplayorg.app/about): Mission, team, and platform overview
+- [Contact](https://www.nexplayorg.app/contact): Get in touch with the NexPlay team
+- [Privacy Policy](https://www.nexplayorg.app/privacy): Data handling and privacy commitments
+- [Terms of Service](https://www.nexplayorg.app/terms): Platform rules and user agreements
+
+## Games Supported
+
+- PUBG Mobile tournaments and scrims in Nepal
+- Free Fire tournaments and scrims in Nepal
+- Valorant tournaments in Nepal
+- Mobile Legends tournaments in Nepal
+
+## Key Features
+
+- Secure wallet-based tournament entry with escrow protection
+- Admin-refereed tournament brackets and scoring
+- Real-time national leaderboard rankings
+- Team registration and roster management
+- Daily free scrim matchmaking
+- Tournament result tracking and match history
+
+## Audience & Region
+
+NexPlay serves the Nepali esports community. Content is in English. GEO target: Nepal (NP).
