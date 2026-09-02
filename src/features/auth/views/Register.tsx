@@ -39,7 +39,7 @@ const Register: React.FC = () => {
         if (from && isSafeInternalPath(from.pathname)) {
             return from.pathname + (from.search || '');
         }
-        return '/dashboard';
+        return '/';
     };
 
     const [passwordStrength, setPasswordStrength] = useState(0);

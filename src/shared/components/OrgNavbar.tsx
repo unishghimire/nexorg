@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, isSuperAdminEmail } from '../context/AuthContext';
 import { Trophy, Swords, LogOut, Plus, Wallet, Shield } from 'lucide-react';
 import { NEXPLAY_LOGO } from '../constants/constants';
 
@@ -13,6 +13,10 @@ export const OrgNavbar: React.FC<OrgNavbarProps> = ({ onCreateTournament, onCrea
     const { user, profile, logout } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
+
+    const userRole = (user?.role || '').trim().toLowerCase();
+    const profileRole = (profile?.role || '').trim().toLowerCase();
+    const isAdmin = isSuperAdminEmail(user?.email) || userRole === 'admin' || profileRole === 'admin';
 
     const handleLogout = async () => {
         await logout();
@@ -48,9 +52,13 @@ export const OrgNavbar: React.FC<OrgNavbarProps> = ({ onCreateTournament, onCrea
                     <Link to="/" className="flex items-center gap-3">
                         <img src={NEXPLAY_LOGO} alt="NexPlay" className="w-8 h-8 rounded-lg object-cover" />
                         <div className="flex items-center gap-2">
-                            <span className="text-lg font-black text-white uppercase tracking-wider">NEX<span className="text-brand-500">ORG</span></span>
-                            <span className="text-[9px] font-black px-2 py-0.5 rounded border uppercase tracking-widest bg-brand-500/20 text-brand-400 border-brand-500/30">
-                                ORGANIZER
+                            <span className="text-lg font-black text-white uppercase tracking-wider">NEX<span className="text-brand-500">{isAdmin ? 'ADMIN' : 'ORG'}</span></span>
+                            <span className={`text-[9px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${
+                                isAdmin
+                                    ? 'bg-red-500/20 text-red-400 border-red-500/30'
+                                    : 'bg-brand-500/20 text-brand-400 border-brand-500/30'
+                            }`}>
+                                {isAdmin ? 'ADMIN' : 'ORGANIZER'}
                             </span>
                         </div>
                     </Link>
@@ -67,6 +75,19 @@ export const OrgNavbar: React.FC<OrgNavbarProps> = ({ onCreateTournament, onCrea
                             <Trophy className="w-3.5 h-3.5" />
                             <span>Events Dashboard</span>
                         </Link>
+                        {isAdmin && (
+                            <Link 
+                                to="/admin" 
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition flex items-center gap-1.5 ${
+                                    location.pathname.startsWith('/admin')
+                                        ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                                        : 'text-gray-400 hover:text-white hover:bg-surface'
+                                }`}
+                            >
+                                <Shield className="w-3.5 h-3.5" />
+                                <span>Admin Panel</span>
+                            </Link>
+                        )}
                     </nav>
                 </div>
 
@@ -74,7 +95,7 @@ export const OrgNavbar: React.FC<OrgNavbarProps> = ({ onCreateTournament, onCrea
                     <div className="flex items-center gap-2 pl-2 border-l border-gray-800">
                         <div className="text-right hidden sm:block">
                             <div className="text-xs font-bold text-white leading-none">{profile?.orgName || profile?.username || user.email?.split('@')[0]}</div>
-                            <div className="text-[10px] text-gray-500 font-mono mt-0.5">Verified Host</div>
+                            <div className="text-[10px] text-gray-500 font-mono mt-0.5">{isAdmin ? 'System Administrator' : 'Verified Host'}</div>
                         </div>
                         <button
                             type="button"

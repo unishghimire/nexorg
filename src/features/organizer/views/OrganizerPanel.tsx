@@ -41,8 +41,25 @@ const NAV_ITEMS = [
 type TabId = typeof NAV_ITEMS[number]['id'];
 const DEFAULT_TAB: TabId = 'overview';
 
+const TAB_ALIASES: Record<string, TabId> = {
+  matchrooms: 'rooms',
+  matchroom: 'rooms',
+  room: 'rooms',
+  roster: 'teams',
+  rosters: 'teams',
+  payout: 'wallet',
+  payouts: 'wallet',
+  stream: 'settings',
+  setting: 'settings',
+  tournament: 'tournaments',
+  scrim: 'scrims',
+};
+
 const getActiveTab = (search: string): TabId => {
-  const requestedTab = new URLSearchParams(search).get('tab');
+  const requestedTab = (new URLSearchParams(search).get('tab') || '').toLowerCase();
+  if (requestedTab && TAB_ALIASES[requestedTab]) {
+    return TAB_ALIASES[requestedTab];
+  }
   return NAV_ITEMS.some(item => item.id === requestedTab) ? requestedTab as TabId : DEFAULT_TAB;
 };
 
@@ -143,22 +160,9 @@ const OrganizerPanel: React.FC = () => {
 
   const handleActivateTournament = useCallback(async (id: string) => {
     try {
-      const token = await auth.currentUser?.getIdToken();
-      if (!token) {
-        showToast('Please sign in to activate tournament', 'error');
-        return;
-      }
-      const res = await fetch(`/api/tournaments/${id}/activate`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data.success) {
-        showToast(data.message || 'Tournament activated and prize funds locked in escrow!', 'success');
-        org.fetchHostedTournaments();
-      } else {
-        showToast(data.message || 'Failed to activate tournament', 'error');
-      }
+      await org.activateTournament(id);
+      showToast('Tournament activated and open for registrations!', 'success');
+      org.fetchHostedTournaments();
     } catch (err: any) {
       showToast(err.message || 'Failed to activate tournament', 'error');
     }

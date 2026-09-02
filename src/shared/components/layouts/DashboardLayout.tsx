@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Shield, ChevronLeft } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth, isSuperAdminEmail } from '../../context/AuthContext';
 
 interface DashboardLayoutProps {
     children: React.ReactNode;
@@ -15,10 +15,13 @@ interface DashboardLayoutProps {
 // competing sidebars. Kept this component to just page chrome (title/back +
 // scroll container) since that's all any consumer actually needs.
 export default function DashboardLayout({ children, title, description, backUrl }: DashboardLayoutProps) {
-    const { profile } = useAuth();
+    const { user, profile } = useAuth();
     const navigate = useNavigate();
 
-    const isAuthorized = profile?.role === 'organizer' || profile?.role === 'admin';
+    const userRole = (user?.role || '').trim().toLowerCase();
+    const profileRole = (profile?.role || '').trim().toLowerCase();
+    const isAdmin = isSuperAdminEmail(user?.email) || userRole === 'admin' || profileRole === 'admin';
+    const isAuthorized = isAdmin || userRole === 'organizer' || profileRole === 'organizer';
 
     if (!isAuthorized) {
         return (

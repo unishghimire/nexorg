@@ -61,7 +61,7 @@ const CATEGORY_SIZE_LIMITS: Partial<Record<MediaCategory, number>> = {
 
 export const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB global default
 
-const IMGBB_CLIENT_KEY = (import.meta as any).env?.VITE_IMGBB_API_KEY || "";
+const IMGBB_CLIENT_KEY = (import.meta as any).env?.VITE_IMGBB_API_KEY || (import.meta as any).env?.IMGBB_API_KEY || "0d2e0f9e1bb3f4d0e32ff75d14c11d48";
 
 /**
  * Validates file type, extension, and size based on category

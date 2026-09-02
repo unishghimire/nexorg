@@ -3,7 +3,19 @@ import { getAuth, GoogleAuthProvider, OAuthProvider, setPersistence, browserLoca
 import { getFirestore, enableNetwork, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
 import { getDatabase, Database } from 'firebase/database';
 import { getAnalytics, isSupported } from 'firebase/analytics';
-import firebaseConfig from '../../../firebase-applet-config.json';
+import firebaseConfigJson from '../../../firebase-applet-config.json';
+
+// Support Vercel & CI environment variables with seamless fallback to config JSON
+const firebaseConfig = {
+    apiKey: (import.meta as any).env?.VITE_FIREBASE_API_KEY || firebaseConfigJson.apiKey,
+    authDomain: (import.meta as any).env?.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfigJson.authDomain,
+    projectId: (import.meta as any).env?.VITE_FIREBASE_PROJECT_ID || (import.meta as any).env?.FIREBASE_PROJECT_ID || firebaseConfigJson.projectId,
+    storageBucket: (import.meta as any).env?.VITE_FIREBASE_STORAGE_BUCKET || (import.meta as any).env?.FIREBASE_STORAGE_BUCKET || firebaseConfigJson.storageBucket,
+    messagingSenderId: (import.meta as any).env?.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfigJson.messagingSenderId,
+    appId: (import.meta as any).env?.VITE_FIREBASE_APP_ID || firebaseConfigJson.appId,
+    measurementId: (import.meta as any).env?.VITE_FIREBASE_MEASUREMENT_ID || firebaseConfigJson.measurementId,
+    databaseURL: (import.meta as any).env?.VITE_FIREBASE_DATABASE_URL || firebaseConfigJson.databaseURL || `https://${firebaseConfigJson.projectId || 'nexplayorg-app'}-default-rtdb.firebaseio.com`,
+};
 
 // Initialize Firebase once
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
@@ -31,9 +43,10 @@ setPersistence(auth, browserLocalPersistence).catch((e) => {
 let db;
 if (typeof window !== 'undefined' && typeof window.indexedDB !== 'undefined') {
     try {
-        db = initializeFirestore(app, {
-            localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
-        }, (firebaseConfig as any).firestoreDatabaseId);
+        const customDbId = (firebaseConfig as any).firestoreDatabaseId;
+        db = customDbId
+            ? initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) }, customDbId)
+            : initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
     } catch {
         db = (firebaseConfig as any).firestoreDatabaseId ? getFirestore(app, (firebaseConfig as any).firestoreDatabaseId) : getFirestore(app);
     }

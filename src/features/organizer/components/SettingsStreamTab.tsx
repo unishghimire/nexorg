@@ -64,6 +64,10 @@ export const SettingsStreamTab: React.FC<SettingsStreamTabProps> = ({
       if (profile.twitchUrl || profile.twitch) {
         setTwitchUrl(profile.twitchUrl || profile.twitch);
       }
+      setRefereeName(profile.refereeName || profile.staff?.referee?.name || '');
+      setRefereeEnabled(profile.refereeEnabled ?? profile.staff?.referee?.enabled ?? true);
+      setCasterName(profile.casterName || profile.staff?.caster?.name || '');
+      setCasterEnabled(profile.casterEnabled ?? profile.staff?.caster?.enabled ?? true);
     }
   }, [profile]);
 

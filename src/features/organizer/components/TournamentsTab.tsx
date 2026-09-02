@@ -300,8 +300,8 @@ const TournamentsTab: React.FC<TournamentsTabProps> = ({
 
                 {/* Actions */}
                 <div className="flex flex-wrap items-center gap-2 pt-1">
-                  {/* Activate & Reserve Funds for Pending Funding tournaments */}
-                  {(tournament.status === 'pending_funding' || tournament.fundingStatus === 'PENDING_FUNDING') && onActivateTournament && (
+                  {/* Activate & Reserve Funds for Pending Funding or Draft tournaments */}
+                  {(tournament.status === 'pending_funding' || tournament.status === 'draft' || tournament.fundingStatus === 'PENDING_FUNDING') && onActivateTournament && (
                     <button
                       onClick={() => onActivateTournament(tournament.id)}
                       className="min-h-[44px] px-3.5 py-2 rounded-lg text-sm font-medium bg-amber-600 hover:bg-amber-500 text-white transition-colors flex items-center justify-center gap-2 shadow-sm"

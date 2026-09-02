@@ -82,7 +82,13 @@ const getClaimRole = async (firebaseUser: FirebaseUser, forceRefresh = false): P
 // Ceiling: if this email is compromised, they have full admin. Upgrade path: set
 // custom claims via /api/admin/bootstrap once ADMIN_BOOTSTRAP_KEY env var is configured,
 // then remove this allowlist.
-const SUPER_ADMIN_EMAILS = ['nexplayorg@gmail.com', 'nex.unishghimire@gmail.com', 'admin@nexplay.gg'];
+export const SUPER_ADMIN_EMAILS = ['nexplayorg@gmail.com', 'nex.unishghimire@gmail.com', 'admin@nexplay.gg'];
+
+export const isSuperAdminEmail = (email?: string | null): boolean => {
+    if (!email) return false;
+    const normalized = email.trim().toLowerCase();
+    return SUPER_ADMIN_EMAILS.some(e => e.trim().toLowerCase() === normalized);
+};
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [user, setUser] = useState<AuthUser | null>(null);
@@ -146,9 +152,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // (guards against a logout racing the in-flight initialization).
             if (firebaseUserRef.current?.uid === firebaseUser.uid && nextProfile) {
                 // Super-admin email gets admin role on profile
-                const isSuperAdminInit = SUPER_ADMIN_EMAILS.includes(firebaseUser.email || '');
+                const isSuperAdminInit = isSuperAdminEmail(firebaseUser.email);
+                const resolvedRole = isSuperAdminInit ? 'admin' : (nextProfile.role || 'player');
                 setProfile(isSuperAdminInit ? { ...nextProfile, role: 'admin' } : nextProfile);
-                setUser(prev => prev ? { ...prev, username: nextProfile.username, role: nextProfile.role || 'player' } : prev);
+                setUser(prev => prev ? { ...prev, username: nextProfile.username, role: resolvedRole } : prev);
             }
         } catch (error: any) {
             console.error('Auth: profile initialization failed:', error);
@@ -194,7 +201,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (firebaseUser) {
                 // Keep the authenticated user even if the profile cannot be loaded;
                 // authError carries the failure so the UI can offer a retry.
-                const isSuperAdmin = SUPER_ADMIN_EMAILS.includes(firebaseUser.email || '');
+                const isSuperAdmin = isSuperAdminEmail(firebaseUser.email);
                 setUser({ uid: firebaseUser.uid, email: firebaseUser.email || '', username: deriveUsername(firebaseUser), role: isSuperAdmin ? 'admin' : 'player' });
                 setAuthError(null);
                 markDone();
@@ -202,8 +209,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 // Pull the role claim from the ID token (claims are the source of truth).
                 void getClaimRole(firebaseUser, false).then((claimRole) => {
                     if (firebaseUserRef.current?.uid === firebaseUser.uid) {
-                        const isSuperAdmin = SUPER_ADMIN_EMAILS.includes(firebaseUser.email || '');
-                        const effectiveRole = isSuperAdmin ? 'admin' : claimRole;
+                        const isSuperAdmin = isSuperAdminEmail(firebaseUser.email);
+                        const effectiveRole = isSuperAdmin ? 'admin' : (claimRole || undefined);
                         if (effectiveRole) setUser(prev => prev ? { ...prev, role: effectiveRole } : prev);
                     }
                 });
@@ -241,13 +248,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 if (snapshot.exists()) {
                     const data = snapshot.data() as UserProfile;
                     // Super-admin email gets admin role on profile too, so dropdown/routes see it
-                    const isSuperAdmin = SUPER_ADMIN_EMAILS.includes(user.email || '');
+                    const isSuperAdmin = isSuperAdminEmail(user.email);
                     setProfile(isSuperAdmin ? { ...data, role: 'admin' } : data);
                     // Update user role if it changes in profile — super-admin email always wins
                     setUser(prev => {
                         if (!prev) return prev;
-                        const isSuperAdmin = SUPER_ADMIN_EMAILS.includes(prev.email || '');
-                        const effectiveRole = isSuperAdmin ? 'admin' : data.role;
+                        const isSuper = isSuperAdminEmail(prev.email);
+                        const effectiveRole = isSuper ? 'admin' : (data.role || prev.role || 'player');
                         return prev.role !== effectiveRole ? { ...prev, role: effectiveRole } : prev;
                     });
                 }
@@ -312,8 +319,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         void getClaimRole(fu, true).then((claimRole) => {
             if (cancelled || firebaseUserRef.current?.uid !== fu.uid) return;
             // Super-admin email always wins over claims
-            const isSuperAdmin = SUPER_ADMIN_EMAILS.includes(fu.email || '');
-            const effectiveRole = isSuperAdmin ? 'admin' : claimRole;
+            const isSuperAdmin = isSuperAdminEmail(fu.email);
+            const effectiveRole = isSuperAdmin ? 'admin' : (claimRole || undefined);
             if (effectiveRole) setUser(prev => prev ? { ...prev, role: effectiveRole } : prev);
         });
         return () => { cancelled = true; };

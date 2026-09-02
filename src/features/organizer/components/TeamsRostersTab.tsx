@@ -267,8 +267,9 @@ export const TeamsRostersTab: React.FC<TeamsRostersTabProps> = ({
                               ) : (
                                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                                   {players.map((player: any, idx: number) => {
-                                    const isLeader =
-                                      player.role === 'leader' || player.role === 'Leader';
+                                    const playerName = typeof player === 'string' ? player : (player?.name || player?.username || `Player ${idx + 1}`);
+                                    const playerIgid = typeof player === 'object' ? (player?.igid || player?.inGameId || 'N/A') : 'N/A';
+                                    const isLeader = typeof player === 'object' && (player?.role === 'leader' || player?.role === 'Leader' || idx === 0);
                                     return (
                                       <div
                                         key={idx}
@@ -277,7 +278,7 @@ export const TeamsRostersTab: React.FC<TeamsRostersTabProps> = ({
                                         <div>
                                           <div className="flex items-center justify-between gap-2">
                                             <span className="font-semibold text-sm text-white truncate">
-                                              {player.name}
+                                              {playerName}
                                             </span>
                                             {isLeader ? (
                                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-brand-500/20 text-indigo-300 border border-indigo-500/30 shrink-0">
@@ -291,7 +292,7 @@ export const TeamsRostersTab: React.FC<TeamsRostersTabProps> = ({
                                             )}
                                           </div>
                                           <p className="text-xs font-mono text-slate-400 mt-1">
-                                            UID / IGID: <span className="text-slate-200">{player.igid || 'N/A'}</span>
+                                            UID / IGID: <span className="text-slate-200">{playerIgid}</span>
                                           </p>
                                         </div>
                                       </div>
@@ -426,17 +427,18 @@ export const TeamsRostersTab: React.FC<TeamsRostersTabProps> = ({
                         ) : (
                           <div className="space-y-2">
                             {players.map((player: any, idx: number) => {
-                              const isLeader =
-                                player.role === 'leader' || player.role === 'Leader';
+                              const playerName = typeof player === 'string' ? player : (player?.name || player?.username || `Player ${idx + 1}`);
+                              const playerIgid = typeof player === 'object' ? (player?.igid || player?.inGameId || 'N/A') : 'N/A';
+                              const isLeader = typeof player === 'object' && (player?.role === 'leader' || player?.role === 'Leader' || idx === 0);
                               return (
                                 <div
                                   key={idx}
                                   className="bg-black/60 border border-slate-800 p-2.5 rounded-md flex items-center justify-between gap-2 text-xs"
                                 >
                                   <div>
-                                    <p className="font-semibold text-white">{player.name}</p>
+                                    <p className="font-semibold text-white">{playerName}</p>
                                     <p className="font-mono text-[11px] text-slate-400 mt-0.5">
-                                      UID: {player.igid || 'N/A'}
+                                      UID: {playerIgid}
                                     </p>
                                   </div>
                                   {isLeader ? (
