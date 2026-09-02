@@ -5,7 +5,7 @@ import { Tournament, TournamentGroup, Participant } from '../../../shared/types/
 import { useNotification } from '../../../shared/context/NotificationContext';
 import { useAuth } from '../../../shared/context/AuthContext';
 import { aggregateStandings } from '../../../shared/services/scoringEngine';
-import { fetchRoomCredentials } from '../../../shared/services/roomCredentials';
+import { fetchRoomCredentials, subscribeRoomCredentials } from '../../../shared/services/roomCredentials';
 import { useEffect } from 'react';
 
 // ═══════════════════════════════════════════════════════════════
@@ -281,19 +281,33 @@ export default function GroupStandingsView({ tournament, participants }: GroupSt
     );
 
     const isLive = tournament.status === 'live';
-    // Secure credential fetch from subcollection — falls back to group/tournament doc for backward compat
-    // ponytail: subcollection fetch is async; UI uses doc-level creds immediately, upgrades when subcollection responds
     const [secureCreds, setSecureCreds] = useState<{ roomId?: string; roomPass?: string } | null>(null);
+
     useEffect(() => {
-        if (!tournament.id || !myGroup) return;
-        fetchRoomCredentials(tournament.id, myGroup.id).then(creds => {
-            if (creds) setSecureCreds(creds);
-        });
-    }, [tournament.id, myGroup?.id]);
+        if (!tournament.id) return;
+        const targetGroupId = myGroup?.id;
+        if (!targetGroupId && !isOrganizer) return;
+
+        const unsub = subscribeRoomCredentials(
+            tournament.id,
+            (creds) => {
+                if (creds && (creds.roomId || creds.roomPass)) {
+                    setSecureCreds(creds);
+                } else {
+                    fetchRoomCredentials(tournament.id).then(mainCreds => {
+                        if (mainCreds) setSecureCreds(mainCreds);
+                    });
+                }
+            },
+            targetGroupId
+        );
+
+        return () => unsub();
+    }, [tournament.id, myGroup?.id, isOrganizer]);
 
     const groupRoomId = secureCreds?.roomId;
     const groupRoomPass = secureCreds?.roomPass;
-    const showRoom = isLive && (groupRoomId || groupRoomPass);
+    const showRoom = (isLive || Boolean(groupRoomId)) && Boolean(groupRoomId || groupRoomPass);
 
     // Is the tournament past the group stage? If so, reveal all groups.
     const isPastGroupStage = tournament.stage === 'knockout' || tournament.status === 'completed';

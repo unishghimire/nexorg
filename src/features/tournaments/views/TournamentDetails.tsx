@@ -24,7 +24,7 @@ import PerKillResultView from '../components/PerKillResultView';
 import PerKillLeaderboard from '../components/PerKillLeaderboard';
 import { TournamentRoadmap } from '../components/TournamentRoadmap';
 import GroupStandingsView from '../components/GroupStandingsView';
-import { fetchRoomCredentials } from '../../../shared/services/roomCredentials';
+import { fetchRoomCredentials, subscribeRoomCredentials } from '../../../shared/services/roomCredentials';
 
 const TOURNAMENT_TAB_IDS = ['overview', 'description', 'participants', 'groups', 'roadmap', 'results', 'killrewards'] as const;
 type TournamentTabId = typeof TOURNAMENT_TAB_IDS[number];
@@ -458,14 +458,28 @@ export default function TournamentDetails() {
         }
     };
 
-    // Fetch room credentials from secure subcollection (not the public tournament doc)
+    // Real-time WebSocket + Firestore room credentials subscription (<30ms)
     useEffect(() => {
-        if (!tournament || !isJoined || !user) return;
-        if (tournament.status !== 'live' && tournament.status !== 'upcoming') return;
-        fetchRoomCredentials(tournament.id, undefined, eventCollection).then(creds => {
-            if (creds) setRoomCreds(creds);
-        });
-    }, [tournament?.id, tournament?.status, isJoined, user, eventCollection]);
+        if (!tournament?.id || !user) return;
+        const canAccess = isJoined || isHostOrAdmin;
+        if (!canAccess) return;
+
+        // Immediate doc-level credentials check
+        if (tournament.roomId || tournament.roomPass) {
+            setRoomCreds(prev => prev || { roomId: tournament.roomId, roomPass: tournament.roomPass });
+        }
+
+        const unsub = subscribeRoomCredentials(
+            tournament.id,
+            (creds) => {
+                if (creds) setRoomCreds(creds);
+            },
+            undefined,
+            eventCollection
+        );
+
+        return () => unsub();
+    }, [tournament?.id, tournament?.roomId, tournament?.roomPass, isJoined, isHostOrAdmin, user, eventCollection]);
 
     if (loading) {
         return (
@@ -480,7 +494,11 @@ export default function TournamentDetails() {
 
     const bannerUrl = tournament.bannerUrl || DEFAULT_BANNER;
     const bannerStyle = { backgroundImage: `url('${bannerUrl}')`, backgroundSize: 'cover', backgroundPosition: 'center' };
-    const showRoom = tournament.matchType === 'scrims' && isJoined && (tournament.status === 'live' || (roomCreds?.roomId && tournament.status === 'upcoming'));
+    const canAccessRoom = Boolean(isJoined || isHostOrAdmin);
+    const showRoom = Boolean(
+        canAccessRoom &&
+        (tournament.status === 'live' || (roomCreds?.roomId && (tournament.status === 'upcoming' || (tournament.status as any) === 'ongoing')))
+    );
     const ytId = getYoutubeId(tournament.ytLink);
 
     return (
@@ -973,7 +991,19 @@ export default function TournamentDetails() {
                 <div className="lg:col-span-4 space-y-6">
                     {/* Join Card */}
                     <div className="bg-surface p-4 sm:p-8 rounded-2xl sm:rounded-3xl border border-gray-800 shadow-2xl lg:sticky lg:top-24">
-                        {timeLeft && (
+                        {tournament.status === 'live' ? (
+                            <div className="mb-6 sm:mb-8 text-center p-4 rounded-2xl bg-red-500/10 border border-red-500/30">
+                                <div className="text-xs text-red-400 uppercase font-black tracking-widest mb-1.5 flex items-center justify-center gap-2">
+                                    <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" /> MATCH IS LIVE NOW
+                                </div>
+                                <p className="text-[11px] text-gray-300 font-medium">Match is underway. Check room details below.</p>
+                                {roomCreds?.roomId && (
+                                    <div className="mt-3 inline-flex items-center gap-2 px-3 py-1 bg-black/60 rounded-lg border border-red-500/30 text-xs font-mono text-white">
+                                        <span>Room: {roomCreds.roomId}</span>
+                                    </div>
+                                )}
+                            </div>
+                        ) : timeLeft ? (
                             <div className="mb-6 sm:mb-8 text-center">
                                 <div className="text-xs text-gray-500 uppercase font-black tracking-widest mb-3 flex items-center justify-center gap-2">
                                     <Clock className="w-3.5 h-3.5" /> Starts In
@@ -994,7 +1024,13 @@ export default function TournamentDetails() {
                                     ))}
                                 </div>
                             </div>
-                        )}
+                        ) : (tournament.status === 'upcoming' || (tournament.status as string) === 'published') ? (
+                            <div className="mb-6 sm:mb-8 text-center p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30">
+                                <div className="text-xs text-amber-400 uppercase font-black tracking-widest flex items-center justify-center gap-2">
+                                    <Clock className="w-3.5 h-3.5" /> Starting Soon / Lobby Preparing
+                                </div>
+                            </div>
+                        ) : null}
 
                         <div className="space-y-3 sm:space-y-4 mb-6 sm:mb-8">
                             <div className="flex justify-between items-center p-3 sm:p-4 bg-dark rounded-2xl border border-gray-800">
