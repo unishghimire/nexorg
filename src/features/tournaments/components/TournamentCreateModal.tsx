@@ -236,9 +236,9 @@ const TournamentCreateModal: React.FC<TournamentCreateModalProps> = ({ isOpen, o
         teamId: null,
       })) : formData.slots;
 
-      const requiredFunding = Math.max(0, Math.round(Number(formData.prizePool || 0)));
-      const initialFundingStatus = requiredFunding === 0 ? 'NOT_REQUIRED' : 'PENDING_FUNDING';
-      const initialStatus = requiredFunding === 0 ? 'upcoming' : 'pending_funding';
+      const requiredFunding = isScrim ? 0 : Math.max(0, Math.round(Number(formData.prizePool || 0)));
+      const initialFundingStatus = isScrim || requiredFunding === 0 ? 'NOT_REQUIRED' : 'PENDING_FUNDING';
+      const initialStatus = isScrim || requiredFunding === 0 ? 'upcoming' : 'pending_funding';
 
       const tournamentData = {
         ...publicFormData,
@@ -308,7 +308,7 @@ const TournamentCreateModal: React.FC<TournamentCreateModalProps> = ({ isOpen, o
         }
 
         // If funded tournament, attempt atomic activation/fund reservation immediately
-        if (requiredFunding > 0) {
+        if (!isScrim && requiredFunding > 0) {
           try {
             const token = await auth.currentUser?.getIdToken();
             if (token) {

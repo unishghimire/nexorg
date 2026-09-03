@@ -306,18 +306,25 @@ export default function TournamentDetails() {
             }
 
             if (!success) {
-                await updateDoc(doc(db, 'tournaments', id), {
+                const updatePayload = {
                     status: 'upcoming',
                     fundingStatus: 'RESERVED',
                     stage: 'registration',
                     updatedAt: serverTimestamp(),
-                });
+                };
+                await Promise.all([
+                    updateDoc(doc(db, 'tournaments', id), updatePayload).catch(() => {}),
+                    updateDoc(doc(db, 'scrims', id), updatePayload).catch(() => {}),
+                ]);
                 success = true;
             }
 
             if (success) {
                 showToast("Tournament activated and prize funds locked in escrow!", "success");
-                const docSnap = await getDoc(doc(db, 'tournaments', id));
+                let docSnap = await getDoc(doc(db, 'tournaments', id));
+                if (!docSnap.exists()) {
+                    docSnap = await getDoc(doc(db, 'scrims', id));
+                }
                 if (docSnap.exists()) {
                     setTournament({ id: docSnap.id, ...docSnap.data() } as Tournament);
                 }
@@ -334,8 +341,22 @@ export default function TournamentDetails() {
         }
         if (!tournament || !profile) return;
 
-        if ((tournament.status as string) === 'pending_funding' || ((tournament.prizePool || 0) > 0 && tournament.fundingStatus === 'PENDING_FUNDING')) {
-            showToast("Tournament is currently awaiting organizer prize funding. Registration is locked until funds are secured.", "warning");
+        const isScrimEvent = Boolean(
+            tournament.matchType === 'scrims' ||
+            (tournament as any).isScrim === true ||
+            eventCollection === 'scrims' ||
+            (tournament.title && tournament.title.toLowerCase().includes('scrim'))
+        );
+
+        const isFundingLocked = Boolean(
+            !isScrimEvent && (
+                (tournament.status as string) === 'pending_funding' ||
+                (tournament.status !== 'upcoming' && tournament.status !== 'live' && (tournament.prizePool || 0) > 0 && tournament.fundingStatus === 'PENDING_FUNDING')
+            )
+        );
+
+        if (isFundingLocked) {
+            showToast("Tournament is currently awaiting organizer prize funding. Registration will open once funding is secured.", "warning");
             return;
         }
 
@@ -498,6 +519,18 @@ export default function TournamentDetails() {
     const showRoom = Boolean(
         canAccessRoom &&
         (tournament.status === 'live' || (roomCreds?.roomId && (tournament.status === 'upcoming' || (tournament.status as any) === 'ongoing')))
+    );
+    const isScrimEvent = Boolean(
+        tournament.matchType === 'scrims' ||
+        (tournament as any).isScrim === true ||
+        eventCollection === 'scrims' ||
+        (tournament.title && tournament.title.toLowerCase().includes('scrim'))
+    );
+    const isFundingLocked = Boolean(
+        !isScrimEvent && (
+            (tournament.status as string) === 'pending_funding' ||
+            (tournament.status !== 'upcoming' && tournament.status !== 'live' && (tournament.prizePool || 0) > 0 && tournament.fundingStatus === 'PENDING_FUNDING')
+        )
     );
     const ytId = getYoutubeId(tournament.ytLink);
 
@@ -1119,7 +1152,7 @@ export default function TournamentDetails() {
                                     </div>
                                 )}
                             </div>
-                        ) : (tournament.status === 'pending_funding' || ((tournament.prizePool || 0) > 0 && tournament.fundingStatus === 'PENDING_FUNDING')) ? (
+                        ) : isFundingLocked ? (
                             tournament.hostUid === profile?.uid ? (
                                 <div className="space-y-3 p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl text-center">
                                     <AlertTriangle className="w-6 h-6 text-amber-400 mx-auto" />
