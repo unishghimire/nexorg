@@ -432,15 +432,41 @@ export function useOrgData() {
   }, [user, assertTournamentHost]);
 
   const updateTournamentStatus = useCallback(async (id: string, status: Tournament['status']) => {
+    let updatePayload: Record<string, any> = { status, updatedAt: serverTimestamp() };
+
+    if (status === 'completed') {
+      const target = hostedTournaments.find(t => t.id === id);
+      const isScrim = target && (target.matchType === 'scrims' || (target as any).isScrim === true || (target as any).type === 'scrim');
+      if (isScrim && Array.isArray(target?.slots)) {
+        const totalSlotCount = Number((target as any).totalSlots) || target.slots.length || 12;
+        const releasedSlots = Array.from({ length: totalSlotCount }, (_, idx) => ({
+          slotNumber: idx + 1,
+          status: 'open' as const,
+          teamName: null,
+          teamId: null,
+          userId: null,
+          leader: null,
+        }));
+        updatePayload = {
+          ...updatePayload,
+          stage: 'completed',
+          slots: releasedSlots,
+          filledSlots: 0,
+          currentPlayers: 0,
+          completedAt: serverTimestamp(),
+        };
+      }
+    }
+
     // 0ms Optimistic local update
-    setHostedTournaments(prev => prev.map(t => t.id === id ? { ...t, status } : t));
+    setHostedTournaments(prev => prev.map(t => t.id === id ? { ...t, ...updatePayload } : t));
 
     await assertTournamentHost(id);
     await Promise.all([
-      updateDoc(doc(db, 'tournaments', id), { status, updatedAt: serverTimestamp() }).catch(() => {}),
-      updateDoc(doc(db, 'scrims', id), { status, updatedAt: serverTimestamp() }).catch(() => {}),
+      updateDoc(doc(db, 'tournaments', id), updatePayload).catch(() => {}),
+      updateDoc(doc(db, 'scrims', id), updatePayload).catch(() => {}),
     ]);
-  }, [assertTournamentHost]);
+  }, [assertTournamentHost, hostedTournaments]);
 
   const activateTournament = useCallback(async (id: string) => {
     if (!user) throw new Error('Not authenticated');

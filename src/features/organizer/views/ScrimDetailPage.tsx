@@ -235,18 +235,55 @@ export default function ScrimDetailPage() {
   }, [id, roomId, roomPass, streamUrl, showToast]);
 
   const handleStatusChange = useCallback(async (newStatus: string) => {
-    if (!id) return;
+    if (!id || !scrim) return;
+
+    if (newStatus === 'completed') {
+      const hasPrizePool = Number(scrim?.prizePool) > 0;
+      const isPayoutDone = Boolean(scrim?.payoutCompleted || scrim?.payoutStatus === 'paid' || (Array.isArray(scrim?.winners) && scrim.winners.length > 0));
+      if (hasPrizePool && !isPayoutDone) {
+        showToast('Cannot finalize match until prize payment is distributed to winners! Please declare winners & distribute prizes first.', 'warning');
+        setShowWinnerModal(true);
+        return;
+      }
+    }
+
     try {
+      let updatePayload: Record<string, any> = { status: newStatus, updatedAt: serverTimestamp() };
+      if (newStatus === 'completed') {
+        const totalSlotCount = Number(scrim?.totalSlots) || (Array.isArray(scrim?.slots) ? scrim.slots.length : 12);
+        const releasedSlots = Array.from({ length: totalSlotCount }, (_, idx) => ({
+          slotNumber: idx + 1,
+          status: 'open' as const,
+          teamName: null,
+          teamId: null,
+          userId: null,
+          leader: null,
+        }));
+        updatePayload = {
+          ...updatePayload,
+          stage: 'completed',
+          slots: releasedSlots,
+          filledSlots: 0,
+          currentPlayers: 0,
+          completedAt: serverTimestamp(),
+        };
+      }
+
       await Promise.all([
-        updateDoc(doc(db, 'scrims', id), { status: newStatus, updatedAt: serverTimestamp() }).catch(() => {}),
-        updateDoc(doc(db, 'tournaments', id), { status: newStatus, updatedAt: serverTimestamp() }).catch(() => {}),
+        updateDoc(doc(db, 'scrims', id), updatePayload).catch(() => {}),
+        updateDoc(doc(db, 'tournaments', id), updatePayload).catch(() => {}),
       ]);
-      setScrim((prev: any) => prev ? { ...prev, status: newStatus } : prev);
-      showToast(`Scrim status: ${newStatus.toUpperCase()}`, 'success');
+      setScrim((prev: any) => prev ? { ...prev, ...updatePayload } : prev);
+      showToast(
+        newStatus === 'completed'
+          ? 'Match finalized & all lobby slots released!'
+          : `Scrim status: ${newStatus.toUpperCase()}`,
+        'success'
+      );
     } catch {
       showToast('Failed to update status', 'error');
     }
-  }, [id, showToast]);
+  }, [id, scrim, showToast]);
 
   const handleDeleteScrim = useCallback(async () => {
     if (!id || !window.confirm(`Are you sure you want to permanently delete "${scrim?.title || 'this scrim'}"?`)) return;
@@ -367,11 +404,28 @@ export default function ScrimDetailPage() {
         } catch {}
       }
 
+      // Release all slots after payment and result are finalized
+      const totalSlotCount = Number(scrim.totalSlots) || (Array.isArray(scrim.slots) ? scrim.slots.length : 12);
+      const releasedSlots = Array.from({ length: totalSlotCount }, (_, idx) => ({
+        slotNumber: idx + 1,
+        status: 'open' as const,
+        teamName: null,
+        teamId: null,
+        userId: null,
+        leader: null,
+      }));
+
       const winnerPayload = {
         winners: validTiers,
         podium: validTiers,
+        payoutCompleted: true,
+        payoutStatus: 'paid',
         status: 'completed',
         stage: 'completed',
+        slots: releasedSlots,
+        filledSlots: 0,
+        currentPlayers: 0,
+        completedAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
 

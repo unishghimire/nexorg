@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { doc, onSnapshot, updateDoc, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, collection, query, where, getDocs, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../../../shared/config/firebase';
 import { useAuth } from '../../../shared/context/AuthContext';
 import { Tournament, TournamentGroup, Match, Team, TournamentEarning } from '../../../shared/types/types';
@@ -130,14 +130,47 @@ export function useTournamentAdmin(
 
     const handleUpdateStatus = async (status: 'upcoming' | 'live' | 'completed' | 'paused') => {
         if (!tournament) return;
-        try {
-            await updateDoc(doc(db, 'tournaments', tournament.id), { status });
 
-            // ponytail: the earnings record is created server-side by
-            // /api/wallet/distribute-prizes (atomic, idempotent). No client-side
-            // fallback — revenue math must never run in the browser.
+        const isScrim = tournament.matchType === 'scrims' || (tournament as any).isScrim === true || (tournament as any).type === 'scrim';
+
+        if (status === 'completed' && isScrim && Number(tournament.prizePool) > 0) {
+            const isPayoutDone = Boolean((tournament as any).payoutCompleted || (tournament as any).payoutStatus === 'paid' || (Array.isArray(tournament.winners) && tournament.winners.length > 0));
+            if (!isPayoutDone) {
+                showToast('Cannot finalize match until prize payment is distributed to winners! Please declare winners & distribute prizes first.', 'warning');
+                navigate(`/organizer/scrim/${tournament.id}`);
+                return;
+            }
+        }
+
+        try {
+            let updatePayload: Record<string, any> = { status, updatedAt: serverTimestamp() };
+            if (status === 'completed' && isScrim && Array.isArray(tournament.slots)) {
+                const totalSlotCount = Number((tournament as any).totalSlots) || tournament.slots.length || 12;
+                const releasedSlots = Array.from({ length: totalSlotCount }, (_, idx) => ({
+                    slotNumber: idx + 1,
+                    status: 'open' as const,
+                    teamName: null,
+                    teamId: null,
+                    userId: null,
+                    leader: null,
+                }));
+                updatePayload = {
+                    ...updatePayload,
+                    stage: 'completed',
+                    slots: releasedSlots,
+                    filledSlots: 0,
+                    currentPlayers: 0,
+                    completedAt: serverTimestamp(),
+                };
+            }
+
+            await Promise.all([
+                updateDoc(doc(db, 'tournaments', tournament.id), updatePayload),
+                updateDoc(doc(db, 'scrims', tournament.id), updatePayload).catch(() => {}),
+            ]);
+
             if (status === 'completed') {
-                showToast('Tournament completed. Prize distribution will create the earnings record.', 'success');
+                showToast(isScrim ? 'Scrim finalized & all lobby slots released!' : 'Tournament completed.', 'success');
             } else {
                 showToast(`Tournament status updated to ${status}`, 'success');
             }
@@ -145,9 +178,17 @@ export function useTournamentAdmin(
             // Automatic Discord broadcast to main Discord server if configured
             try {
                 if (status === 'live') {
-                    announceTournamentLive(tournament).catch(() => {});
+                    if (isScrim) {
+                        announceScrimLive(tournament).catch(() => {});
+                    } else {
+                        announceTournamentLive(tournament).catch(() => {});
+                    }
                 } else if (status === 'completed') {
-                    announceTournamentCompleted(tournament, tournament.winners?.[0]?.username).catch(() => {});
+                    if (isScrim) {
+                        announceScrimCompleted(tournament, (tournament as any).winners?.[0]?.teamName || (tournament as any).winners?.[0]?.username).catch(() => {});
+                    } else {
+                        announceTournamentCompleted(tournament, tournament.winners?.[0]?.username).catch(() => {});
+                    }
                 }
             } catch (discordErr) {
                 // non-blocking

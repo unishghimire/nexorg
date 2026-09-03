@@ -133,16 +133,26 @@ const OrganizerPanel: React.FC = () => {
 
   const handleUpdateStatus = useCallback(async (id: string, status: string) => {
     if (isUpdatingStatus) return;
+    const target = org.hostedTournaments.find(t => t.id === id);
+    if (status === 'completed' && target && Number(target.prizePool) > 0) {
+      const isPayoutDone = Boolean((target as any).payoutCompleted || (target as any).payoutStatus === 'paid' || (Array.isArray(target.winners) && target.winners.length > 0));
+      if (!isPayoutDone) {
+        showToast('Cannot finalize match until prize payment is distributed to winners! Redirecting to winner declaration...', 'warning');
+        navigate(`/organizer/scrim/${id}`);
+        return;
+      }
+    }
+
     setIsUpdatingStatus(true);
     try {
       await org.updateTournamentStatus(id, status as any);
-      showToast(`Tournament status: ${status.toUpperCase()}`, 'success');
+      showToast(status === 'completed' ? 'Match finalized & all lobby slots released!' : `Tournament status: ${status.toUpperCase()}`, 'success');
     } catch {
       showToast('Failed to update status — you may not own this tournament', 'error');
     } finally {
       setIsUpdatingStatus(false);
     }
-  }, [org, showToast, isUpdatingStatus]);
+  }, [org, showToast, isUpdatingStatus, navigate]);
 
   const handleCreateTournament = useCallback((matchType: 'tournament' | 'scrims' = 'tournament') => {
     setEditTournament(null);
