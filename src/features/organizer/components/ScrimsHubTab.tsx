@@ -206,6 +206,21 @@ export const ScrimsHubTab: React.FC<ScrimsHubTabProps> = ({
                         <span>{typeof scrim.recurrencePattern === 'string' ? scrim.recurrencePattern : 'Recurring Scrim Schedule'}</span>
                       </div>
                     )}
+
+                    {(scrim.roomId || scrim.roomPass) && (
+                      <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-xs w-fit">
+                        <Radio className="w-3 h-3 text-emerald-400 animate-pulse shrink-0" />
+                        <span className="text-emerald-400 font-semibold">Room:</span>
+                        <span className="font-mono text-white font-bold">{scrim.roomId || 'TBD'}</span>
+                        {scrim.roomPass && (
+                          <>
+                            <span className="text-slate-600">|</span>
+                            <span className="text-emerald-400 font-semibold">Pass:</span>
+                            <span className="font-mono text-white font-bold">{scrim.roomPass}</span>
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {/* Actions Header */}

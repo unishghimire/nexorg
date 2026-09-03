@@ -35,6 +35,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import PrizeDistributionInput from './PrizeDistributionInput';
 import { formatCurrency, formatGameModeLabel, formatGameName, toDateSafe } from '../../../shared/utils/utils';
 import { commitFirestoreBatches } from '../../../shared/utils/firestoreBatches';
+import { fetchRoomCredentials, broadcastRoomCredentials } from '../../../shared/services/roomCredentials';
 
 interface TournamentCreateModalProps {
   isOpen: boolean;
@@ -152,6 +153,22 @@ const TournamentCreateModal: React.FC<TournamentCreateModalProps> = ({ isOpen, o
             }))
           : [{ id: 'prize-initial-1', rank: 1, label: '1st', amount: 0 }]
       });
+
+      // Load secured credentials from subcollection
+      fetchRoomCredentials(
+        editTournament.id,
+        undefined,
+        (editTournament.matchType === 'scrims' || (editTournament as any).isScrim) ? 'scrims' : 'tournaments'
+      ).then(creds => {
+        if (creds && (creds.roomId || creds.roomPass)) {
+          setFormData(prev => ({
+            ...prev,
+            roomId: creds.roomId || prev.roomId,
+            roomPass: creds.roomPass || prev.roomPass,
+          }));
+        }
+      }).catch(() => {});
+
       setCurrentStep(1);
     } else {
       setFormData({
@@ -261,8 +278,13 @@ const TournamentCreateModal: React.FC<TournamentCreateModalProps> = ({ isOpen, o
       };
 
       if (editTournament) {
-        await updateDoc(doc(db, 'tournaments', editTournament.id), tournamentData);
-        await setDoc(doc(db, 'tournaments', editTournament.id, 'credentials', 'main'), { roomId, roomPass }, { merge: true });
+        await Promise.all([
+          setDoc(doc(db, 'tournaments', editTournament.id), tournamentData, { merge: true }).catch(() => {}),
+          setDoc(doc(db, 'scrims', editTournament.id), tournamentData, { merge: true }).catch(() => {}),
+        ]);
+        if (roomId || roomPass) {
+          await broadcastRoomCredentials(editTournament.id, roomId, roomPass, formData.bannerUrl, isScrim ? 'scrims' : 'tournaments');
+        }
         showToast('Tournament updated successfully!', 'success');
       } else {
         // Create scoring snapshot from the selected game's scoring config

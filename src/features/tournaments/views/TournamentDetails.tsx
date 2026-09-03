@@ -482,25 +482,25 @@ export default function TournamentDetails() {
     // Real-time WebSocket + Firestore room credentials subscription (<30ms)
     useEffect(() => {
         if (!tournament?.id || !user) return;
-        const canAccess = isJoined || isHostOrAdmin;
-        if (!canAccess) return;
 
         // Immediate doc-level credentials check
         if (tournament.roomId || tournament.roomPass) {
-            setRoomCreds(prev => prev || { roomId: tournament.roomId, roomPass: tournament.roomPass });
+            setRoomCreds({ roomId: tournament.roomId, roomPass: tournament.roomPass });
         }
 
         const unsub = subscribeRoomCredentials(
             tournament.id,
             (creds) => {
-                if (creds) setRoomCreds(creds);
+                if (creds && (creds.roomId || creds.roomPass)) {
+                    setRoomCreds(creds);
+                }
             },
             undefined,
             eventCollection
         );
 
         return () => unsub();
-    }, [tournament?.id, tournament?.roomId, tournament?.roomPass, isJoined, isHostOrAdmin, user, eventCollection]);
+    }, [tournament?.id, tournament?.roomId, tournament?.roomPass, user, eventCollection]);
 
     if (loading) {
         return (
@@ -515,10 +515,23 @@ export default function TournamentDetails() {
 
     const bannerUrl = tournament.bannerUrl || DEFAULT_BANNER;
     const bannerStyle = { backgroundImage: `url('${bannerUrl}')`, backgroundSize: 'cover', backgroundPosition: 'center' };
-    const canAccessRoom = Boolean(isJoined || isHostOrAdmin);
+    const isSlotReserved = Boolean(
+        Array.isArray(tournament.slots) && tournament.slots.some((s: any) => 
+            s.status === 'filled' && (
+                (user?.uid && s.userId === user.uid) ||
+                (profile?.teamId && s.teamId === profile.teamId) ||
+                (profile?.teamName && s.teamName && String(s.teamName).toLowerCase() === String(profile.teamName).toLowerCase()) ||
+                (profile?.username && s.teamName && String(s.teamName).toLowerCase() === String(profile.username).toLowerCase()) ||
+                (profile?.username && s.leader && String(s.leader).toLowerCase() === String(profile.username).toLowerCase())
+            )
+        )
+    );
+    const canAccessRoom = Boolean(isJoined || isSlotReserved || isHostOrAdmin);
+    const effectiveRoomId = roomCreds?.roomId || tournament.roomId;
+    const effectiveRoomPass = roomCreds?.roomPass || tournament.roomPass;
     const showRoom = Boolean(
         canAccessRoom &&
-        (tournament.status === 'live' || (roomCreds?.roomId && (tournament.status === 'upcoming' || (tournament.status as any) === 'ongoing')))
+        (tournament.status === 'live' || (effectiveRoomId && (tournament.status === 'upcoming' || (tournament.status as any) === 'ongoing')))
     );
     const isScrimEvent = Boolean(
         tournament.matchType === 'scrims' ||
@@ -776,9 +789,9 @@ export default function TournamentDetails() {
                                                 <div className="bg-card/80 p-4 rounded-2xl border border-gray-800">
                                                     <div className="text-xs text-gray-500 uppercase font-black tracking-widest mb-1">Room ID</div>
                                                     <div className="flex items-center justify-between">
-                                                        <span className="text-lg sm:text-xl font-mono font-bold text-white tracking-wider">{roomCreds?.roomId || 'Waiting...'}</span>
+                                                        <span className="text-lg sm:text-xl font-mono font-bold text-white tracking-wider">{effectiveRoomId || 'Waiting...'}</span>
                                                         <button type="button" onClick={() => {
-                                                            navigator.clipboard.writeText(roomCreds?.roomId || '');
+                                                            navigator.clipboard.writeText(effectiveRoomId || '');
                                                             showToast("Copied!", "success");
                                                         }} className="p-2 hover:bg-white/10 rounded-xl transition-colors">
                                                             <ExternalLink className="w-5 h-5 text-gray-500" />
@@ -790,7 +803,7 @@ export default function TournamentDetails() {
                                                     <div className="text-xs text-gray-500 uppercase font-black tracking-widest mb-1">Password</div>
                                                     <div className="flex items-center justify-between">
                                                         <span className="text-lg sm:text-xl font-mono font-bold text-white tracking-wider">
-                                                            {showPassword ? (roomCreds?.roomPass || 'None') : '••••••••'}
+                                                            {showPassword ? (effectiveRoomPass || 'None') : '••••••••'}
                                                         </span>
                                                         <div className="flex items-center gap-1">
                                                             <button type="button" 
@@ -800,7 +813,7 @@ export default function TournamentDetails() {
                                                                 {showPassword ? <EyeOff className="w-5 h-5 text-gray-500" /> : <Eye className="w-5 h-5 text-gray-500" />}
                                                             </button>
                                                             <button type="button" onClick={() => {
-                                                                navigator.clipboard.writeText(roomCreds?.roomPass || '');
+                                                                navigator.clipboard.writeText(effectiveRoomPass || '');
                                                                 showToast("Copied!", "success");
                                                             }} className="p-2 hover:bg-white/10 rounded-xl transition-colors">
                                                                 <ExternalLink className="w-5 h-5 text-gray-500" />

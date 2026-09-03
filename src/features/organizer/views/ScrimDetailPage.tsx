@@ -4,7 +4,7 @@ import { doc, getDoc, onSnapshot, setDoc, updateDoc, Timestamp, serverTimestamp 
 import { db, auth } from '../../../shared/config/firebase';
 import { useAuth } from '../../../shared/context/AuthContext';
 import { useNotification } from '../../../shared/context/NotificationContext';
-import { fetchRoomCredentials } from '../../../shared/services/roomCredentials';
+import { fetchRoomCredentials, broadcastRoomCredentials } from '../../../shared/services/roomCredentials';
 import { countFilledScrimSlots, normalizeScrimSlots, getScrimSlotCount } from '../../../shared/utils/scrimSlots';
 import { toDateSafe } from '../../../shared/utils/utils';
 import { DEFAULT_BANNER } from '../../../shared/constants/constants';
@@ -73,10 +73,13 @@ export default function ScrimDetailPage() {
       if (scrimSnap.exists()) {
         const data = { id: scrimSnap.id, ...scrimSnap.data() } as any;
         const scrimHostId = data.hostUid || data.orgId || data.hostId || data.userId || data.organizerId || data.createdBy;
-        const isAuthorized = user && (
-          user.uid === scrimHostId ||
-          profile?.role === 'admin' ||
-          !scrimHostId
+        const isAuthorized = Boolean(
+          user && (
+            !scrimHostId ||
+            String(scrimHostId).trim() === String(user.uid).trim() ||
+            profile?.role === 'admin' ||
+            profile?.role === 'organizer'
+          )
         );
         if (!isAuthorized) {
           showToast('Unauthorized — you do not own this scrim', 'error');
@@ -86,8 +89,8 @@ export default function ScrimDetailPage() {
         setScrim(data);
         setScrimCollection('scrims');
         fetchRoomCredentials(id, undefined, 'scrims').then(credentials => {
-          setRoomId(credentials?.roomId || '');
-          setRoomPass(credentials?.roomPass || '');
+          setRoomId(credentials?.roomId || data.roomId || '');
+          setRoomPass(credentials?.roomPass || data.roomPass || '');
         }).catch(e => {
           console.warn('Room credentials fetch warning:', e);
         });
@@ -100,10 +103,13 @@ export default function ScrimDetailPage() {
             if (tournSnap.exists()) {
               const data = { id: tournSnap.id, ...tournSnap.data() } as any;
               const scrimHostId = data.hostUid || data.orgId || data.hostId || data.userId || data.organizerId || data.createdBy;
-              const isAuthorized = user && (
-                user.uid === scrimHostId ||
-                profile?.role === 'admin' ||
-                !scrimHostId
+              const isAuthorized = Boolean(
+                user && (
+                  !scrimHostId ||
+                  String(scrimHostId).trim() === String(user.uid).trim() ||
+                  profile?.role === 'admin' ||
+                  profile?.role === 'organizer'
+                )
               );
               if (!isAuthorized) {
                 showToast('Unauthorized — you do not own this scrim', 'error');
@@ -113,8 +119,8 @@ export default function ScrimDetailPage() {
               setScrim(data);
               setScrimCollection('tournaments');
               fetchRoomCredentials(id, undefined, 'tournaments').then(credentials => {
-                setRoomId(credentials?.roomId || '');
-                setRoomPass(credentials?.roomPass || '');
+                setRoomId(credentials?.roomId || data.roomId || '');
+                setRoomPass(credentials?.roomPass || data.roomPass || '');
               }).catch(e => {
                 console.warn('Room credentials fetch warning:', e);
               });
@@ -220,20 +226,13 @@ export default function ScrimDetailPage() {
   const handleBroadcast = useCallback(async () => {
     if (!id) return;
     try {
-      await Promise.all([
-        setDoc(doc(db, scrimCollection, id, 'credentials', 'main'), { roomId, roomPass }, { merge: true }),
-        updateDoc(doc(db, scrimCollection, id), { ytLink: streamUrl }),
-      ]);
-      const altCollection = scrimCollection === 'tournaments' ? 'scrims' : 'tournaments';
-      await Promise.all([
-        setDoc(doc(db, altCollection, id, 'credentials', 'main'), { roomId, roomPass }, { merge: true }).catch(() => {}),
-        updateDoc(doc(db, altCollection, id), { ytLink: streamUrl }).catch(() => {}),
-      ]);
-      showToast('Room credentials broadcasted', 'success');
-    } catch {
-      showToast('Failed to broadcast', 'error');
+      await broadcastRoomCredentials(id, roomId, roomPass, streamUrl, 'scrims');
+      setScrim((prev: any) => prev ? { ...prev, roomId, roomPass, ytLink: streamUrl } : prev);
+      showToast('Room credentials broadcasted to all players!', 'success');
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to broadcast', 'error');
     }
-  }, [id, roomId, roomPass, streamUrl, scrimCollection, showToast]);
+  }, [id, roomId, roomPass, streamUrl, showToast]);
 
   const handleStatusChange = useCallback(async (newStatus: string) => {
     try {

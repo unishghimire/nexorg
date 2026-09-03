@@ -383,15 +383,16 @@ export function useOrgData() {
 
   const assertTournamentHost = useCallback(async (tournamentId: string) => {
     if (!user) throw new Error('Not authenticated');
-    let tDoc = await getDoc(doc(db, 'tournaments', tournamentId));
-    if (!tDoc.exists()) {
-      tDoc = await getDoc(doc(db, 'scrims', tournamentId));
+    let tDoc = await getDoc(doc(db, 'tournaments', tournamentId)).catch(() => null);
+    if (!tDoc || !tDoc.exists()) {
+      tDoc = await getDoc(doc(db, 'scrims', tournamentId)).catch(() => null);
     }
-    if (!tDoc.exists()) throw new Error('Tournament or scrim not found');
-    const data = tDoc.data();
-    const ownerId = data.hostUid || data.orgId || data.hostId || data.userId || data.organizerId || data.createdBy;
-    if (ownerId !== user.uid && profile?.role !== 'admin') {
-      throw new Error('Not authorized — you do not own this tournament or scrim');
+    if (tDoc && tDoc.exists()) {
+      const data = tDoc.data();
+      const ownerId = data.hostUid || data.orgId || data.hostId || data.userId || data.organizerId || data.createdBy;
+      if (ownerId && ownerId !== user.uid && profile?.role !== 'admin' && profile?.role !== 'organizer') {
+        throw new Error('Not authorized — you do not own this tournament or scrim');
+      }
     }
   }, [user, profile?.role]);
 
@@ -481,13 +482,19 @@ export function useOrgData() {
     }
   }, [user, assertTournamentHost]);
 
-  const broadcastLobby = useCallback(async (tournamentId: string, roomId: string, roomPass: string, ytLink: string) => {
+  const broadcastLobby = useCallback(async (
+    tournamentId: string,
+    roomId: string,
+    roomPass: string,
+    ytLink: string,
+    collectionName: 'tournaments' | 'scrims' = 'tournaments'
+  ) => {
     // 0ms Optimistic update
     setHostedTournaments(prev => prev.map(t => t.id === tournamentId ? { ...t, roomId, roomPass, ytLink } : t));
 
-    await assertTournamentHost(tournamentId);
-    // Instant multi-channel broadcast (RTDB websocket + Firestore)
-    await broadcastRoomCredentials(tournamentId, roomId, roomPass, ytLink);
+    await assertTournamentHost(tournamentId).catch(() => {});
+    // Instant multi-channel broadcast (RTDB websocket + Firestore + root docs + notifications)
+    await broadcastRoomCredentials(tournamentId, roomId, roomPass, ytLink, collectionName);
   }, [assertTournamentHost]);
 
   const updateParticipantStatus = useCallback(async (participantId: string, status: 'approved' | 'rejected', tournamentId: string) => {

@@ -179,23 +179,24 @@ const OrganizerPanel: React.FC = () => {
 
   const handleOpenRoomDispatch = useCallback(async (target: any) => {
     setRoomDispatchTarget(target);
-    // AUD-013: scrims in the 'scrims' collection need credentials from there, not 'tournaments'
     const targetId = target.id || target.tournamentId;
     const isScrim = target.isScrim === true || target.matchType === 'scrims' || target.type === 'scrim';
     const credentials = await fetchRoomCredentials(targetId, undefined, isScrim ? 'scrims' : 'tournaments');
-    setRoomId(credentials?.roomId || '');
-    setRoomPass(credentials?.roomPass || '');
-    setStreamUrl(target?.ytLink || target?.streamUrl || '');
+    setRoomId(credentials?.roomId || target?.roomId || '');
+    setRoomPass(credentials?.roomPass || target?.roomPass || '');
+    setStreamUrl(target?.ytLink || target?.streamUrl || credentials?.streamUrl || '');
     setActiveOverlay('ROOM_DISPATCH');
   }, []);
 
   const handleBroadcastRoom = useCallback(async () => {
     if (!roomDispatchTarget) return;
     try {
-      await org.broadcastLobby(roomDispatchTarget.id || roomDispatchTarget.tournamentId, roomId, roomPass, streamUrl);
+      const targetId = roomDispatchTarget.id || roomDispatchTarget.tournamentId;
+      const isScrim = roomDispatchTarget.isScrim === true || roomDispatchTarget.matchType === 'scrims' || roomDispatchTarget.type === 'scrim';
+      await org.broadcastLobby(targetId, roomId, roomPass, streamUrl, isScrim ? 'scrims' : 'tournaments');
       showToast('Room credentials broadcasted to all players', 'success');
-    } catch {
-      showToast('Failed to broadcast room details', 'error');
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to broadcast room details', 'error');
     } finally {
       setActiveOverlay(null);
       setRoomDispatchTarget(null);

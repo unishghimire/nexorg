@@ -64,13 +64,14 @@ export function useTournamentAdmin(
     useEffect(() => {
         if (!id || !user) return;
 
-        // Tournament Listener
+        let unsubAlt: (() => void) | null = null;
+        // Tournament Listener with Scrims fallback
         const unsubTournament = onSnapshot(doc(db, 'tournaments', id), (docSnap) => {
             if (docSnap.exists()) {
                 const data = { id: docSnap.id, ...docSnap.data() } as Tournament;
-                if (data.hostUid !== user.uid && profile?.role !== 'admin') {
+                if (data.hostUid && data.hostUid !== user.uid && profile?.role !== 'admin' && profile?.role !== 'organizer') {
                     showToast('Unauthorized access', 'error');
-                    navigate('/');
+                    navigate('/organizer');
                     return;
                 }
                 setTournament(data);
@@ -84,11 +85,26 @@ export function useTournamentAdmin(
                         }
                     });
                 }
+                setLoading(false);
             } else {
-                showToast('Tournament not found', 'error');
-                navigate('/');
+                // Fallback to scrims collection
+                if (!unsubAlt) {
+                    unsubAlt = onSnapshot(doc(db, 'scrims', id), (scrimSnap) => {
+                        if (scrimSnap.exists()) {
+                            const data = { id: scrimSnap.id, ...scrimSnap.data() } as Tournament;
+                            setTournament(data);
+                            setLoading(false);
+                        } else {
+                            showToast('Tournament or scrim not found', 'error');
+                            navigate('/organizer');
+                            setLoading(false);
+                        }
+                    }, () => {
+                        showToast('Failed to load event data', 'error');
+                        setLoading(false);
+                    });
+                }
             }
-            setLoading(false);
         }, (error) => {
             console.error('Tournament snapshot error:', error);
             showToast('Failed to load tournament data.', 'error');
@@ -107,6 +123,7 @@ export function useTournamentAdmin(
 
         return () => {
             unsubTournament();
+            if (unsubAlt) unsubAlt();
             unsubParticipants();
         };
     }, [id, user, profile?.role, navigate, showToast]);
