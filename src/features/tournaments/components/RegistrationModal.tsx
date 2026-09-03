@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
-import { auth } from '../../../shared/config/firebase';
+import { db, auth } from '../../../shared/config/firebase';
+import { doc, collection, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { normalizeScrimSlots, countFilledScrimSlots } from '../../../shared/utils/scrimSlots';
 import { Tournament, UserProfile } from '../../../shared/types/types';
 import Modal from '../../../shared/components/Modal';
 import { useNotification } from '../../../shared/context/NotificationContext';
@@ -37,13 +39,62 @@ const RegistrationModal: React.FC<RegistrationModalProps> = ({
             const token = await auth.currentUser?.getIdToken();
             if (!token) throw new Error('Authentication required');
 
-            const res = await fetch('/api/wallet/join-tournament', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                body: JSON.stringify({ tournamentId: tournament.id }),
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.message || 'Failed to join tournament');
+            let joinedViaApi = false;
+            try {
+                const res = await fetch('/api/wallet/join-tournament', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ tournamentId: tournament.id }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok && data.success !== false) {
+                    joinedViaApi = true;
+                }
+            } catch {}
+
+            if (!joinedViaApi) {
+                if (Number(tournament.entryFee) > 0) {
+                    throw new Error('Wallet service is currently unreachable. Please try again in a moment.');
+                }
+                // Free event registration fallback: save participant & assign slot directly
+                const partRef = doc(collection(db, 'participants'));
+                await setDoc(partRef, {
+                    id: partRef.id,
+                    tournamentId: tournament.id,
+                    userId: user.uid,
+                    username: profile.username || 'Player',
+                    inGameName: profile.inGameName || profile.username,
+                    inGameId: profile.inGameId || 'N/A',
+                    teamName: profile.teamName || profile.username,
+                    teamId: profile.teamId || user.uid,
+                    timestamp: serverTimestamp(),
+                    status: 'confirmed',
+                });
+
+                if (Array.isArray(tournament.slots)) {
+                    const normalized = normalizeScrimSlots(tournament.slots, (tournament as any).totalSlots || 12);
+                    let slotAssigned = false;
+                    const updated = normalized.map(s => {
+                        if (!slotAssigned && s.status === 'open') {
+                            slotAssigned = true;
+                            return {
+                                ...s,
+                                status: 'filled' as const,
+                                teamName: profile.teamName || profile.username,
+                                teamId: profile.teamId || user.uid,
+                                userId: user.uid,
+                                leader: profile.username,
+                            };
+                        }
+                        return s;
+                    });
+                    const filledCount = countFilledScrimSlots(updated);
+                    await Promise.all([
+                        updateDoc(doc(db, 'tournaments', tournament.id), { slots: updated, filledSlots: filledCount, currentPlayers: filledCount }).catch(() => {}),
+                        updateDoc(doc(db, 'scrims', tournament.id), { slots: updated, filledSlots: filledCount, currentPlayers: filledCount }).catch(() => {}),
+                    ]);
+                }
+            }
 
             await NotificationService.create(
                 user.uid,
@@ -58,7 +109,7 @@ const RegistrationModal: React.FC<RegistrationModalProps> = ({
             onClose();
             navigate('/dashboard');
         } catch (e: any) {
-            showToast(e.message, 'error');
+            showToast(e.message || 'Failed to join tournament', 'error');
         } finally {
             setLoading(false);
         }

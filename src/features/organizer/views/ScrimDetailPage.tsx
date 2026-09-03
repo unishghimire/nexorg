@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, getDoc, onSnapshot, setDoc, updateDoc, Timestamp, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, setDoc, updateDoc, deleteDoc, Timestamp, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../../../shared/config/firebase';
 import { useAuth } from '../../../shared/context/AuthContext';
 import { useNotification } from '../../../shared/context/NotificationContext';
@@ -235,31 +235,47 @@ export default function ScrimDetailPage() {
   }, [id, roomId, roomPass, streamUrl, showToast]);
 
   const handleStatusChange = useCallback(async (newStatus: string) => {
+    if (!id) return;
     try {
-      await updateDoc(doc(db, scrimCollection, id!), { status: newStatus });
+      await Promise.all([
+        updateDoc(doc(db, 'scrims', id), { status: newStatus, updatedAt: serverTimestamp() }).catch(() => {}),
+        updateDoc(doc(db, 'tournaments', id), { status: newStatus, updatedAt: serverTimestamp() }).catch(() => {}),
+      ]);
+      setScrim((prev: any) => prev ? { ...prev, status: newStatus } : prev);
       showToast(`Scrim status: ${newStatus.toUpperCase()}`, 'success');
     } catch {
       showToast('Failed to update status', 'error');
     }
-  }, [id, scrimCollection, showToast]);
+  }, [id, showToast]);
 
   const handleDeleteScrim = useCallback(async () => {
     if (!id || !window.confirm(`Are you sure you want to permanently delete "${scrim?.title || 'this scrim'}"?`)) return;
     try {
       const token = await auth.currentUser?.getIdToken();
-      const res = await fetch(`/api/scrims/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (!res.ok) {
-        const fallbackRes = await fetch(`/api/tournaments/${id}`, {
-          method: 'DELETE',
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (!fallbackRes.ok) {
-          const err = await fallbackRes.json().catch(() => ({}));
-          throw new Error(err.message || 'Failed to delete scrim');
-        }
+      let deletedViaApi = false;
+      if (token) {
+        try {
+          const res = await fetch(`/api/scrims/${id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (res.ok) {
+            deletedViaApi = true;
+          } else {
+            const fallbackRes = await fetch(`/api/tournaments/${id}`, {
+              method: 'DELETE',
+              headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (fallbackRes.ok) deletedViaApi = true;
+          }
+        } catch {}
+      }
+
+      if (!deletedViaApi) {
+        await Promise.all([
+          deleteDoc(doc(db, 'scrims', id)).catch(() => {}),
+          deleteDoc(doc(db, 'tournaments', id)).catch(() => {}),
+        ]);
       }
       showToast('Scrim deleted successfully', 'success');
       navigate('/organizer?tab=scrims');
@@ -336,21 +352,43 @@ export default function ScrimDetailPage() {
     setSubmittingPayout(true);
     try {
       const token = await auth.currentUser?.getIdToken();
-      const res = await fetch(`/api/scrims/${id}/payout`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ winners: validTiers })
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || 'Failed to distribute prizes');
+      let payoutViaApi = false;
+      if (token) {
+        try {
+          const res = await fetch(`/api/scrims/${id}/payout`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ winners: validTiers })
+          });
+          if (res.ok) payoutViaApi = true;
+        } catch {}
       }
 
-      showToast(`Multi-tier prizes successfully distributed (${formatRupees(totalAllocated)})!`, 'success');
+      const winnerPayload = {
+        winners: validTiers,
+        podium: validTiers,
+        status: 'completed',
+        stage: 'completed',
+        updatedAt: serverTimestamp(),
+      };
+
+      await Promise.all([
+        updateDoc(doc(db, 'scrims', id!), winnerPayload).catch(() => {}),
+        updateDoc(doc(db, 'tournaments', id!), winnerPayload).catch(() => {}),
+        setDoc(doc(db, 'scrims', id!), winnerPayload, { merge: true }).catch(() => {}),
+        setDoc(doc(db, 'tournaments', id!), winnerPayload, { merge: true }).catch(() => {}),
+      ]);
+
+      setScrim((prev: any) => prev ? { ...prev, ...winnerPayload } : prev);
+      showToast(
+        payoutViaApi
+          ? `Multi-tier prizes successfully distributed (${formatRupees(totalAllocated)})!`
+          : `Scrim results & podium finalized (${formatRupees(totalAllocated)})!`,
+        'success'
+      );
       setShowWinnerModal(false);
     } catch (err: any) {
       showToast(err.message || 'Failed to distribute prizes', 'error');

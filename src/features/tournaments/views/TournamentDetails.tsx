@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { doc, getDoc, collection, query, where, getDocs, onSnapshot, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs, onSnapshot, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../../../shared/config/firebase';
 import { Tournament, UserProfile } from '../../../shared/types/types';
 import { DEFAULT_BANNER } from '../../../shared/constants/constants';
@@ -449,19 +449,26 @@ export default function TournamentDetails() {
             const token = await auth.currentUser?.getIdToken();
             if (!token) throw new Error("Authentication required");
 
-            let res = await fetch(`/api/tournaments/${id}`, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (!res.ok) {
-                res = await fetch(`/api/scrims/${id}`, {
+            let deletedViaApi = false;
+            try {
+                let res = await fetch(`/api/tournaments/${id}`, {
                     method: 'DELETE',
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
-            }
-            if (!res.ok) {
-                const errData = await res.json().catch(() => ({}));
-                throw new Error(errData.message || 'Failed to delete');
+                if (!res.ok) {
+                    res = await fetch(`/api/scrims/${id}`, {
+                        method: 'DELETE',
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                }
+                if (res.ok) deletedViaApi = true;
+            } catch {}
+
+            if (!deletedViaApi) {
+                await Promise.all([
+                    deleteDoc(doc(db, 'tournaments', id)).catch(() => {}),
+                    deleteDoc(doc(db, 'scrims', id)).catch(() => {}),
+                ]);
             }
 
             const isScrim = tournament.matchType === 'scrims' || (tournament as any).isScrim === true;

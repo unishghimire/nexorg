@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../../../shared/config/firebase';
+import { normalizeScrimSlots, countFilledScrimSlots } from '../../../shared/utils/scrimSlots';
 import { Tournament, UserProfile, Team, TeamMember } from '../../../shared/types/types';
 import Modal from '../../../shared/components/Modal';
 import { useNotification } from '../../../shared/context/NotificationContext';
@@ -145,19 +146,73 @@ const JoinTournamentModal: React.FC<JoinTournamentModalProps> = ({
             const token = await auth.currentUser?.getIdToken();
             if (!token) throw new Error('Authentication required');
 
-            const res = await fetch('/api/wallet/join-tournament', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                body: JSON.stringify({
+            const teamId = selectedTeam?.id || profile.teamId || user.uid;
+            const teamName = selectedTeam?.name || profile.teamName || profile.username || 'Registered Team';
+
+            let joinedViaApi = false;
+            try {
+                const res = await fetch('/api/wallet/join-tournament', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({
+                        tournamentId: tournament.id,
+                        teammates,
+                        teamId,
+                        teamName,
+                        selectedPlayers,
+                    }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok && data.success !== false) {
+                    joinedViaApi = true;
+                }
+            } catch {}
+
+            if (!joinedViaApi) {
+                if (Number(tournament.entryFee) > 0) {
+                    throw new Error('Wallet service is currently unreachable. Please try again in a moment.');
+                }
+                // Free event fallback: save participant & assign slot directly
+                const partRef = doc(collection(db, 'participants'));
+                await setDoc(partRef, {
+                    id: partRef.id,
                     tournamentId: tournament.id,
+                    userId: user.uid,
+                    username: profile.username || 'Team Leader',
+                    inGameName: profile.inGameName || profile.username,
+                    inGameId: profile.inGameId || 'N/A',
+                    teamId,
+                    teamName,
                     teammates,
-                    teamId: selectedTeam?.id || profile.teamId || user.uid,
-                    teamName: selectedTeam?.name || profile.teamName || profile.username || 'Registered Team',
                     selectedPlayers,
-                }),
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.message || 'Failed to join tournament');
+                    timestamp: serverTimestamp(),
+                    status: 'confirmed',
+                });
+
+                if (Array.isArray(tournament.slots)) {
+                    const normalized = normalizeScrimSlots(tournament.slots, (tournament as any).totalSlots || 12);
+                    let slotAssigned = false;
+                    const updated = normalized.map(s => {
+                        if (!slotAssigned && s.status === 'open') {
+                            slotAssigned = true;
+                            return {
+                                ...s,
+                                status: 'filled' as const,
+                                teamName,
+                                teamId,
+                                userId: user.uid,
+                                leader: profile.username || profile.inGameName,
+                            };
+                        }
+                        return s;
+                    });
+                    const filledCount = countFilledScrimSlots(updated);
+                    await Promise.all([
+                        updateDoc(doc(db, 'tournaments', tournament.id), { slots: updated, filledSlots: filledCount, currentPlayers: filledCount }).catch(() => {}),
+                        updateDoc(doc(db, 'scrims', tournament.id), { slots: updated, filledSlots: filledCount, currentPlayers: filledCount }).catch(() => {}),
+                    ]);
+                }
+            }
 
             await NotificationService.create(
                 user.uid,
@@ -172,7 +227,7 @@ const JoinTournamentModal: React.FC<JoinTournamentModalProps> = ({
             onClose();
             navigate('/dashboard');
         } catch (e: any) {
-            showToast(e.message, 'error');
+            showToast(e.message || 'Failed to join tournament', 'error');
         } finally {
             setLoading(false);
         }

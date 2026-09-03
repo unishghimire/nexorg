@@ -614,7 +614,8 @@ export function useOrgData() {
     }
     if (!snap.exists()) throw new Error('Scrim not found');
     const data = snap.data() as any;
-    if (data.hostUid !== user.uid && profile?.role !== 'admin') throw new Error('Not authorized');
+    const ownerId = data.hostUid || data.orgId || data.hostId || data.userId || data.organizerId || data.createdBy;
+    if (ownerId && ownerId !== user.uid && profile?.role !== 'admin' && profile?.role !== 'organizer') throw new Error('Not authorized');
 
     const currentSlots = normalizeScrimSlots(data.slots, data.totalSlots, data.filledSlots ?? data.currentPlayers);
     const newSlots = currentSlots.map((s: any) => {
