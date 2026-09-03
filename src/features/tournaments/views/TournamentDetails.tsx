@@ -6,8 +6,8 @@ import { Tournament, UserProfile } from '../../../shared/types/types';
 import { DEFAULT_BANNER } from '../../../shared/constants/constants';
 import { useAuth } from '../../../shared/context/AuthContext';
 import { formatCurrency, formatDate, formatGameName, getYoutubeId, toDateSafe, sanitizeUrl } from '../../../shared/utils/utils';
-import { getSlotCount, getFilledSlotCount } from '../../../shared/utils/scrimSlots';
-import { Clock, Users, Trophy, Lock, Eye, EyeOff, Play, Share2, Calendar, MapPin, Info, Medal, ExternalLink, ChevronRight, AlertCircle, CheckCircle2, Search, Building2 , Target, Trash2, Settings2, AlertTriangle, ShieldAlert } from 'lucide-react';
+import { getSlotCount, getFilledSlotCount, normalizeScrimSlots, countFilledScrimSlots } from '../../../shared/utils/scrimSlots';
+import { Clock, Users, Trophy, Lock, Eye, EyeOff, Play, Share2, Calendar, MapPin, Info, Medal, ExternalLink, ChevronRight, AlertCircle, CheckCircle2, Search, Building2 , Target, Trash2, Settings2, AlertTriangle, ShieldAlert, Radio, ShieldCheck, FileText, Copy } from 'lucide-react';
 import RegistrationModal from '../components/RegistrationModal';
 import JoinTournamentModal from '../components/JoinTournamentModal';
 import { TournamentDisputeModal } from '../components/TournamentDisputeModal';
@@ -26,7 +26,7 @@ import { TournamentRoadmap } from '../components/TournamentRoadmap';
 import GroupStandingsView from '../components/GroupStandingsView';
 import { fetchRoomCredentials, subscribeRoomCredentials } from '../../../shared/services/roomCredentials';
 
-const TOURNAMENT_TAB_IDS = ['overview', 'description', 'participants', 'groups', 'roadmap', 'results', 'killrewards'] as const;
+const TOURNAMENT_TAB_IDS = ['overview', 'description', 'participants', 'groups', 'roadmap', 'results', 'killrewards', 'slots'] as const;
 type TournamentTabId = typeof TOURNAMENT_TAB_IDS[number];
 
 const getTournamentTab = (value: string | null): TournamentTabId =>
@@ -66,10 +66,13 @@ export default function TournamentDetails() {
             (tournament as any).orgId === user.uid ||
             (tournament as any).hostId === user.uid ||
             (tournament as any).userId === user.uid ||
+            (tournament as any).organizerId === user.uid ||
             (tournament as any).createdBy === user.uid
         )) ||
         profile?.role === 'admin' ||
-        user?.role === 'admin'
+        profile?.role === 'organizer' ||
+        user?.role === 'admin' ||
+        user?.role === 'organizer'
     );
 
     useEffect(() => {
@@ -531,7 +534,7 @@ export default function TournamentDetails() {
     const effectiveRoomPass = roomCreds?.roomPass || tournament.roomPass;
     const showRoom = Boolean(
         canAccessRoom &&
-        (tournament.status === 'live' || (effectiveRoomId && (tournament.status === 'upcoming' || (tournament.status as any) === 'ongoing')))
+        (Boolean(effectiveRoomId) || tournament.status === 'live' || tournament.status === 'upcoming')
     );
     const isScrimEvent = Boolean(
         tournament.matchType === 'scrims' ||
@@ -691,7 +694,12 @@ export default function TournamentDetails() {
                 <div className="lg:col-span-8 space-y-6 sm:space-y-8 min-w-0">
                     {/* Tabs Navigation */}
                     <div className="flex p-1.5 sm:p-2 bg-card/50 rounded-2xl sm:rounded-full border border-gray-800 sticky top-16 sm:top-24 z-10 backdrop-blur-xl overflow-x-auto custom-scrollbar gap-2 max-w-full">
-                        {[
+                        {(isScrimEvent ? [
+                            { id: 'overview', label: 'Overview', icon: Info },
+                            { id: 'slots', label: 'Slots & Teams', icon: Users },
+                            { id: 'description', label: 'Rules & Info', icon: FileText },
+                            tournament.status === 'completed' ? { id: 'results', label: 'Results', icon: Trophy } : null,
+                        ] : [
                             { id: 'overview', label: 'Overview', icon: Info },
                             { id: 'description', label: 'Description', icon: Info },
                             { id: 'participants', label: 'Players', icon: Users },
@@ -699,7 +707,7 @@ export default function TournamentDetails() {
                             { id: 'groups', label: 'Match Groups', icon: Trophy },
                             tournament.status === 'completed' ? { id: 'results', label: 'Results', icon: Trophy } : null,
                             (tournament as any).tournamentMode === 'PER_KILL_REWARD' && (tournament as any).killRewards?.length > 0 ? { id: 'killrewards', label: 'Kill Rewards', icon: Target } : null
-                        ].filter((tab): tab is {id: string, label: string, icon: any} => tab !== null).map((tab) => (
+                        ]).filter((tab): tab is {id: string, label: string, icon: any} => tab !== null).map((tab) => (
                             <button type="button" 
                                 key={tab.id}
                                 onClick={() => {
@@ -754,6 +762,101 @@ export default function TournamentDetails() {
                                     </div>
                                 )}
 
+                                {/* Match Room Information Banner (Unlocked) */}
+                                {showRoom && (
+                                    <div className="bg-brand-500/10 border border-brand-500/30 p-5 sm:p-7 rounded-2xl sm:rounded-3xl relative overflow-hidden group shadow-xl">
+                                        <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:scale-110 transition-transform">
+                                            <Trophy className="w-32 h-32 text-brand-500" />
+                                        </div>
+                                        <div className="relative z-10">
+                                            <div className="flex items-center justify-between gap-3 mb-4">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+                                                    <span className="text-emerald-400 text-xs font-black uppercase tracking-widest">Match Room Ready / Live</span>
+                                                </div>
+                                                {tournament.status === 'live' && (
+                                                    <span className="px-2.5 py-0.5 rounded-full bg-red-500/20 text-red-400 border border-red-500/30 text-[10px] font-bold uppercase animate-pulse">
+                                                        Live Match
+                                                    </span>
+                                                )}
+                                            </div>
+                                            
+                                            <h3 className="text-lg sm:text-2xl font-black text-white mb-1 tracking-tight">Room Information</h3>
+                                            <p className="text-xs text-gray-400 mb-4">Enter these credentials in your game lobby ({tournament.game || 'Free Fire'}) to join.</p>
+
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                <div className="bg-card/90 p-4 rounded-2xl border border-gray-800">
+                                                    <div className="text-[10px] text-gray-500 uppercase font-black tracking-widest mb-1">Room ID</div>
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-lg sm:text-xl font-mono font-bold text-white tracking-wider">{effectiveRoomId || 'Waiting...'}</span>
+                                                        <button type="button" onClick={() => {
+                                                            navigator.clipboard.writeText(effectiveRoomId || '');
+                                                            showToast("Room ID copied to clipboard!", "success");
+                                                        }} className="p-2 hover:bg-white/10 rounded-xl transition-colors text-brand-400" title="Copy Room ID">
+                                                            <Copy className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                <div className="bg-card/90 p-4 rounded-2xl border border-gray-800">
+                                                    <div className="text-[10px] text-gray-500 uppercase font-black tracking-widest mb-1">Room Password</div>
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-lg sm:text-xl font-mono font-bold text-white tracking-wider">
+                                                            {showPassword ? (effectiveRoomPass || 'None') : '••••••••'}
+                                                        </span>
+                                                        <div className="flex items-center gap-1">
+                                                            <button type="button" 
+                                                                onClick={() => setShowPassword(!showPassword)} 
+                                                                className="p-2 hover:bg-white/10 rounded-xl transition-colors relative z-20 text-gray-400 hover:text-white"
+                                                                title={showPassword ? "Hide Password" : "Show Password"}
+                                                            >
+                                                                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                                            </button>
+                                                            <button type="button" onClick={() => {
+                                                                navigator.clipboard.writeText(effectiveRoomPass || '');
+                                                                showToast("Password copied to clipboard!", "success");
+                                                            }} className="p-2 hover:bg-white/10 rounded-xl transition-colors text-brand-400" title="Copy Password">
+                                                                <Copy className="w-4 h-4" />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Match Room Information Banner (Locked state for users who have not joined or booked a slot) */}
+                                {effectiveRoomId && !canAccessRoom && (
+                                    <div className="bg-dark/80 border border-brand-500/30 p-5 rounded-2xl sm:rounded-3xl relative overflow-hidden">
+                                        <div className="flex items-center gap-2.5 mb-2">
+                                            <Lock className="w-5 h-5 text-amber-400" />
+                                            <span className="text-white font-bold text-base sm:text-lg">Room Credentials Released</span>
+                                            <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-semibold uppercase">Lobby Open</span>
+                                        </div>
+                                        <p className="text-xs sm:text-sm text-gray-400 mb-3">
+                                            The organizer has released the Room ID & Password. {isScrimEvent ? 'Reserve a slot or join' : 'Register for this tournament'} to reveal the match credentials.
+                                        </p>
+                                        {!user ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => navigate('/login')}
+                                                className="px-4 py-2 bg-brand-500 hover:bg-brand-400 text-white rounded-xl text-xs font-bold transition-colors"
+                                            >
+                                                Login to View Credentials
+                                            </button>
+                                        ) : (
+                                            <button
+                                                type="button"
+                                                onClick={handleJoinClick}
+                                                className="px-4 py-2 bg-brand-500 hover:bg-brand-400 text-white rounded-xl text-xs font-bold transition-colors"
+                                            >
+                                                {isScrimEvent ? 'Book a Slot to Unlock' : 'Register to Unlock'}
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
+
                                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
                                     {[
                                         { label: 'Prize Pool', value: formatCurrency(tournament.prizePool), icon: Trophy, color: 'text-yellow-500' },
@@ -771,60 +874,107 @@ export default function TournamentDetails() {
 
                                 {/* Scoring Info — show participants how points work */}
                                 <ScoringInfoCard tournament={tournament} />
+                            </motion.div>
+                        )}
 
-                                {showRoom && (
-                                    <div className="bg-brand-500/10 border border-brand-500/20 p-4 sm:p-8 rounded-2xl sm:rounded-3xl relative overflow-hidden group">
-                                        <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:scale-110 transition-transform">
-                                            <Trophy className="w-32 h-32 text-brand-500" />
-                                        </div>
-                                        <div className="relative z-10">
-                                            <div className="flex items-center gap-2 mb-4 sm:mb-6">
-                                                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
-                                                <span className="text-emerald-400 text-xs font-black uppercase tracking-widest">Match Room Live</span>
-                                            </div>
-                                            
-                                            <h3 className="text-lg sm:text-2xl font-black text-white mb-4 sm:mb-6 tracking-tight">Room Information</h3>
-
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                                <div className="bg-card/80 p-4 rounded-2xl border border-gray-800">
-                                                    <div className="text-xs text-gray-500 uppercase font-black tracking-widest mb-1">Room ID</div>
-                                                    <div className="flex items-center justify-between">
-                                                        <span className="text-lg sm:text-xl font-mono font-bold text-white tracking-wider">{effectiveRoomId || 'Waiting...'}</span>
-                                                        <button type="button" onClick={() => {
-                                                            navigator.clipboard.writeText(effectiveRoomId || '');
-                                                            showToast("Copied!", "success");
-                                                        }} className="p-2 hover:bg-white/10 rounded-xl transition-colors">
-                                                            <ExternalLink className="w-5 h-5 text-gray-500" />
-                                                        </button>
-                                                    </div>
-                                                </div>
-
-                                                <div className="bg-card/80 p-4 rounded-2xl border border-gray-800">
-                                                    <div className="text-xs text-gray-500 uppercase font-black tracking-widest mb-1">Password</div>
-                                                    <div className="flex items-center justify-between">
-                                                        <span className="text-lg sm:text-xl font-mono font-bold text-white tracking-wider">
-                                                            {showPassword ? (effectiveRoomPass || 'None') : '••••••••'}
-                                                        </span>
-                                                        <div className="flex items-center gap-1">
-                                                            <button type="button" 
-                                                                onClick={() => setShowPassword(!showPassword)} 
-                                                                className="p-2 hover:bg-white/10 rounded-xl transition-colors relative z-20"
-                                                            >
-                                                                {showPassword ? <EyeOff className="w-5 h-5 text-gray-500" /> : <Eye className="w-5 h-5 text-gray-500" />}
-                                                            </button>
-                                                            <button type="button" onClick={() => {
-                                                                navigator.clipboard.writeText(effectiveRoomPass || '');
-                                                                showToast("Copied!", "success");
-                                                            }} className="p-2 hover:bg-white/10 rounded-xl transition-colors">
-                                                                <ExternalLink className="w-5 h-5 text-gray-500" />
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
+                        {/* Scrim Slots & Teams View */}
+                        {activeTab === 'slots' && (
+                            <motion.div
+                                key="slots"
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -10 }}
+                                className="space-y-6"
+                            >
+                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-2 border-b border-gray-800">
+                                    <div>
+                                        <h3 className="text-white font-black text-lg sm:text-xl uppercase tracking-tight flex items-center gap-2">
+                                            <Users className="w-5 h-5 text-brand-500" />
+                                            Scrim Lobby Slots ({getFilledSlotCount(tournament)} / {getSlotCount(tournament)} Filled)
+                                        </h3>
+                                        <p className="text-xs text-gray-400 mt-1">Single lobby multi-match format. All teams compete together in this room.</p>
                                     </div>
-                                )}
+                                    {isHostOrAdmin && (
+                                        <button
+                                            type="button"
+                                            onClick={() => navigate(`/organizer/scrim/${tournament.id}`)}
+                                            className="px-3.5 py-1.5 rounded-lg bg-brand-500 hover:bg-brand-400 text-white text-xs font-bold transition-colors flex items-center gap-1.5"
+                                        >
+                                            <Settings2 className="w-3.5 h-3.5" />
+                                            <span>Manage Slot Reservations</span>
+                                        </button>
+                                    )}
+                                </div>
+
+                                {/* Slot Grid */}
+                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                                    {normalizeScrimSlots(tournament.slots, getSlotCount(tournament)).map((slot) => {
+                                        const isFilled = slot.status === 'filled';
+                                        return (
+                                            <div
+                                                key={slot.slotNumber}
+                                                className={`p-3.5 rounded-xl border flex flex-col justify-between min-h-[85px] transition-all ${
+                                                    isFilled
+                                                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 shadow-sm'
+                                                        : 'bg-card/40 border-gray-800/80 text-gray-500 border-dashed'
+                                                }`}
+                                            >
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-xs font-mono font-bold text-gray-400">#{slot.slotNumber}</span>
+                                                    <span className={`w-2 h-2 rounded-full ${isFilled ? 'bg-emerald-400 animate-pulse' : 'bg-gray-700'}`} />
+                                                </div>
+                                                <div className="mt-2">
+                                                    <div className="text-xs font-black truncate text-white">
+                                                        {isFilled ? (slot.teamName || `Slot ${slot.slotNumber}`) : 'Available'}
+                                                    </div>
+                                                    <div className="text-[10px] text-gray-400 mt-0.5 uppercase tracking-wider font-semibold">
+                                                        {isFilled ? 'Confirmed' : 'Open Slot'}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+
+                                {/* Confirmed Teams Roster Table */}
+                                <div className="bg-card/40 border border-gray-800 rounded-2xl p-5 mt-6">
+                                    <h4 className="text-sm font-bold text-white uppercase tracking-wider mb-4 flex items-center gap-2">
+                                        <ShieldCheck className="w-4 h-4 text-brand-500" /> Confirmed Roster
+                                    </h4>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-xs text-left">
+                                            <thead className="text-gray-500 uppercase font-mono border-b border-gray-800">
+                                                <tr>
+                                                    <th className="pb-3 px-2">Slot</th>
+                                                    <th className="pb-3 px-4">Team / Player</th>
+                                                    <th className="pb-3 px-4">Status</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-800/50">
+                                                {normalizeScrimSlots(tournament.slots, getSlotCount(tournament))
+                                                    .filter(s => s.status === 'filled')
+                                                    .map((s) => (
+                                                        <tr key={s.slotNumber} className="hover:bg-surface/30 transition-colors">
+                                                            <td className="py-3 px-2 font-mono font-bold text-brand-400">Slot {s.slotNumber}</td>
+                                                            <td className="py-3 px-4 font-bold text-white">{s.teamName || `Team #${s.slotNumber}`}</td>
+                                                            <td className="py-3 px-4">
+                                                                <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-semibold">
+                                                                    CONFIRMED
+                                                                </span>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                {countFilledScrimSlots(normalizeScrimSlots(tournament.slots, getSlotCount(tournament))) === 0 && (
+                                                    <tr>
+                                                        <td colSpan={3} className="py-6 text-center text-gray-500">
+                                                            No teams registered yet. Open slots are available!
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
                             </motion.div>
                         )}
 
@@ -951,7 +1101,7 @@ export default function TournamentDetails() {
                             </motion.div>
                         )}
 
-                        {activeTab === 'roadmap' && (
+                        {!isScrimEvent && activeTab === 'roadmap' && (
                             <motion.div 
                                 key="roadmap"
                                 initial={{ opacity: 0, y: 10 }}
@@ -961,7 +1111,7 @@ export default function TournamentDetails() {
                                 <TournamentRoadmap tournament={tournament} />
                             </motion.div>
                         )}
-                        {activeTab === 'groups' && (
+                        {!isScrimEvent && activeTab === 'groups' && (
                             <motion.div
                                 key="groups"
                                 initial={{ opacity: 0, y: 10 }}
@@ -1037,17 +1187,37 @@ export default function TournamentDetails() {
                 <div className="lg:col-span-4 space-y-6">
                     {/* Join Card */}
                     <div className="bg-surface p-4 sm:p-8 rounded-2xl sm:rounded-3xl border border-gray-800 shadow-2xl lg:sticky lg:top-24">
-                        {tournament.status === 'live' ? (
+                        {effectiveRoomId ? (
+                            <div className="mb-6 text-center p-4 rounded-2xl bg-brand-500/10 border border-brand-500/30">
+                                <div className="text-xs text-brand-400 uppercase font-black tracking-widest mb-1.5 flex items-center justify-center gap-2">
+                                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
+                                    {tournament.status === 'live' ? 'MATCH IS LIVE NOW' : 'ROOM DISPATCHED'}
+                                </div>
+                                {canAccessRoom ? (
+                                    <div className="mt-3 space-y-2 text-left">
+                                        <div className="flex justify-between items-center bg-black/60 px-3 py-2 rounded-xl border border-gray-800">
+                                            <span className="text-[10px] text-gray-500 uppercase font-black">Room ID:</span>
+                                            <span className="text-xs font-mono font-bold text-white">{effectiveRoomId}</span>
+                                        </div>
+                                        {effectiveRoomPass && (
+                                            <div className="flex justify-between items-center bg-black/60 px-3 py-2 rounded-xl border border-gray-800">
+                                                <span className="text-[10px] text-gray-500 uppercase font-black">Password:</span>
+                                                <span className="text-xs font-mono font-bold text-white">{effectiveRoomPass}</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <p className="text-[11px] text-gray-400 mt-2">
+                                        {isScrimEvent ? 'Reserve a slot to view credentials.' : 'Register to view credentials.'}
+                                    </p>
+                                )}
+                            </div>
+                        ) : tournament.status === 'live' ? (
                             <div className="mb-6 sm:mb-8 text-center p-4 rounded-2xl bg-red-500/10 border border-red-500/30">
                                 <div className="text-xs text-red-400 uppercase font-black tracking-widest mb-1.5 flex items-center justify-center gap-2">
                                     <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" /> MATCH IS LIVE NOW
                                 </div>
                                 <p className="text-[11px] text-gray-300 font-medium">Match is underway. Check room details below.</p>
-                                {roomCreds?.roomId && (
-                                    <div className="mt-3 inline-flex items-center gap-2 px-3 py-1 bg-black/60 rounded-lg border border-red-500/30 text-xs font-mono text-white">
-                                        <span>Room: {roomCreds.roomId}</span>
-                                    </div>
-                                )}
                             </div>
                         ) : timeLeft ? (
                             <div className="mb-6 sm:mb-8 text-center">

@@ -24,6 +24,8 @@ export default function TournamentAdminPanel() {
 
     if (!tournament) return null;
 
+    const isScrim = Boolean(tournament.matchType === 'scrims' || (tournament as any).isScrim);
+
     const tabProps = {
         tournament, setTournament, setParticipants, tournamentEarning, participants, fetchingParticipants, selectedGroup, selectedMatch, setSelectedMatch, matchScore, newGroup, newMatchData, gameStartGroupId, discordSending, isCreateGroupModalOpen, isManageTeamsModalOpen, isUpdateScoreModalOpen, isResultUploaderOpen, isAddMatchModalOpen, setNewGroup, setSelectedGroup, setGameStartGroupId, setMatchScore, setNewMatchData, setIsCreateGroupModalOpen, setIsManageTeamsModalOpen, setIsUpdateScoreModalOpen, setIsResultUploaderOpen, setIsAddMatchModalOpen, handleUpdateStatus, handleUpdateStage, handleAdvanceRound, handleAutoGenerateGroups, handleCreateGroup, handleDeleteGroup, handleSetGroupRoom, handleAssignTeam, handleRemoveTeam, handleDiscord, handleAddMatch, handleUpdateScore, handleGenerateBracket, handleGenerateGroupMatches, getTeamName, showToast
     };
@@ -98,14 +100,19 @@ export default function TournamentAdminPanel() {
 
             {/* Navigation Tabs — scrollable on mobile, wrap on desktop */}
             <div className="flex overflow-x-auto gap-2 sm:gap-3 mb-6 sm:mb-8 pb-2 custom-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0">
-                {[
+                {(isScrim ? [
+                    { id: 'overview', label: 'Overview', icon: Settings },
+                    { id: 'matches', label: 'Match Schedule', icon: Calendar },
+                    { id: 'participants', label: 'Registrations', icon: ShieldCheck },
+                    { id: 'settings', label: 'Settings', icon: Settings },
+                ] : [
                     { id: 'overview', label: 'Overview', icon: Settings },
                     { id: 'groups', label: 'Groups & Teams', icon: Users },
                     { id: 'matches', label: 'Match Schedule', icon: Calendar },
                     { id: 'brackets', label: 'Brackets', icon: Trophy },
                     { id: 'settings', label: 'Settings', icon: Settings },
                     { id: 'participants', label: 'Registrations', icon: ShieldCheck },
-                ].map(tab => (
+                ]).map(tab => (
                     <button type="button"
                         key={tab.id}
                         onClick={() => setActiveTab(tab.id as any)}
@@ -124,9 +131,9 @@ export default function TournamentAdminPanel() {
             <div className="bg-dark/50 rounded-2xl sm:rounded-[2rem] border border-gray-800 p-4 sm:p-6 lg:p-8">
                 <AnimatePresence mode="wait">
                     {activeTab === 'overview' && <TabErrorBoundary tabName="Overview Tab" resetKey={activeTab}><OverviewTab {...tabProps} /></TabErrorBoundary>}
-                    {activeTab === 'groups' && <TabErrorBoundary tabName="Groups Tab" resetKey={activeTab}><GroupsTab {...tabProps} /></TabErrorBoundary>}
+                    {!isScrim && activeTab === 'groups' && <TabErrorBoundary tabName="Groups Tab" resetKey={activeTab}><GroupsTab {...tabProps} /></TabErrorBoundary>}
                     {activeTab === 'matches' && <TabErrorBoundary tabName="Matches Tab" resetKey={activeTab}><MatchesTab {...tabProps} /></TabErrorBoundary>}
-                    {activeTab === 'brackets' && <TabErrorBoundary tabName="Brackets Tab" resetKey={activeTab}><BracketsTab {...tabProps} /></TabErrorBoundary>}
+                    {!isScrim && activeTab === 'brackets' && <TabErrorBoundary tabName="Brackets Tab" resetKey={activeTab}><BracketsTab {...tabProps} /></TabErrorBoundary>}
                     {activeTab === 'settings' && <TabErrorBoundary tabName="Settings Tab" resetKey={activeTab}><SettingsTab {...tabProps} /></TabErrorBoundary>}
                     {activeTab === 'participants' && <TabErrorBoundary tabName="Participants Tab" resetKey={activeTab}><ParticipantsTab {...tabProps} /></TabErrorBoundary>}
                 </AnimatePresence>
