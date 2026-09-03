@@ -217,26 +217,64 @@ export const OrgOverlayManager: React.FC<OrgOverlayManagerProps> = ({
 
       {/* SCRIM SLOTS */}
       {activeOverlay === 'SCRIM_SLOTS' && (
-        <Modal isOpen onClose={onClose} title={`Slot Grid — ${scrimTitle ?? ''}`} maxWidth="sm:max-w-2xl">
-          <div className="p-6">
-            <p className="text-sm text-gray-400 mb-4">
-              Click any open slot to assign a team. Click a filled slot to release it.
-            </p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-3">
-              {slotGrid?.map((slot) => (
-                <button
-                  key={slot.slotNumber}
-                  onClick={() => onToggleSlot?.(slot.slotNumber)}
-                  className={`p-3 rounded-lg border text-xs font-medium transition-colors min-h-[44px] ${
-                    slot.status === 'filled'
-                      ? 'bg-green-500/10 border-green-500/30 text-green-400 hover:bg-green-500/20'
-                      : 'bg-card border-gray-800 text-gray-500 hover:border-gray-600 hover:text-gray-300'
-                  }`}
-                >
-                  <span className="block text-[10px] text-gray-500 mb-1">Slot {slot.slotNumber}</span>
-                  {slot.teamName ?? 'Open'}
-                </button>
-              ))}
+        <Modal isOpen onClose={onClose} title={`Slot Manager — ${scrimTitle ?? 'Scrim'}`} maxWidth="sm:max-w-3xl">
+          <div className="p-6 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-gray-800">
+              <p className="text-xs text-gray-400">
+                Click an open slot to manually reserve it. Click a filled slot to release/remove the registered team.
+              </p>
+              <div className="flex items-center gap-3 text-xs">
+                <span className="flex items-center gap-1.5 text-emerald-400 font-semibold">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                  Filled ({slotGrid?.filter(s => s.status === 'filled').length || 0})
+                </span>
+                <span className="flex items-center gap-1.5 text-slate-400 font-semibold">
+                  <span className="w-2 h-2 rounded-full bg-slate-700" />
+                  Open ({slotGrid?.filter(s => s.status !== 'filled').length || 0})
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 max-h-[60vh] overflow-y-auto pr-1">
+              {slotGrid?.map((slot: any) => {
+                const isFilled = slot.status === 'filled';
+                return (
+                  <button
+                    key={slot.slotNumber}
+                    type="button"
+                    onClick={() => onToggleSlot?.(slot.slotNumber)}
+                    className={`p-3 rounded-xl border text-left transition-all min-h-[68px] flex flex-col justify-between cursor-pointer ${
+                      isFilled
+                        ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-300 hover:bg-emerald-950/50 hover:border-emerald-400 shadow-sm'
+                        : 'bg-card/60 border-gray-800 text-gray-400 hover:border-gray-700 hover:text-white'
+                    }`}
+                    title={slot.teamName ? `Slot ${slot.slotNumber}: ${slot.teamName} (Click to release)` : `Slot ${slot.slotNumber}: Open (Click to reserve)`}
+                  >
+                    <div className="flex items-center justify-between w-full">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-gray-400">
+                        Slot #{slot.slotNumber}
+                      </span>
+                      <span
+                        className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider ${
+                          isFilled ? 'bg-emerald-500/20 text-emerald-400' : 'bg-gray-800 text-gray-400'
+                        }`}
+                      >
+                        {isFilled ? 'Filled' : 'Open'}
+                      </span>
+                    </div>
+                    <div className="mt-2 min-w-0">
+                      <div className="text-xs font-bold truncate text-white">
+                        {isFilled ? (slot.teamName || `Team ${slot.slotNumber}`) : '+ Open Slot'}
+                      </div>
+                      {slot.leader && (
+                        <div className="text-[10px] text-gray-400 truncate mt-0.5">
+                          {slot.leader}
+                        </div>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
         </Modal>

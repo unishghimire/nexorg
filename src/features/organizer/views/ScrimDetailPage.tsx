@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, getDoc, onSnapshot, setDoc, updateDoc, Timestamp } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, setDoc, updateDoc, Timestamp, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../../../shared/config/firebase';
 import { useAuth } from '../../../shared/context/AuthContext';
 import { useNotification } from '../../../shared/context/NotificationContext';
@@ -169,7 +169,7 @@ export default function ScrimDetailPage() {
       const filled = countFilledScrimSlots(updatedSlots);
       const startDate = toDateSafe(editForm.startTime);
 
-      await updateDoc(doc(db, scrimCollection, id), {
+      const updatePayload = {
         title: editForm.title.trim(),
         startTime: startDate ? Timestamp.fromDate(startDate) : (editForm.startTime || ''),
         entryFee,
@@ -179,7 +179,15 @@ export default function ScrimDetailPage() {
         filledSlots: filled,
         currentPlayers: filled,
         map: editForm.map || 'Bermuda',
-      });
+        updatedAt: serverTimestamp(),
+      };
+      await Promise.all([
+        updateDoc(doc(db, 'scrims', id), updatePayload).catch(() => {}),
+        updateDoc(doc(db, 'tournaments', id), updatePayload).catch(() => {}),
+        setDoc(doc(db, 'scrims', id), updatePayload, { merge: true }).catch(() => {}),
+        setDoc(doc(db, 'tournaments', id), updatePayload, { merge: true }).catch(() => {}),
+      ]);
+      setScrim((prev: any) => prev ? { ...prev, ...updatePayload } : prev);
       showToast('Scrim updated', 'success');
       setIsEditing(false);
     } catch {

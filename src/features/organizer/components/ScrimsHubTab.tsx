@@ -1,9 +1,10 @@
 import React from 'react';
-import { Gamepad2, RefreshCw, Clock, DollarSign, Trophy, Plus, Settings2, Edit2, Trash2, Radio, Play, CheckCircle2, RotateCcw, XCircle } from 'lucide-react';
+import { Gamepad2, RefreshCw, Clock, DollarSign, Trophy, Plus, Settings2, Edit2, Trash2, Radio, Play, CheckCircle2, RotateCcw, XCircle, Users } from 'lucide-react';
 import { toDateSafe } from '../../../shared/utils/utils';
 
 export interface ScrimsHubTabProps {
   scrims: any[];
+  participants?: any[];
   onOpenSlotGrid: (scrim: any) => void;
   onToggleSlot: (scrimId: any, slotNumber?: any) => void;
   onViewDetails?: (id: string) => void;
@@ -16,6 +17,7 @@ export interface ScrimsHubTabProps {
 
 export const ScrimsHubTab: React.FC<ScrimsHubTabProps> = ({
   scrims,
+  participants = [],
   onOpenSlotGrid,
   onToggleSlot,
   onViewDetails,
@@ -106,6 +108,10 @@ export const ScrimsHubTab: React.FC<ScrimsHubTabProps> = ({
       ) : (
         <div className="grid grid-cols-1 gap-6">
           {scrims.map((scrim) => {
+            const scrimParticipants = (participants || []).filter(
+              (p) => p.tournamentId === scrim.id
+            );
+
             const totalSlots =
               typeof scrim.totalSlots === 'number'
                 ? scrim.totalSlots
@@ -115,23 +121,55 @@ export const ScrimsHubTab: React.FC<ScrimsHubTabProps> = ({
                 ? scrim.slots.length
                 : 20;
 
-            const filledSlots =
-              scrim.filledSlots !== undefined
-                ? scrim.filledSlots
-                : Array.isArray(scrim.slots)
-                ? scrim.slots.filter((s: any) => s && s.status === 'filled').length
-                : 0;
+            const rawSlots = Array.isArray(scrim.slots) ? scrim.slots : [];
+            const slotList: Array<{
+              slotNumber: number;
+              status: string;
+              teamName?: string | null;
+              leader?: string | null;
+              inGameId?: string | null;
+            }> = Array.from({ length: totalSlots }, (_, i) => {
+              const slotNum = i + 1;
+              const docSlot = rawSlots.find((s: any) => s && s.slotNumber === slotNum) || rawSlots[i];
+              const participant =
+                scrimParticipants.find((p: any) => p.slotNumber === slotNum) ||
+                scrimParticipants[i];
 
+              const isFilled =
+                Boolean(participant) ||
+                docSlot?.status === 'filled' ||
+                Boolean(docSlot?.teamName);
+
+              const teamName =
+                participant?.teamName ||
+                participant?.username ||
+                docSlot?.teamName ||
+                (isFilled ? `Team ${slotNum}` : null);
+
+              const leader =
+                participant?.username ||
+                participant?.inGameName ||
+                docSlot?.leader ||
+                null;
+
+              const inGameId =
+                participant?.inGameId ||
+                participant?.gameUid ||
+                docSlot?.inGameId ||
+                null;
+
+              return {
+                slotNumber: slotNum,
+                status: isFilled ? 'filled' : 'open',
+                teamName,
+                leader,
+                inGameId,
+              };
+            });
+
+            const filledSlots = slotList.filter((s) => s.status === 'filled').length;
             const progressPercent = Math.min(100, Math.max(0, (filledSlots / Math.max(1, totalSlots)) * 100));
-
-            const slotList: Array<{ slotNumber: number; status: string; teamName?: string | null }> =
-              Array.isArray(scrim.slots) && scrim.slots.length > 0
-                ? scrim.slots
-                : Array.from({ length: totalSlots }, (_, i) => ({
-                    slotNumber: i + 1,
-                    status: i < filledSlots ? 'filled' : 'open',
-                    teamName: i < filledSlots ? `Team ${i + 1}` : null,
-                  }));
+            const registeredTeams = slotList.filter((s) => s.status === 'filled');
 
             const statusUpper = (scrim.status || 'OPEN').toUpperCase();
 
@@ -314,24 +352,102 @@ export const ScrimsHubTab: React.FC<ScrimsHubTabProps> = ({
                   </div>
                 </div>
 
-                {/* Inline Slot Grid Preview */}
-                <div className="pt-2">
-                  <div className="grid grid-cols-5 sm:grid-cols-8 md:grid-cols-10 gap-2">
-                    {slotList.slice(0, 20).map((slot) => (
+                {/* Visual Slot Grid & Registered Teams */}
+                <div className="pt-2 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                      Interactive Slot Grid ({filledSlots}/{totalSlots})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onOpenSlotGrid(scrim)}
+                      className="text-xs font-semibold text-brand-400 hover:text-brand-300 transition cursor-pointer"
+                    >
+                      Expand Slot Manager →
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
+                    {slotList.map((slot) => (
                       <button
                         key={slot.slotNumber}
+                        type="button"
                         onClick={() => handleSlotClick(scrim.id, slot.slotNumber)}
-                        className={`p-2 rounded-lg border text-[10px] font-medium transition-colors min-h-[44px] ${
+                        className={`p-2.5 rounded-xl border text-left transition-all min-h-[52px] flex flex-col justify-between cursor-pointer ${
                           slot.status === 'filled'
-                            ? 'bg-green-500/10 border-green-500/30 text-green-400'
-                            : 'bg-card border-gray-800 text-gray-500 hover:border-gray-600'
+                            ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-300 hover:bg-emerald-950/50 hover:border-emerald-400 shadow-sm shadow-emerald-950/50'
+                            : 'bg-card/60 border-slate-800 text-slate-500 hover:border-slate-700 hover:text-slate-300'
                         }`}
-                        title={slot.teamName ? `Slot ${slot.slotNumber}: ${slot.teamName}` : `Slot ${slot.slotNumber}: Open`}
+                        title={slot.teamName ? `Slot ${slot.slotNumber}: ${slot.teamName} (Click to toggle/release)` : `Slot ${slot.slotNumber}: Open (Click to reserve)`}
                       >
-                        {slot.slotNumber}
+                        <div className="flex items-center justify-between w-full">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                            Slot #{slot.slotNumber}
+                          </span>
+                          <span
+                            className={`w-2 h-2 rounded-full ${
+                              slot.status === 'filled' ? 'bg-emerald-400 ring-2 ring-emerald-500/30' : 'bg-slate-700'
+                            }`}
+                          />
+                        </div>
+                        <div className="text-xs font-bold truncate mt-1">
+                          {slot.status === 'filled' ? (
+                            <span className="text-emerald-300 flex items-center gap-1 truncate">
+                              <Users className="w-3 h-3 flex-shrink-0 text-emerald-400" />
+                              <span className="truncate">{slot.teamName}</span>
+                            </span>
+                          ) : (
+                            <span className="text-slate-500 font-normal">+ Open</span>
+                          )}
+                        </div>
                       </button>
                     ))}
                   </div>
+
+                  {/* Registered Teams Roster */}
+                  {registeredTeams.length > 0 ? (
+                    <div className="mt-3 p-3.5 bg-card/40 border border-slate-800/60 rounded-xl space-y-2">
+                      <div className="flex items-center justify-between text-xs pb-1 border-b border-slate-800/60">
+                        <span className="font-bold text-slate-200 flex items-center gap-1.5">
+                          <Users className="w-3.5 h-3.5 text-emerald-400" />
+                          Registered Teams ({registeredTeams.length})
+                        </span>
+                        <span className="text-[10px] text-slate-500">Live Roster</span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 pt-1">
+                        {registeredTeams.map((r) => (
+                          <div
+                            key={r.slotNumber}
+                            className="flex items-center justify-between p-2 rounded-lg bg-surface/50 border border-slate-800 text-xs"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-mono text-[10px] font-bold">
+                                #{r.slotNumber}
+                              </span>
+                              <div className="min-w-0">
+                                <div className="font-bold text-white truncate">{r.teamName}</div>
+                                {r.leader && (
+                                  <div className="text-[10px] text-slate-400 truncate">Leader: {r.leader}</div>
+                                )}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleSlotClick(scrim.id, r.slotNumber)}
+                              className="text-[10px] text-rose-400/80 hover:text-rose-300 px-2 py-1 rounded bg-rose-500/10 border border-rose-500/20 transition flex-shrink-0 cursor-pointer"
+                              title="Release this slot"
+                            >
+                              Release
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-2.5 bg-card/20 border border-slate-800/40 rounded-xl text-[11px] text-slate-500">
+                      No teams registered yet. All {totalSlots} slots are currently open.
+                    </div>
+                  )}
                 </div>
               </div>
             );

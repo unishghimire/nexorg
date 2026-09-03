@@ -204,10 +204,28 @@ const OrganizerPanel: React.FC = () => {
 
   const handleOpenSlotGrid = useCallback((scrim: any) => {
     if (!scrim) return;
+    const scrimParts = org.participants.filter(p => p.tournamentId === scrim.id);
     const normalizedSlots = normalizeScrimSlots(scrim.slots, scrim.totalSlots, scrim.filledSlots ?? scrim.currentPlayers);
-    setScrimSlotTarget({ ...scrim, slots: normalizedSlots });
+    
+    // Merge live registered participants into slot grid
+    const mergedSlots = normalizedSlots.map((slot, idx) => {
+      const part = scrimParts.find(p => (p as any).slotNumber === slot.slotNumber) || scrimParts[idx];
+      if (part) {
+        return {
+          ...slot,
+          status: 'filled' as const,
+          teamName: part.teamName || part.username || slot.teamName || `Team ${slot.slotNumber}`,
+          teamId: part.teamId || part.userId || slot.teamId,
+          userId: part.userId,
+          leader: part.username || (part as any).inGameName,
+        };
+      }
+      return slot;
+    });
+
+    setScrimSlotTarget({ ...scrim, slots: mergedSlots });
     setActiveOverlay('SCRIM_SLOTS');
-  }, []);
+  }, [org.participants]);
 
   const handleToggleSlot = useCallback(async (scrimIdOrSlotNumber: string | number, requestedSlotNumber?: number) => {
     const scrimId = requestedSlotNumber === undefined ? scrimSlotTarget?.id : String(scrimIdOrSlotNumber);
@@ -347,6 +365,7 @@ const OrganizerPanel: React.FC = () => {
           <TabErrorBoundary tabName="Scrims Hub Tab" resetKey={activeTab}>
             <ScrimsHubTab
               scrims={org.scrims}
+              participants={org.participants}
               onOpenSlotGrid={handleOpenSlotGrid}
               onToggleSlot={handleToggleSlot}
               onViewDetails={handleViewScrimDetails}

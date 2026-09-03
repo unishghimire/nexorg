@@ -26,6 +26,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { formatCurrency, formatGameName, toDateSafe } from '../../../shared/utils/utils';
 import { commitFirestoreBatches } from '../../../shared/utils/firestoreBatches';
 import { normalizeScrimSlots, countFilledScrimSlots, ScrimSlot } from '../../../shared/utils/scrimSlots';
+import { fetchRoomCredentials, broadcastRoomCredentials } from '../../../shared/services/roomCredentials';
 
 interface ScrimCreateModalProps {
   isOpen: boolean;
@@ -100,6 +101,13 @@ export default function ScrimCreateModal({
 
   useEffect(() => {
     if (editScrim) {
+      const startDate = toDateSafe(editScrim.startTime);
+      let formattedStartTime = '';
+      if (startDate && !isNaN(startDate.getTime())) {
+        const tzOffset = startDate.getTimezoneOffset() * 60000;
+        formattedStartTime = new Date(startDate.getTime() - tzOffset).toISOString().slice(0, 16);
+      }
+
       setFormData({
         title: editScrim.title || '',
         game: editScrim.game || 'Free Fire',
@@ -109,18 +117,26 @@ export default function ScrimCreateModal({
         totalSlots: editScrim.totalSlots || (Array.isArray(editScrim.slots) ? editScrim.slots.length : Number(editScrim.slots) || 12),
         entryFee: editScrim.entryFee || 0,
         prizePool: editScrim.prizePool || 0,
-        startTime: (() => {
-          const startDate = toDateSafe(editScrim.startTime);
-          if (!startDate) return '';
-          return new Date(startDate.getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-        })(),
+        startTime: formattedStartTime,
         bannerUrl: editScrim.bannerUrl || '',
-        // AUD-013: credentials no longer on public doc — will be fetched via credentials subcollection
-        roomId: '',
-        roomPass: '',
+        roomId: editScrim.roomId || '',
+        roomPass: editScrim.roomPass || '',
         streamUrl: editScrim.ytLink || editScrim.streamUrl || '',
         rules: editScrim.rules || '',
       });
+
+      // Load secured credentials from subcollection
+      fetchRoomCredentials(editScrim.id, undefined, 'scrims').then(creds => {
+        if (creds && (creds.roomId || creds.roomPass)) {
+          setFormData(prev => ({
+            ...prev,
+            roomId: creds.roomId || prev.roomId,
+            roomPass: creds.roomPass || prev.roomPass,
+            streamUrl: creds.streamUrl || prev.streamUrl,
+          }));
+        }
+      }).catch(() => {});
+
       setCurrentStep(1);
     } else {
       setFormData({
@@ -170,8 +186,14 @@ export default function ScrimCreateModal({
 
   const handleSubmit = async () => {
     if (!user) return;
-    if (!validateStep()) {
-      showToast('Please complete all steps correctly', 'error');
+    if (!formData.title.trim()) {
+      setCurrentStep(1);
+      showToast('Please enter a title for the scrim', 'error');
+      return;
+    }
+    if (!formData.startTime) {
+      setCurrentStep(2);
+      showToast('Please select a start date and time', 'error');
       return;
     }
     setLoading(true);
@@ -200,6 +222,10 @@ export default function ScrimCreateModal({
       }
 
       const filledSlots = countFilledScrimSlots(slots);
+      const parsedDate = toDateSafe(formData.startTime) || new Date(formData.startTime);
+      const startTimestamp = (!parsedDate || isNaN(parsedDate.getTime()))
+        ? Timestamp.now()
+        : Timestamp.fromDate(parsedDate);
 
       const scrimPayload = {
         title: formData.title.trim(),
@@ -216,11 +242,11 @@ export default function ScrimCreateModal({
         entryFee: Number(formData.entryFee) || 0,
         prizePool: Number(formData.prizePool) || 0,
         currency: 'NPR',
-        startTime: Timestamp.fromDate(new Date(formData.startTime)),
+        startTime: startTimestamp,
         bannerUrl: formData.bannerUrl || 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&q=80',
         ytLink: formData.streamUrl || '',
         rules: formData.rules,
-        hostUid: editScrim ? editScrim.hostUid : user.uid,
+        hostUid: user.uid,
         hostName: profile?.username || 'Organizer',
         status: editScrim ? editScrim.status : 'open',
         stage: editScrim ? editScrim.stage : 'registration',
@@ -228,16 +254,15 @@ export default function ScrimCreateModal({
       };
 
       if (editScrim) {
-        try {
-          await updateDoc(doc(db, 'tournaments', editScrim.id), scrimPayload);
-        } catch {
-          await updateDoc(doc(db, 'scrims', editScrim.id), scrimPayload).catch(() => {});
-        }
+        await Promise.all([
+          updateDoc(doc(db, 'tournaments', editScrim.id), scrimPayload).catch(() => {}),
+          updateDoc(doc(db, 'scrims', editScrim.id), scrimPayload).catch(() => {}),
+          setDoc(doc(db, 'scrims', editScrim.id), scrimPayload, { merge: true }).catch(() => {}),
+          setDoc(doc(db, 'tournaments', editScrim.id), scrimPayload, { merge: true }).catch(() => {}),
+        ]);
+
         if (formData.roomId || formData.roomPass) {
-          await setDoc(doc(db, 'scrims', editScrim.id, 'credentials', 'main'), {
-            roomId: formData.roomId,
-            roomPass: formData.roomPass,
-          }, { merge: true }).catch(() => {});
+          await broadcastRoomCredentials(editScrim.id, formData.roomId, formData.roomPass, formData.streamUrl, 'scrims').catch(() => {});
         }
         showToast('Scrim updated successfully!', 'success');
       } else {
@@ -254,10 +279,7 @@ export default function ScrimCreateModal({
         }).catch(() => {});
 
         if (formData.roomId || formData.roomPass) {
-          await setDoc(doc(db, 'scrims', docRef.id, 'credentials', 'main'), {
-            roomId: formData.roomId,
-            roomPass: formData.roomPass,
-          }).catch(() => {});
+          await broadcastRoomCredentials(docRef.id, formData.roomId, formData.roomPass, formData.streamUrl, 'scrims').catch(() => {});
         }
         showToast('Scrim created successfully!', 'success');
       }
