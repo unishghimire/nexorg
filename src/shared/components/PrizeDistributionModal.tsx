@@ -132,11 +132,30 @@ export const PrizeDistributionModal: React.FC<PrizeDistributionModalProps> = ({
         setTiers(event.winners);
       } else {
         const pool = totalPrizePool;
-        setTiers([
-          { rank: 1, teamName: candidateOptions[0]?.teamName || '', teamId: candidateOptions[0]?.teamId || '', userId: candidateOptions[0]?.userId || '', prize: Math.round(pool * 0.5), kills: 0, points: 15 },
-          { rank: 2, teamName: candidateOptions[1]?.teamName || '', teamId: candidateOptions[1]?.teamId || '', userId: candidateOptions[1]?.userId || '', prize: Math.round(pool * 0.3), kills: 0, points: 12 },
-          { rank: 3, teamName: candidateOptions[2]?.teamName || '', teamId: candidateOptions[2]?.teamId || '', userId: candidateOptions[2]?.userId || '', prize: Math.round(pool * 0.2), kills: 0, points: 10 },
-        ]);
+        const usedKeys = new Set<string>();
+        const defaultSplits = [0.5, 0.3, 0.2];
+        const initialTiers: WinnerPayoutEntry[] = defaultSplits.map((pct, idx) => {
+          const nextCandidate = candidateOptions.find((c) => {
+            const k = (c.teamId || c.userId || c.teamName).toLowerCase();
+            if (!usedKeys.has(k)) {
+              usedKeys.add(k);
+              return true;
+            }
+            return false;
+          });
+
+          return {
+            rank: idx + 1,
+            teamName: nextCandidate?.teamName || '',
+            teamId: nextCandidate?.teamId || '',
+            userId: nextCandidate?.userId || '',
+            prize: Math.round(pool * pct),
+            kills: 0,
+            points: 15 - idx * 3,
+          };
+        });
+
+        setTiers(initialTiers);
       }
     }
   }, [isOpen, event, totalPrizePool, candidateOptions]);
@@ -192,7 +211,35 @@ export const PrizeDistributionModal: React.FC<PrizeDistributionModalProps> = ({
   };
 
   const handleSelectTeam = (index: number, selectedValue: string) => {
+    if (!selectedValue) {
+      setTiers((prev) =>
+        prev.map((t, i) => (i === index ? { ...t, teamName: '', teamId: '', userId: '' } : t))
+      );
+      return;
+    }
+
     const found = candidateOptions.find((c) => c.teamName === selectedValue || c.teamId === selectedValue);
+    const targetTeamName = found ? found.teamName : selectedValue;
+    const targetTeamId = found?.teamId || '';
+    const targetUserId = found?.userId || '';
+
+    // Check if this candidate is already selected in another rank
+    const alreadySelectedTier = tiers.find((t, i) => {
+      if (i === index) return false;
+      const sameId = targetTeamId && t.teamId && targetTeamId.toLowerCase() === t.teamId.toLowerCase();
+      const sameUser = targetUserId && t.userId && targetUserId.toLowerCase() === t.userId.toLowerCase();
+      const sameName = targetTeamName && t.teamName && targetTeamName.trim().toLowerCase() === t.teamName.trim().toLowerCase();
+      return Boolean(sameId || sameUser || sameName);
+    });
+
+    if (alreadySelectedTier) {
+      showToast(
+        `"${targetTeamName}" is already selected for Rank #${alreadySelectedTier.rank}! Each team or player can only be assigned to one winning rank.`,
+        'error'
+      );
+      return;
+    }
+
     setTiers((prev) =>
       prev.map((t, i) => {
         if (i !== index) return t;
@@ -218,6 +265,43 @@ export const PrizeDistributionModal: React.FC<PrizeDistributionModalProps> = ({
     if (validTiers.length === 0) {
       showToast('Please assign at least one winning team with a prize amount greater than 0', 'error');
       return;
+    }
+
+    // Strict validation: Ensure no user or team is selected more than once
+    const seenUsers = new Set<string>();
+    const seenTeams = new Set<string>();
+    const seenNames = new Set<string>();
+
+    for (const t of validTiers) {
+      const userKey = (t.userId || '').trim().toLowerCase();
+      const teamIdKey = (t.teamId || '').trim().toLowerCase();
+      const nameKey = (t.teamName || '').trim().toLowerCase();
+
+      if (userKey && seenUsers.has(userKey)) {
+        showToast(
+          `Duplicate winner detected: Player "${t.teamName || t.username || userKey}" is selected multiple times (Rank #${t.rank}). Each user can only receive one rank prize.`,
+          'error'
+        );
+        return;
+      }
+      if (teamIdKey && seenTeams.has(teamIdKey)) {
+        showToast(
+          `Duplicate winner detected: Team "${t.teamName}" is selected multiple times (Rank #${t.rank}). Each team can only win one rank prize.`,
+          'error'
+        );
+        return;
+      }
+      if (nameKey && seenNames.has(nameKey)) {
+        showToast(
+          `Duplicate winner detected: "${t.teamName}" is selected multiple times (Rank #${t.rank}). Please select unique winners for each prize rank.`,
+          'error'
+        );
+        return;
+      }
+
+      if (userKey) seenUsers.add(userKey);
+      if (teamIdKey) seenTeams.add(teamIdKey);
+      if (nameKey) seenNames.add(nameKey);
     }
 
     if (totalPrizePool > 0 && Math.abs(allocatedTotal - totalPrizePool) > 0.01) {
@@ -358,11 +442,28 @@ export const PrizeDistributionModal: React.FC<PrizeDistributionModalProps> = ({
                       className="w-full bg-surface border border-gray-700 rounded-lg px-3 py-2 text-xs font-semibold text-white focus:border-brand-500 focus-visible:outline-none"
                     >
                       <option value="">-- Choose Registered Team / Player --</option>
-                      {candidateOptions.map((c, ci) => (
-                        <option key={ci} value={c.teamName}>
-                          {c.label}
-                        </option>
-                      ))}
+                      {candidateOptions.map((c, ci) => {
+                        const alreadyRank = tiers.find((t, i) => {
+                          if (i === idx) return false;
+                          const sameId = c.teamId && t.teamId && c.teamId.toLowerCase() === t.teamId.toLowerCase();
+                          const sameUser = c.userId && t.userId && c.userId.toLowerCase() === t.userId.toLowerCase();
+                          const sameName = c.teamName && t.teamName && c.teamName.trim().toLowerCase() === t.teamName.trim().toLowerCase();
+                          return Boolean(sameId || sameUser || sameName);
+                        })?.rank;
+
+                        const isSelectedElsewhere = typeof alreadyRank === 'number';
+
+                        return (
+                          <option
+                            key={ci}
+                            value={c.teamName}
+                            disabled={isSelectedElsewhere}
+                            className={isSelectedElsewhere ? 'text-gray-500 bg-gray-900/90 italic' : 'text-white bg-surface'}
+                          >
+                            {c.label} {isSelectedElsewhere ? `(Selected: Rank #${alreadyRank})` : ''}
+                          </option>
+                        );
+                      })}
                     </select>
                   ) : (
                     <input

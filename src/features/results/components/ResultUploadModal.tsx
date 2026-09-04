@@ -108,6 +108,10 @@ const ResultUploadModal: React.FC<ResultUploadModalProps> = ({ isOpen, onClose, 
     const handleWinnerChange = (index: number, field: string, value: any) => {
         const newWinners = [...winners];
         if (field === 'uid') {
+            if (value && winners.some((w, i) => i !== index && w.uid === value)) {
+                showToast('This player is already selected for another rank! Each player can only receive one prize.', 'error');
+                return;
+            }
             const p = participants.find(part => part.userId === value);
             newWinners[index] = { 
                 ...newWinners[index], 
@@ -145,6 +149,20 @@ const ResultUploadModal: React.FC<ResultUploadModalProps> = ({ isOpen, onClose, 
                 if (isNaN(res.score)) {
                     showToast('Score must be a number for all leaderboard entries.', 'error');
                     return;
+                }
+            }
+        }
+
+        // Validate unique winners for manual payout
+        if (activeTab === 'manual') {
+            const seenUids = new Set<string>();
+            for (const w of winners) {
+                if (w.uid && Number(w.amount) > 0) {
+                    if (seenUids.has(w.uid)) {
+                        showToast(`Duplicate winner detected: Player "${w.username}" is selected multiple times. Each player can only win one prize.`, 'error');
+                        return;
+                    }
+                    seenUids.add(w.uid);
                 }
             }
         }
@@ -425,9 +443,22 @@ const ResultUploadModal: React.FC<ResultUploadModalProps> = ({ isOpen, onClose, 
                                                     className="w-full bg-dark border border-gray-800 rounded-xl py-2.5 pl-9 pr-3 text-sm text-white focus:border-brand-500 focus-visible:outline-none font-bold appearance-none"
                                                 >
                                                     <option value="">Select Player</option>
-                                                    {participants.map(p => (
-                                                        <option key={p.userId} value={p.userId}>{p.username} ({p.inGameId})</option>
-                                                    ))}
+                                                    {participants.map(p => {
+                                                        const otherIndex = winners.findIndex((w, i) => i !== index && w.uid === p.userId);
+                                                        const isSelected = otherIndex !== -1;
+                                                        const otherRank = isSelected ? winners[otherIndex].rank : null;
+
+                                                        return (
+                                                            <option 
+                                                                key={p.userId} 
+                                                                value={p.userId}
+                                                                disabled={isSelected}
+                                                                className={isSelected ? 'text-gray-500 bg-gray-900/90 italic' : 'text-white'}
+                                                            >
+                                                                {p.username} ({p.inGameId}) {isSelected ? `(Selected: Rank #${otherRank})` : ''}
+                                                            </option>
+                                                        );
+                                                    })}
                                                 </select>
                                             </div>
                                         </div>

@@ -203,6 +203,37 @@ export async function executePrizeDistribution(
     throw new Error('Please specify at least one winning team or player with a prize amount greater than 0');
   }
 
+  // Authoritative duplicate winner validation:
+  // Ensure that no user or team is selected more than once across prize tiers
+  const seenUsers = new Set<string>();
+  const seenTeams = new Set<string>();
+
+  for (const w of validWinners) {
+    const userKey = (w.userId || '').trim().toLowerCase();
+    const teamKey = (w.teamName || '').trim().toLowerCase();
+    const teamIdKey = (w.teamId || '').trim().toLowerCase();
+
+    if (userKey && seenUsers.has(userKey)) {
+      throw new Error(
+        `Duplicate winner: Player "${w.username || w.teamName || userKey}" cannot be assigned multiple prize ranks.`
+      );
+    }
+    if (teamIdKey && seenTeams.has(teamIdKey)) {
+      throw new Error(
+        `Duplicate winner: Team "${w.teamName}" cannot be assigned multiple prize ranks.`
+      );
+    }
+    if (teamKey && seenTeams.has(teamKey)) {
+      throw new Error(
+        `Duplicate winner: "${w.teamName}" is assigned to multiple prize ranks. Each team can only win one rank prize.`
+      );
+    }
+
+    if (userKey) seenUsers.add(userKey);
+    if (teamIdKey) seenTeams.add(teamIdKey);
+    if (teamKey) seenTeams.add(teamKey);
+  }
+
   const totalDistributed = validWinners.reduce((sum, w) => sum + (Number(w.prize) || 0), 0);
 
   // If prize pool is specified, ensure allocated amount does not exceed prize pool
