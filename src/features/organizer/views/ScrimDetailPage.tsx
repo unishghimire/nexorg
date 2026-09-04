@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, getDoc, onSnapshot, setDoc, updateDoc, deleteDoc, collection, query, where, Timestamp, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, setDoc, updateDoc, deleteDoc, collection, query, where, Timestamp, serverTimestamp, increment } from 'firebase/firestore';
 import { db, auth } from '../../../shared/config/firebase';
 import { useAuth } from '../../../shared/context/AuthContext';
 import { useNotification } from '../../../shared/context/NotificationContext';
@@ -8,6 +8,7 @@ import { fetchRoomCredentials, broadcastRoomCredentials } from '../../../shared/
 import { countFilledScrimSlots, normalizeScrimSlots, getScrimSlotCount } from '../../../shared/utils/scrimSlots';
 import { fetchDedicatedTeams, resolveSlotTeam, DedicatedTeamsLookup } from '../../../shared/utils/teamUtils';
 import { releaseSlotWithRefund } from '../../../shared/services/slotRefundService';
+import { NotificationService } from '../../../shared/services/NotificationService';
 import { toDateSafe } from '../../../shared/utils/utils';
 import { DEFAULT_BANNER } from '../../../shared/constants/constants';
 import {
@@ -584,6 +585,69 @@ export default function ScrimDetailPage() {
         } catch {}
       }
 
+      if (!payoutViaApi) {
+        // Resilient client-side prize payout fallback: credit each winner's wallet
+        for (const tier of validTiers) {
+          const winnerUserId = tier.userId;
+          const prizeAmount = Number(tier.prize || 0);
+          if (winnerUserId && prizeAmount > 0) {
+            let directSuccess = false;
+            try {
+              const uRef = doc(db, 'users', winnerUserId);
+              await updateDoc(uRef, {
+                balance: increment(prizeAmount),
+                updatedAt: serverTimestamp(),
+              });
+              directSuccess = true;
+            } catch (uErr) {
+              console.warn('Direct winner balance update deferred to pending queue:', uErr);
+            }
+
+            // Write to pending_refunds queue so player's AuthContext auto-claims it
+            const claimId = `PRIZE_${id}_rank${tier.rank}_${Date.now()}`;
+            await setDoc(doc(db, 'pending_refunds', claimId), {
+              id: claimId,
+              userId: winnerUserId,
+              amount: prizeAmount,
+              scrimId: id,
+              scrimTitle: scrim.title || 'Scrim',
+              rank: tier.rank,
+              teamName: tier.teamName,
+              status: directSuccess ? 'completed' : 'pending',
+              creditedDirectly: directSuccess,
+              reason: `Tournament prize payout for Rank #${tier.rank}`,
+              createdAt: serverTimestamp(),
+              releasedBy: user?.uid || 'organizer',
+            }, { merge: true }).catch(() => {});
+
+            // Record transaction
+            const txRef = doc(collection(db, 'transactions'));
+            await setDoc(txRef, {
+              id: txRef.id,
+              userId: winnerUserId,
+              username: tier.teamName || 'Winner',
+              type: 'prize_payout',
+              amount: prizeAmount,
+              method: 'Prize Pool Distribution',
+              status: 'success',
+              refId: `PRZ-${id.slice(0, 8)}-${tier.rank}-${Date.now().toString().slice(-4)}`,
+              desc: `Prize payout for Rank #${tier.rank} in ${scrim.title || 'Scrim'}`,
+              tournamentId: id,
+              timestamp: serverTimestamp(),
+            }).catch(() => {});
+
+            // Send notification
+            await NotificationService.create(
+              winnerUserId,
+              'Prize Won! 🏆',
+              `Congratulations! You placed #${tier.rank} in "${scrim.title || 'Scrim'}" and won Rs. ${prizeAmount.toLocaleString()}! The prize has been credited to your wallet balance.`,
+              'success',
+              '/wallet'
+            ).catch(() => {});
+          }
+        }
+      }
+
       // Release all slots after payment and result are finalized
       const totalSlotCount = Number(scrim.totalSlots) || (Array.isArray(scrim.slots) ? scrim.slots.length : 12);
       const releasedSlots = Array.from({ length: totalSlotCount }, (_, idx) => ({
@@ -795,7 +859,7 @@ export default function ScrimDetailPage() {
                   setEditForm({
                     title: scrim.title || '',
                     startTime: startFormatted,
-                    entryFee: scrim.entryFee || 0,
+                    entryFee: scrim.entryFee ?? scrim.requirements?.entryFee ?? 0,
                     prizePool: scrim.prizePool || 0,
                     slots: scrim.totalSlots || (Array.isArray(scrim.slots) ? scrim.slots.length : Number(scrim.slots) || 12),
                     map: scrim.map || ''
@@ -1034,7 +1098,7 @@ export default function ScrimDetailPage() {
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-1.5"><DollarSign className="w-3 h-3" /> Entry Fee</p>
-                  <p className="text-sm text-white">{formatRupees(scrim.entryFee)}</p>
+                  <p className="text-sm text-white">{formatRupees(scrim.entryFee ?? scrim.requirements?.entryFee ?? 0)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-1.5"><Trophy className="w-3 h-3" /> Prize Pool</p>
@@ -1435,10 +1499,19 @@ export default function ScrimDetailPage() {
                       onChange={(e) => {
                         const selectedTeam = e.target.value;
                         const matchedSlot = slots.find(s => s.teamName === selectedTeam);
+                        const matchedPart = participants.find(p => p.teamName === selectedTeam || (matchedSlot?.userId && p.userId === matchedSlot.userId));
+                        const resolvedUserId = (
+                          matchedSlot?.userId ||
+                          (matchedSlot as any)?.captainUid ||
+                          (matchedSlot as any)?.reservedBy ||
+                          matchedPart?.userId ||
+                          (matchedSlot?.teamId && !matchedSlot.teamId.startsWith('manual_') ? matchedSlot.teamId : null) ||
+                          ''
+                        );
                         const updated = [...winnerTiers];
                         updated[idx].teamName = selectedTeam;
-                        updated[idx].teamId = matchedSlot?.teamId || '';
-                        updated[idx].userId = (matchedSlot as any)?.userId || matchedSlot?.teamId || user?.uid || '';
+                        updated[idx].teamId = matchedSlot?.teamId || matchedPart?.teamId || '';
+                        updated[idx].userId = resolvedUserId;
                         setWinnerTiers(updated);
                       }}
                       className="w-full bg-black border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-amber-500 focus-visible:outline-none"

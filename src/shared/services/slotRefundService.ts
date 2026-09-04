@@ -59,6 +59,7 @@ export async function releaseSlotWithRefund(
           tournamentId: scrimId,
           slotNumber,
           userId: params.targetSlot?.userId || params.participants?.find((p) => p.slotNumber === slotNumber)?.userId,
+          entryFee: params.entryFee,
         }),
       });
 
