@@ -1,5 +1,4 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
 import {
   Wallet,
   ArrowUpRight,
@@ -39,8 +38,12 @@ export const WalletPayoutsTab: React.FC<WalletPayoutsTabProps> = ({
   kpis = { orgWalletBalance: 0, escrowBalance: 0, pendingPayouts: 0 },
   transactions = [],
 }) => {
-  const navigate = useNavigate();
   const { profile } = useAuth();
+  const MAIN_WALLET_URL = 'https://www.nexplayorg.app/wallet';
+
+  const redirectToMainWallet = () => {
+    window.location.href = MAIN_WALLET_URL;
+  };
 
   // User's registered NexPlay wallet balance is authoritative
   const registeredBalance = typeof profile?.balance === 'number' 
@@ -150,15 +153,14 @@ export const WalletPayoutsTab: React.FC<WalletPayoutsTabProps> = ({
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => navigate('/wallet')}
-          className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-brand-500/20 active:scale-95 transition-all self-start sm:self-auto"
+        <a
+          href={MAIN_WALLET_URL}
+          className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-brand-500/20 active:scale-95 transition-all self-start sm:self-auto cursor-pointer"
         >
           <Wallet className="w-4 h-4" />
           <span>Open Main Wallet</span>
           <ArrowUpRight className="w-3.5 h-3.5 opacity-70" />
-        </button>
+        </a>
       </div>
 
       {/* 2. Financial Overview Cards */}
@@ -183,13 +185,12 @@ export const WalletPayoutsTab: React.FC<WalletPayoutsTabProps> = ({
               <TrendingUp className="w-3 h-3 text-emerald-400 shrink-0" />
               Available to withdraw
             </span>
-            <button
-              type="button"
-              onClick={() => navigate('/wallet')}
-              className="text-[11px] font-black text-emerald-400 hover:text-emerald-300 underline underline-offset-2 flex items-center gap-1 transition-colors"
+            <a
+              href={MAIN_WALLET_URL}
+              className="text-[11px] font-black text-emerald-400 hover:text-emerald-300 underline underline-offset-2 flex items-center gap-1 transition-colors cursor-pointer"
             >
               Cash Out <ArrowUpRight className="w-3 h-3" />
-            </button>
+            </a>
           </div>
         </div>
 
@@ -261,23 +262,21 @@ export const WalletPayoutsTab: React.FC<WalletPayoutsTabProps> = ({
           </div>
 
           <div className="flex flex-col sm:flex-row lg:flex-col gap-3 w-full lg:w-auto shrink-0">
-            <button
-              type="button"
-              onClick={() => navigate('/wallet')}
-              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-dark font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-500/20 active:scale-95 transition-all"
+            <a
+              href={MAIN_WALLET_URL}
+              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-dark font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-500/20 active:scale-95 transition-all cursor-pointer"
             >
               <ArrowDownToLine className="w-4 h-4" />
               <span>Withdraw to Bank / eSewa</span>
               <ArrowUpRight className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate('/wallet')}
-              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-card hover:bg-card/80 border border-slate-700 text-slate-300 hover:text-white font-bold text-xs uppercase tracking-wider transition-all"
+            </a>
+            <a
+              href={MAIN_WALLET_URL}
+              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-card hover:bg-card/80 border border-slate-700 text-slate-300 hover:text-white font-bold text-xs uppercase tracking-wider transition-all cursor-pointer"
             >
               <Coins className="w-4 h-4 text-brand-400" />
               <span>Deposit / Pre-fund Prizes</span>
-            </button>
+            </a>
           </div>
         </div>
       </div>
@@ -291,13 +290,12 @@ export const WalletPayoutsTab: React.FC<WalletPayoutsTabProps> = ({
               Live audit record of entry fees, prize payouts, and account credits.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => navigate('/wallet')}
-            className="text-xs text-brand-400 hover:text-brand-300 font-black uppercase tracking-wider flex items-center gap-1 self-start sm:self-auto transition-colors"
+          <a
+            href={MAIN_WALLET_URL}
+            className="text-xs text-brand-400 hover:text-brand-300 font-black uppercase tracking-wider flex items-center gap-1 self-start sm:self-auto transition-colors cursor-pointer"
           >
             View Full Statement <ArrowUpRight className="w-3.5 h-3.5" />
-          </button>
+          </a>
         </div>
 
         {transactions.length === 0 ? (
