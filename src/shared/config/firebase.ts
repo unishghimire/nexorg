@@ -14,7 +14,7 @@ const firebaseConfig = {
     messagingSenderId: (import.meta as any).env?.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfigJson.messagingSenderId,
     appId: (import.meta as any).env?.VITE_FIREBASE_APP_ID || firebaseConfigJson.appId,
     measurementId: (import.meta as any).env?.VITE_FIREBASE_MEASUREMENT_ID || firebaseConfigJson.measurementId,
-    databaseURL: (import.meta as any).env?.VITE_FIREBASE_DATABASE_URL || firebaseConfigJson.databaseURL || `https://${firebaseConfigJson.projectId || 'nexplayorg-app'}-default-rtdb.firebaseio.com`,
+    databaseURL: (import.meta as any).env?.VITE_FIREBASE_DATABASE_URL || firebaseConfigJson.databaseURL || 'https://nexplayorg-app-default-rtdb.asia-southeast1.firebasedatabase.app',
 };
 
 // Initialize Firebase once
@@ -27,7 +27,7 @@ appleProvider.addScope('email');
 appleProvider.addScope('name');
 
 // Initialize Realtime Database (RTDB) Singleton
-const rtdbUrl = (firebaseConfig as any).databaseURL || `https://${(firebaseConfig as any).projectId || 'nexplayorg-app'}-default-rtdb.firebaseio.com`;
+const rtdbUrl = (firebaseConfig as any).databaseURL || 'https://nexplayorg-app-default-rtdb.asia-southeast1.firebasedatabase.app';
 export const rtdb: Database = getDatabase(app, rtdbUrl);
 
 // ponytail: explicitly set browserLocalPersistence (the default, but setting it

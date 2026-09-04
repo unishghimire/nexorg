@@ -1,0 +1,34 @@
+{
+  "rules": {
+    "rooms": {
+      "$roomId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    "matches": {
+      "$matchId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    "presence": {
+      "$userId": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid == $userId"
+      }
+    },
+    "liveTournaments": {
+      "$tournamentId": {
+        ".read": true,
+        ".write": "auth != null"
+      }
+    },
+    "live_matches": {
+      "$tournamentId": {
+        ".read": true,
+        ".write": "auth != null"
+      }
+    }
+  }
+}
