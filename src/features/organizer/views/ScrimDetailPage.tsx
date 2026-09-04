@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, getDoc, onSnapshot, setDoc, updateDoc, deleteDoc, Timestamp, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, setDoc, updateDoc, deleteDoc, collection, query, where, Timestamp, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../../../shared/config/firebase';
 import { useAuth } from '../../../shared/context/AuthContext';
 import { useNotification } from '../../../shared/context/NotificationContext';
@@ -12,7 +12,8 @@ import {
   ChevronLeft, Save, Radio, Users, DollarSign, Calendar,
   Gamepad2, Edit2, Check, X, Lock, Unlock, Copy, Trophy,
   Clock, MapPin, Play, CheckCircle2, RotateCcw, Trash2, Share2,
-  Award, Medal, Flame, Plus, Trash, AlertCircle, TrendingUp
+  Award, Medal, Flame, Plus, Trash, AlertCircle, TrendingUp,
+  ShieldCheck, UserCheck, UserX, ExternalLink, Search
 } from 'lucide-react';
 
 const formatRupees = (n: number = 0) => `Rs. ${new Intl.NumberFormat('en-IN').format(n)}`;
@@ -53,6 +54,16 @@ export default function ScrimDetailPage() {
     { rank: 3, teamName: '', teamId: '', userId: '', prize: 0, kills: 0, points: 0 },
   ]);
   const [submittingPayout, setSubmittingPayout] = useState(false);
+
+  // Live Registered Participants & Slot Inspector State
+  const [participants, setParticipants] = useState<any[]>([]);
+  const [selectedSlot, setSelectedSlot] = useState<any | null>(null);
+  const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+  const [assignSlotNumber, setAssignSlotNumber] = useState<number | null>(null);
+  const [manualTeamName, setManualTeamName] = useState('');
+  const [manualLeader, setManualLeader] = useState('');
+  const [manualUid, setManualUid] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   // --- Load scrim ---
   useEffect(() => {
@@ -143,9 +154,22 @@ export default function ScrimDetailPage() {
       setLoading(false);
     });
 
+    // Subscribe to live registered participants for this scrim
+    const unsubParticipants = onSnapshot(
+      query(collection(db, 'participants'), where('tournamentId', '==', id)),
+      (snapshot) => {
+        const parts = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        setParticipants(parts);
+      },
+      (err) => {
+        console.warn('Participants subscription error:', err);
+      }
+    );
+
     return () => {
       unsubScrims();
       if (unsubTournaments) unsubTournaments();
+      unsubParticipants();
     };
   }, [id, user, profile?.role, navigate, showToast, retryKey]);
 
@@ -201,27 +225,165 @@ export default function ScrimDetailPage() {
     }
   }, [id, scrim, editForm, scrimCollection, showToast]);
 
+  const handleReleaseSlot = useCallback(async (slotNumber: number) => {
+    if (!scrim || !id) return;
+    try {
+      const currentSlots = normalizeScrimSlots(scrim.slots, scrim.totalSlots, scrim.filledSlots ?? scrim.currentPlayers);
+      const targetSlot: any = currentSlots.find((s: any) => s.slotNumber === slotNumber);
+      const newSlots = currentSlots.map((s: any) => {
+        if (s.slotNumber !== slotNumber) return s;
+        return {
+          slotNumber: s.slotNumber,
+          status: 'open' as const,
+          teamName: null,
+          teamId: null,
+          userId: null,
+          leader: null,
+        };
+      });
+      const filled = countFilledScrimSlots(newSlots);
+
+      const updatePayload = {
+        slots: newSlots,
+        filledSlots: filled,
+        currentPlayers: filled,
+        updatedAt: serverTimestamp(),
+      };
+
+      await Promise.all([
+        updateDoc(doc(db, 'scrims', id), updatePayload).catch(() => {}),
+        updateDoc(doc(db, 'tournaments', id), updatePayload).catch(() => {}),
+        setDoc(doc(db, 'scrims', id), updatePayload, { merge: true }).catch(() => {}),
+        setDoc(doc(db, 'tournaments', id), updatePayload, { merge: true }).catch(() => {}),
+      ]);
+
+      // Remove corresponding participant record if present
+      const matchParts = participants.filter(p => 
+        (p as any).slotNumber === slotNumber ||
+        (targetSlot?.teamId && (p.teamId === targetSlot.teamId || p.userId === targetSlot.teamId)) ||
+        (targetSlot?.userId && p.userId === targetSlot.userId) ||
+        (targetSlot?.teamName && targetSlot.teamName !== 'Reserved' && p.teamName === targetSlot.teamName)
+      );
+      for (const p of matchParts) {
+        await deleteDoc(doc(db, 'participants', p.id)).catch(() => {});
+      }
+
+      setParticipants(prev => prev.filter(p => !matchParts.some(mp => mp.id === p.id)));
+      setScrim((prev: any) => prev ? { ...prev, ...updatePayload } : prev);
+      setSelectedSlot(null);
+      showToast(`Slot #${slotNumber} released & cleared!`, 'success');
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to release slot', 'error');
+    }
+  }, [scrim, id, participants, showToast]);
+
+  const handleManualAssignSlot = useCallback(async (slotNumber: number, teamName: string, leader?: string, inGameId?: string) => {
+    if (!scrim || !id || !teamName.trim()) {
+      showToast('Please enter a team name', 'error');
+      return;
+    }
+    try {
+      const currentSlots = normalizeScrimSlots(scrim.slots, scrim.totalSlots, scrim.filledSlots ?? scrim.currentPlayers);
+      const newSlots = currentSlots.map((s: any) => {
+        if (s.slotNumber !== slotNumber) return s;
+        return {
+          slotNumber: s.slotNumber,
+          status: 'filled' as const,
+          teamName: teamName.trim(),
+          teamId: `manual_${Date.now()}`,
+          userId: null,
+          leader: leader?.trim() || teamName.trim(),
+          inGameId: inGameId?.trim() || null,
+        };
+      });
+      const filled = countFilledScrimSlots(newSlots);
+
+      const updatePayload = {
+        slots: newSlots,
+        filledSlots: filled,
+        currentPlayers: filled,
+        updatedAt: serverTimestamp(),
+      };
+
+      await Promise.all([
+        updateDoc(doc(db, 'scrims', id), updatePayload).catch(() => {}),
+        updateDoc(doc(db, 'tournaments', id), updatePayload).catch(() => {}),
+      ]);
+
+      setScrim((prev: any) => prev ? { ...prev, ...updatePayload } : prev);
+      setIsAssignModalOpen(false);
+      setManualTeamName('');
+      setManualLeader('');
+      setManualUid('');
+      showToast(`Slot #${slotNumber} reserved for "${teamName.trim()}"!`, 'success');
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to reserve slot', 'error');
+    }
+  }, [scrim, id, showToast]);
+
+  const handleToggleLockRemainingSlots = useCallback(async () => {
+    if (!scrim || !id) return;
+    try {
+      const currentSlots = normalizeScrimSlots(scrim.slots, scrim.totalSlots, scrim.filledSlots ?? scrim.currentPlayers);
+      const hasLocked = currentSlots.some((s: any) => s.status === 'locked');
+
+      const newSlots = currentSlots.map((s: any) => {
+        if (s.status === 'filled') return s;
+        return {
+          ...s,
+          status: hasLocked ? ('open' as const) : ('locked' as const),
+          teamName: hasLocked ? null : 'Locked by Host',
+        };
+      });
+
+      const updatePayload = {
+        slots: newSlots,
+        updatedAt: serverTimestamp(),
+      };
+
+      await Promise.all([
+        updateDoc(doc(db, 'scrims', id), updatePayload).catch(() => {}),
+        updateDoc(doc(db, 'tournaments', id), updatePayload).catch(() => {}),
+      ]);
+
+      setScrim((prev: any) => prev ? { ...prev, slots: newSlots } : prev);
+      showToast(hasLocked ? 'All remaining slots unlocked!' : 'All remaining open slots locked!', 'info');
+    } catch {
+      showToast('Failed to toggle slot locks', 'error');
+    }
+  }, [scrim, id, showToast]);
+
   const handleToggleSlot = useCallback(async (slotNumber: number) => {
     if (!scrim || !id) return;
 
     try {
       const slotsArray = normalizeScrimSlots(scrim.slots, scrim.totalSlots, scrim.filledSlots ?? scrim.currentPlayers);
 
+      const target = slotsArray.find((s: any) => s.slotNumber === slotNumber);
+      if (target?.status === 'filled') {
+        // If filled, prompt release
+        await handleReleaseSlot(slotNumber);
+        return;
+      }
+
+      // If open, reserve it
       const newSlots = slotsArray.map((s: any) => {
         if (s.slotNumber !== slotNumber) return s;
-        if (s.status === 'filled') return { ...s, status: 'open', teamName: null, teamId: null, userId: null };
-        return { ...s, status: 'filled', teamName: 'Reserved', teamId: null, userId: null };
+        return { ...s, status: 'filled' as const, teamName: 'Reserved', teamId: null, userId: null, leader: 'Host Reserved' };
       });
       const filled = countFilledScrimSlots(newSlots);
-      await updateDoc(doc(db, scrimCollection, id), { slots: newSlots, filledSlots: filled, currentPlayers: filled });
-      const altCollection = scrimCollection === 'tournaments' ? 'scrims' : 'tournaments';
-      await updateDoc(doc(db, altCollection, id), { slots: newSlots, filledSlots: filled, currentPlayers: filled }).catch(() => {});
-      setScrim((prev: any) => prev ? { ...prev, slots: newSlots, filledSlots: filled, currentPlayers: filled } : prev);
-      showToast(`Slot ${slotNumber} toggled`, 'info');
+      const updatePayload = { slots: newSlots, filledSlots: filled, currentPlayers: filled, updatedAt: serverTimestamp() };
+
+      await Promise.all([
+        updateDoc(doc(db, 'scrims', id), updatePayload).catch(() => {}),
+        updateDoc(doc(db, 'tournaments', id), updatePayload).catch(() => {}),
+      ]);
+      setScrim((prev: any) => prev ? { ...prev, ...updatePayload } : prev);
+      showToast(`Slot ${slotNumber} reserved`, 'info');
     } catch {
       showToast('Failed to toggle slot', 'error');
     }
-  }, [scrim, id, scrimCollection, showToast]);
+  }, [scrim, id, handleReleaseSlot, showToast]);
 
   const handleBroadcast = useCallback(async () => {
     if (!id) return;
@@ -267,11 +429,19 @@ export default function ScrimDetailPage() {
           currentPlayers: 0,
           completedAt: serverTimestamp(),
         };
+
+        // Clean up registered participants for this finished match
+        for (const p of participants) {
+          await deleteDoc(doc(db, 'participants', p.id)).catch(() => {});
+        }
+        setParticipants([]);
       }
 
       await Promise.all([
         updateDoc(doc(db, 'scrims', id), updatePayload).catch(() => {}),
         updateDoc(doc(db, 'tournaments', id), updatePayload).catch(() => {}),
+        setDoc(doc(db, 'scrims', id), updatePayload, { merge: true }).catch(() => {}),
+        setDoc(doc(db, 'tournaments', id), updatePayload, { merge: true }).catch(() => {}),
       ]);
       setScrim((prev: any) => prev ? { ...prev, ...updatePayload } : prev);
       showToast(
@@ -429,6 +599,12 @@ export default function ScrimDetailPage() {
         updatedAt: serverTimestamp(),
       };
 
+      // Clean up registered participants for this finalized scrim
+      for (const p of participants) {
+        await deleteDoc(doc(db, 'participants', p.id)).catch(() => {});
+      }
+      setParticipants([]);
+
       await Promise.all([
         updateDoc(doc(db, 'scrims', id!), winnerPayload).catch(() => {}),
         updateDoc(doc(db, 'tournaments', id!), winnerPayload).catch(() => {}),
@@ -484,11 +660,50 @@ export default function ScrimDetailPage() {
     );
   }
 
-  const slots = normalizeScrimSlots(scrim.slots, scrim.totalSlots, scrim.filledSlots ?? scrim.currentPlayers);
+  const rawSlots: any[] = normalizeScrimSlots(scrim.slots, scrim.totalSlots, scrim.filledSlots ?? scrim.currentPlayers);
+  const slots: any[] = rawSlots.map((slot: any) => {
+    const part = participants.find((p: any) =>
+      p.slotNumber === slot.slotNumber ||
+      (slot.teamId && (p.teamId === slot.teamId || p.userId === slot.teamId)) ||
+      (slot.userId && p.userId === slot.userId) ||
+      (slot.teamName && slot.teamName !== 'Reserved' && p.teamName === slot.teamName)
+    );
+
+    if (part) {
+      return {
+        ...slot,
+        status: 'filled' as const,
+        teamName: slot.teamName || part.teamName || part.username || `Team ${slot.slotNumber}`,
+        teamId: slot.teamId || part.teamId || part.userId,
+        userId: slot.userId || part.userId,
+        leader: slot.leader || part.username || (part as any).inGameName || 'Player',
+        inGameId: (slot as any).inGameId || part.inGameId || (part as any).gameUid || null,
+        inGameName: (part as any).inGameName || part.username || null,
+        teammates: part.teammates || (part as any).members || [],
+        joinedAt: part.timestamp || part.createdAt || (part as any).joinedAt || null,
+        participantId: part.id,
+      };
+    }
+
+    return slot;
+  });
+
   const filledCount = countFilledScrimSlots(slots);
   const totalCount = slots.length;
   const fillPercent = totalCount > 0 ? (filledCount / totalCount) * 100 : 0;
-  const filledTeams = slots.filter(s => s.status === 'filled' && s.teamName && s.teamName !== 'Reserved');
+  const filledTeams: any[] = slots.filter((s: any) => s.status === 'filled' && s.teamName && s.teamName !== 'Reserved');
+
+  const filteredTeams: any[] = filledTeams.filter((s: any) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      (s.teamName && s.teamName.toLowerCase().includes(q)) ||
+      (s.leader && s.leader.toLowerCase().includes(q)) ||
+      (s.inGameName && s.inGameName.toLowerCase().includes(q)) ||
+      (s.inGameId && String(s.inGameId).includes(q)) ||
+      String(s.slotNumber).includes(q)
+    );
+  });
 
   const totalAllocatedPrize = winnerTiers.reduce((acc, t) => acc + (Number(t.prize) || 0), 0);
   const scrimPrizePool = Number(scrim.prizePool) || 0;
@@ -859,48 +1074,245 @@ export default function ScrimDetailPage() {
 
         {/* Right: Slot grid */}
         <div className="bg-dark/50 border border-gray-800 rounded-lg p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-base font-semibold text-white flex items-center gap-2">
-              <Users className="w-4 h-4 text-brand-500" /> Slot Management
-            </h3>
-            <span className="text-xs text-gray-500">{filledCount}/{totalCount} filled</span>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+            <div>
+              <h3 className="text-base font-semibold text-white flex items-center gap-2">
+                <Users className="w-4 h-4 text-brand-500" /> Slot Management
+              </h3>
+              <p className="text-xs text-gray-500 mt-0.5">Click filled slot for player details & kick; click open slot to reserve or assign.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleToggleLockRemainingSlots}
+                className="px-3 py-1.5 rounded-lg border border-gray-700 bg-surface hover:bg-card text-gray-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                title="Toggle lock status for all remaining open slots"
+              >
+                {slots.some((s: any) => s.status === 'locked') ? (
+                  <>
+                    <Unlock className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Unlock Open Slots</span>
+                  </>
+                ) : (
+                  <>
+                    <Lock className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Lock Open Slots</span>
+                  </>
+                )}
+              </button>
+              <span className="text-xs font-bold text-gray-400 bg-surface px-2.5 py-1 rounded-lg border border-gray-800">
+                {filledCount}/{totalCount} filled
+              </span>
+            </div>
           </div>
 
           {/* Progress bar */}
           <div className="w-full h-2 bg-surface rounded-full mb-4 overflow-hidden">
-            <div className="h-full bg-brand-500 rounded-full transition-colors" style={{ width: `${fillPercent}%` }} />
+            <div className="h-full bg-brand-500 rounded-full transition-colors duration-300" style={{ width: `${fillPercent}%` }} />
           </div>
 
-          <p className="text-xs text-gray-500 mb-3">Click any slot to toggle reservation.</p>
-
           {/* Slot grid */}
-          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2.5">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5">
             {slots.length > 0 ? slots.map((slot: any) => (
               <button
                 key={slot.slotNumber}
-                onClick={() => handleToggleSlot(slot.slotNumber)}
-                className={`p-3 rounded-lg border text-xs font-medium transition-colors min-h-[60px] flex flex-col items-center justify-center ${
+                type="button"
+                onClick={() => {
+                  if (slot.status === 'filled') {
+                    setSelectedSlot(slot);
+                  } else if (slot.status === 'locked') {
+                    handleToggleSlot(slot.slotNumber);
+                  } else {
+                    setAssignSlotNumber(slot.slotNumber);
+                    setManualTeamName('');
+                    setManualLeader('');
+                    setManualUid('');
+                    setIsAssignModalOpen(true);
+                  }
+                }}
+                className={`p-3 rounded-xl border text-xs font-medium transition-all min-h-[64px] flex flex-col justify-between cursor-pointer text-left ${
                   slot.status === 'filled'
-                    ? 'bg-green-500/10 border-green-500/30 text-green-400 hover:bg-green-500/20'
-                    : 'bg-card border-gray-800 border-dashed text-gray-500 hover:border-gray-600 hover:text-gray-300'
+                    ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-300 hover:bg-emerald-950/50 hover:border-emerald-400 shadow-sm'
+                    : slot.status === 'locked'
+                    ? 'bg-rose-950/20 border-rose-500/30 text-rose-300 hover:bg-rose-950/30'
+                    : 'bg-card/70 border-gray-800 border-dashed text-gray-400 hover:border-gray-600 hover:text-white'
                 }`}
               >
-                <span className="text-xs text-gray-500 mb-0.5">Slot {slot.slotNumber}</span>
-                {slot.status === 'filled' ? (
-                  <span className="flex items-center gap-1 text-[11px] truncate max-w-full px-1">
-                    <Lock className="w-3 h-3 flex-shrink-0" /> {slot.teamName || 'Reserved'}
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-1 text-[11px]">
-                    <Unlock className="w-3 h-3" /> Open
-                  </span>
-                )}
+                <div className="flex items-center justify-between w-full">
+                  <span className="text-[10px] font-mono font-bold text-gray-400">#{slot.slotNumber}</span>
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      slot.status === 'filled'
+                        ? 'bg-emerald-400 ring-2 ring-emerald-500/30'
+                        : slot.status === 'locked'
+                        ? 'bg-rose-500'
+                        : 'bg-gray-700'
+                    }`}
+                  />
+                </div>
+                <div className="mt-1 min-w-0">
+                  {slot.status === 'filled' ? (
+                    <>
+                      <div className="font-bold text-white text-xs truncate flex items-center gap-1">
+                        <Users className="w-3 h-3 text-emerald-400 shrink-0" />
+                        <span className="truncate">{slot.teamName || 'Reserved'}</span>
+                      </div>
+                      {slot.leader && (
+                        <div className="text-[10px] text-gray-400 truncate mt-0.5">
+                          {slot.leader}
+                        </div>
+                      )}
+                    </>
+                  ) : slot.status === 'locked' ? (
+                    <div className="text-[11px] text-rose-400 font-semibold flex items-center gap-1">
+                      <Lock className="w-3 h-3" /> Locked
+                    </div>
+                  ) : (
+                    <div className="text-[11px] text-gray-400 font-normal flex items-center gap-1 group-hover:text-white">
+                      <Plus className="w-3 h-3" /> Open Slot
+                    </div>
+                  )}
+                </div>
               </button>
             )) : (
               <p className="col-span-full text-center text-xs text-gray-500 py-8">No slots configured.</p>
             )}
           </div>
         </div>
+      </div>
+
+      {/* Detailed Confirmed Teams & Players Section */}
+      <div className="bg-dark/50 border border-gray-800 rounded-2xl p-5 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-gray-800">
+          <div>
+            <h3 className="text-base font-bold text-white flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-brand-500" />
+              Registered Teams & Player Rosters ({filledTeams.length})
+            </h3>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Live roster inspect, In-Game UIDs, teammates, and slot release actions.
+            </p>
+          </div>
+          <div className="relative w-full sm:w-64">
+            <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search team, player, UID..."
+              className="w-full bg-black border border-gray-800 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white focus:outline-none focus:border-brand-500"
+            />
+          </div>
+        </div>
+
+        {/* Table of Confirmed Teams */}
+        {filteredTeams.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left">
+              <thead className="text-gray-500 uppercase font-mono border-b border-gray-800/80">
+                <tr>
+                  <th className="pb-3 px-3">Slot</th>
+                  <th className="pb-3 px-4">Team</th>
+                  <th className="pb-3 px-4">Leader / IGN</th>
+                  <th className="pb-3 px-4">Free Fire UID</th>
+                  <th className="pb-3 px-4">Teammates</th>
+                  <th className="pb-3 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-800/50">
+                {filteredTeams.map((s) => (
+                  <tr key={s.slotNumber} className="hover:bg-surface/30 transition-colors">
+                    <td className="py-3 px-3 font-mono font-bold text-brand-400">
+                      #{s.slotNumber}
+                    </td>
+                    <td className="py-3 px-4 font-bold text-white">
+                      <div className="flex items-center gap-2">
+                        <Users className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <span>{s.teamName}</span>
+                      </div>
+                    </td>
+                    <td className="py-3 px-4 text-gray-300">
+                      <div>
+                        <span className="font-semibold">{s.leader || '—'}</span>
+                        {s.inGameName && s.inGameName !== s.leader && (
+                          <span className="text-gray-500 block text-[10px]">IGN: {s.inGameName}</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="py-3 px-4 font-mono text-gray-300">
+                      {s.inGameId ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-brand-400 font-semibold">{s.inGameId}</span>
+                          <button
+                            type="button"
+                            onClick={() => copyToClipboard(s.inGameId, `tbl_uid_${s.slotNumber}`)}
+                            className="p-1 rounded hover:bg-surface text-gray-400 hover:text-white transition-colors cursor-pointer"
+                            title="Copy UID"
+                          >
+                            {copied === `tbl_uid_${s.slotNumber}` ? (
+                              <Check className="w-3.5 h-3.5 text-emerald-400" />
+                            ) : (
+                              <Copy className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-gray-600">—</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4">
+                      {Array.isArray(s.teammates) && s.teammates.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {s.teammates.slice(0, 3).map((m: any, i: number) => {
+                            const mName = typeof m === 'string' ? m : (m?.name || m?.inGameName || m?.username || `T${i+1}`);
+                            return (
+                              <span key={i} className="px-1.5 py-0.5 rounded bg-surface border border-gray-800 text-[10px] text-gray-300">
+                                {mName}
+                              </span>
+                            );
+                          })}
+                          {s.teammates.length > 3 && (
+                            <span className="px-1.5 py-0.5 rounded bg-surface text-gray-500 text-[10px]">
+                              +{s.teammates.length - 3}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-gray-600">—</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedSlot(s)}
+                          className="px-2.5 py-1 rounded-lg bg-surface hover:bg-card border border-gray-700 text-gray-300 hover:text-white text-[11px] font-semibold transition-colors cursor-pointer"
+                        >
+                          Details
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (window.confirm(`Release slot #${s.slotNumber} ("${s.teamName}")?`)) {
+                              handleReleaseSlot(s.slotNumber);
+                            }
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 text-[11px] font-semibold transition-colors cursor-pointer"
+                        >
+                          Release
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="py-8 text-center text-gray-500 text-xs">
+            {searchQuery ? `No teams match "${searchQuery}"` : 'No teams have registered yet. All slots are currently open.'}
+          </div>
+        )}
       </div>
 
       {/* Multi-Tier Winner Settlement Modal */}
@@ -1106,6 +1518,238 @@ export default function ScrimDetailPage() {
                   </>
                 )}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Slot Player Details Modal */}
+      {selectedSlot && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-gray-950 border border-gray-800 rounded-2xl max-w-md w-full p-6 space-y-5 shadow-2xl relative">
+            <div className="flex items-center justify-between border-b border-gray-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-mono font-black text-sm">
+                  #{selectedSlot.slotNumber}
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white flex items-center gap-2">
+                    {selectedSlot.teamName || `Slot ${selectedSlot.slotNumber}`}
+                  </h3>
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+                    <ShieldCheck className="w-3 h-3" /> Confirmed Team Roster
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedSlot(null)}
+                className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-card transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Details body */}
+            <div className="space-y-3 text-xs">
+              {/* Leader / Player */}
+              <div className="p-3 rounded-xl bg-card border border-gray-800 space-y-1">
+                <span className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Team Leader / Registered By</span>
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-white text-sm">{selectedSlot.leader || selectedSlot.teamName || 'N/A'}</span>
+                  {selectedSlot.inGameName && (
+                    <span className="text-gray-400 font-mono text-xs">IGN: {selectedSlot.inGameName}</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Free Fire In-Game UID */}
+              {selectedSlot.inGameId && (
+                <div className="p-3 rounded-xl bg-card border border-gray-800 flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-gray-500 tracking-wider block">Free Fire In-Game UID</span>
+                    <span className="font-mono font-bold text-brand-400 text-sm">{selectedSlot.inGameId}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard(selectedSlot.inGameId, `modal_uid_${selectedSlot.slotNumber}`)}
+                    className="px-2.5 py-1.5 rounded-lg bg-surface hover:bg-card border border-gray-700 text-gray-300 hover:text-white flex items-center gap-1 text-[11px] transition-colors cursor-pointer"
+                  >
+                    {copied === `modal_uid_${selectedSlot.slotNumber}` ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-green-400" />
+                        <span>Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>Copy UID</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+
+              {/* Teammates Roster */}
+              {Array.isArray(selectedSlot.teammates) && selectedSlot.teammates.length > 0 && (
+                <div className="p-3 rounded-xl bg-card border border-gray-800 space-y-2">
+                  <span className="text-[10px] uppercase font-bold text-gray-500 tracking-wider block">
+                    Squad Teammates ({selectedSlot.teammates.length})
+                  </span>
+                  <div className="grid grid-cols-2 gap-2">
+                    {selectedSlot.teammates.map((m: any, mIdx: number) => {
+                      const memberName = typeof m === 'string' ? m : (m?.name || m?.inGameName || m?.username || `Member ${mIdx + 1}`);
+                      const memberUid = typeof m === 'object' ? (m?.inGameId || m?.uid || m?.id) : null;
+                      return (
+                        <div key={mIdx} className="p-2 rounded-lg bg-surface/60 border border-gray-800 text-[11px]">
+                          <div className="font-semibold text-white truncate">{memberName}</div>
+                          {memberUid && <div className="text-[10px] font-mono text-gray-400">UID: {memberUid}</div>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Additional Meta */}
+              <div className="grid grid-cols-2 gap-2 text-[11px] text-gray-400 p-2">
+                <div>
+                  <span className="block text-[10px] text-gray-500 uppercase">Slot Status</span>
+                  <span className="text-emerald-400 font-bold uppercase">Locked / Active</span>
+                </div>
+                {selectedSlot.joinedAt && (
+                  <div>
+                    <span className="block text-[10px] text-gray-500 uppercase">Registered</span>
+                    <span className="text-white">
+                      {toDateSafe(selectedSlot.joinedAt)?.toLocaleDateString() || 'Recently'}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-between gap-3 pt-2 border-t border-gray-800">
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm(`Release slot #${selectedSlot.slotNumber} ("${selectedSlot.teamName}")? This will remove the team from the lobby.`)) {
+                    handleReleaseSlot(selectedSlot.slotNumber);
+                  }
+                }}
+                className="px-4 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                <UserX className="w-4 h-4" /> Release & Kick Slot
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedSlot(null)}
+                className="px-4 py-2 rounded-xl bg-card border border-gray-800 hover:bg-surface text-gray-300 text-xs font-bold transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manual Slot Assignment Modal */}
+      {isAssignModalOpen && assignSlotNumber !== null && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-gray-950 border border-gray-800 rounded-2xl max-w-md w-full p-6 space-y-5 shadow-2xl relative">
+            <div className="flex items-center justify-between border-b border-gray-800 pb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-brand-500/20 border border-brand-500/30 flex items-center justify-center text-brand-400 font-mono font-black text-sm">
+                  #{assignSlotNumber}
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white">Assign Slot #{assignSlotNumber}</h3>
+                  <p className="text-xs text-gray-400">Reserve or register a team directly for this slot.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAssignModalOpen(false);
+                  setAssignSlotNumber(null);
+                }}
+                className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-card transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block text-xs text-gray-400 uppercase font-semibold mb-1.5">
+                  Team Name <span className="text-red-400">*</span>
+                </label>
+                <input
+                  value={manualTeamName}
+                  onChange={(e) => setManualTeamName(e.target.value)}
+                  placeholder="e.g. Total Gaming"
+                  className="w-full bg-black border border-gray-800 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-brand-500"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 uppercase font-semibold mb-1.5">
+                  Leader Name / IGN (Optional)
+                </label>
+                <input
+                  value={manualLeader}
+                  onChange={(e) => setManualLeader(e.target.value)}
+                  placeholder="e.g. Ajay"
+                  className="w-full bg-black border border-gray-800 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-brand-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 uppercase font-semibold mb-1.5">
+                  In-Game UID (Optional)
+                </label>
+                <input
+                  value={manualUid}
+                  onChange={(e) => setManualUid(e.target.value)}
+                  placeholder="e.g. 192837465"
+                  className="w-full bg-black border border-gray-800 rounded-xl p-3 text-sm text-white font-mono focus:outline-none focus:border-brand-500"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-2 pt-2 border-t border-gray-800">
+              <button
+                type="button"
+                onClick={() => {
+                  handleManualAssignSlot(assignSlotNumber, 'Reserved', 'Host Reserved');
+                }}
+                className="px-3 py-2 rounded-xl bg-card border border-gray-800 hover:bg-surface text-gray-300 text-xs font-semibold transition-colors cursor-pointer"
+              >
+                Quick Reserve (Host)
+              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAssignModalOpen(false);
+                    setAssignSlotNumber(null);
+                  }}
+                  className="px-3 py-2 rounded-xl text-gray-400 hover:text-white text-xs font-medium cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!manualTeamName.trim()) {
+                      showToast('Please enter a team name', 'error');
+                      return;
+                    }
+                    handleManualAssignSlot(assignSlotNumber, manualTeamName, manualLeader, manualUid);
+                  }}
+                  className="px-4 py-2 rounded-xl bg-brand-500 hover:bg-brand-400 text-white text-xs font-bold transition-colors shadow-md shadow-brand-500/20 cursor-pointer"
+                >
+                  Assign & Save
+                </button>
+              </div>
             </div>
           </div>
         </div>

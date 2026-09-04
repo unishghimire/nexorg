@@ -644,17 +644,41 @@ export function useOrgData() {
     if (ownerId && ownerId !== user.uid && profile?.role !== 'admin' && profile?.role !== 'organizer') throw new Error('Not authorized');
 
     const currentSlots = normalizeScrimSlots(data.slots, data.totalSlots, data.filledSlots ?? data.currentPlayers);
+    const targetSlot: any = currentSlots.find((s: any) => s.slotNumber === slotNumber);
+    const willRelease = targetSlot?.status === 'filled';
+
     const newSlots = currentSlots.map((s: any) => {
       if (s.slotNumber !== slotNumber) return s;
-      if (s.status === 'filled') return { ...s, status: 'open', teamName: null, teamId: null };
-      return { ...s, status: 'filled', teamName: 'Reserved', teamId: null };
+      if (s.status === 'filled') return { ...s, status: 'open', teamName: null, teamId: null, userId: null, leader: null };
+      return { ...s, status: 'filled', teamName: 'Reserved', teamId: null, userId: null, leader: 'Host Reserved' };
     });
     const filled = countFilledScrimSlots(newSlots);
 
+    const updatePayload = { slots: newSlots, filledSlots: filled, currentPlayers: filled, updatedAt: serverTimestamp() };
+
     await Promise.all([
-      updateDoc(targetDocRef, { slots: newSlots, filledSlots: filled, currentPlayers: filled, updatedAt: serverTimestamp() }),
-      updateDoc(doc(db, targetCollection === 'tournaments' ? 'scrims' : 'tournaments', scrimId), { slots: newSlots, filledSlots: filled, currentPlayers: filled, updatedAt: serverTimestamp() }).catch(() => {}),
+      updateDoc(targetDocRef, updatePayload).catch(() => {}),
+      updateDoc(doc(db, targetCollection === 'tournaments' ? 'scrims' : 'tournaments', scrimId), updatePayload).catch(() => {}),
+      setDoc(targetDocRef, updatePayload, { merge: true }).catch(() => {}),
+      setDoc(doc(db, targetCollection === 'tournaments' ? 'scrims' : 'tournaments', scrimId), updatePayload, { merge: true }).catch(() => {}),
     ]);
+
+    if (willRelease) {
+      try {
+        const pSnap = await getDocs(query(collection(db, 'participants'), where('tournamentId', '==', scrimId)));
+        for (const pDoc of pSnap.docs) {
+          const p = pDoc.data();
+          if (
+            p.slotNumber === slotNumber ||
+            (targetSlot?.teamId && (p.teamId === targetSlot.teamId || p.userId === targetSlot.teamId)) ||
+            (targetSlot?.userId && p.userId === targetSlot.userId) ||
+            (targetSlot?.teamName && targetSlot.teamName !== 'Reserved' && p.teamName === targetSlot.teamName)
+          ) {
+            await deleteDoc(doc(db, 'participants', pDoc.id)).catch(() => {});
+          }
+        }
+      } catch {}
+    }
   }, [user, profile?.role]);
 
   const toggleRosterLock = useCallback(async (teamId: string) => {

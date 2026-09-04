@@ -165,18 +165,14 @@ export default function TournamentDetails() {
         };
     }, [id, navigate, showToast]);
 
-    // Participants roster subscription — full roster is only readable by the
-    // tournament host or an admin (BUG-037). Non-hosts get their own
-    // registration only, so the full list is not subscribed for them.
+    // Live participants roster subscription
     useEffect(() => {
         if (!id) return;
-        const isHostOrAdmin = tournament?.hostUid === user?.uid || user?.role === 'admin';
-        if (!isHostOrAdmin) return;
         const unsubParticipants = onSnapshot(query(collection(db, 'participants'), where('tournamentId', '==', id)), (snapshot) => {
             setParticipants(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-        }, (err) => console.warn('Participants subscription failed:', err));
+        }, (err) => console.warn('Participants subscription warning:', err));
         return () => unsubParticipants();
-    }, [id, tournament, user]);
+    }, [id]);
 
     // Independent effect for join status (depends on user/profile which might resolve later)
     useEffect(() => {
@@ -536,7 +532,14 @@ export default function TournamentDetails() {
             )
         )
     );
-    const canAccessRoom = Boolean(isJoined || isSlotReserved || isHostOrAdmin);
+    const isUserInParticipants = Boolean(
+        user && participants.some(p => 
+            p.userId === user.uid || 
+            (profile?.teamId && p.teamId === profile.teamId) || 
+            (profile?.username && (p.username === profile.username || p.teamName === profile.username))
+        )
+    );
+    const canAccessRoom = Boolean(isJoined || isSlotReserved || isUserInParticipants || isHostOrAdmin);
     const effectiveRoomId = roomCreds?.roomId || tournament.roomId;
     const effectiveRoomPass = roomCreds?.roomPass || tournament.roomPass;
     const showRoom = Boolean(
@@ -915,32 +918,43 @@ export default function TournamentDetails() {
 
                                 {/* Slot Grid */}
                                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-                                    {normalizeScrimSlots(tournament.slots, getSlotCount(tournament)).map((slot) => {
-                                        const isFilled = slot.status === 'filled';
-                                        return (
-                                            <div
-                                                key={slot.slotNumber}
-                                                className={`p-3.5 rounded-xl border flex flex-col justify-between min-h-[85px] transition-all ${
-                                                    isFilled
-                                                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 shadow-sm'
-                                                        : 'bg-card/40 border-gray-800/80 text-gray-500 border-dashed'
-                                                }`}
-                                            >
-                                                <div className="flex items-center justify-between">
-                                                    <span className="text-xs font-mono font-bold text-gray-400">#{slot.slotNumber}</span>
-                                                    <span className={`w-2 h-2 rounded-full ${isFilled ? 'bg-emerald-400 animate-pulse' : 'bg-gray-700'}`} />
-                                                </div>
-                                                <div className="mt-2">
-                                                    <div className="text-xs font-black truncate text-white">
-                                                        {isFilled ? (slot.teamName || `Slot ${slot.slotNumber}`) : 'Available'}
+                                    {(() => {
+                                        const rawSlots: any[] = normalizeScrimSlots(tournament.slots, getSlotCount(tournament));
+                                        return rawSlots.map((slot: any) => {
+                                            const part = participants.find((p: any) =>
+                                                p.slotNumber === slot.slotNumber ||
+                                                (slot.teamId && (p.teamId === slot.teamId || p.userId === slot.teamId)) ||
+                                                (slot.userId && p.userId === slot.userId) ||
+                                                (slot.teamName && slot.teamName !== 'Reserved' && p.teamName === slot.teamName)
+                                            );
+                                            const isFilled = slot.status === 'filled' || Boolean(part);
+                                            const teamName = slot.teamName || part?.teamName || part?.username;
+
+                                            return (
+                                                <div
+                                                    key={slot.slotNumber}
+                                                    className={`p-3.5 rounded-xl border flex flex-col justify-between min-h-[85px] transition-all ${
+                                                        isFilled
+                                                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 shadow-sm'
+                                                            : 'bg-card/40 border-gray-800/80 text-gray-500 border-dashed'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-xs font-mono font-bold text-gray-400">#{slot.slotNumber}</span>
+                                                        <span className={`w-2 h-2 rounded-full ${isFilled ? 'bg-emerald-400 animate-pulse' : 'bg-gray-700'}`} />
                                                     </div>
-                                                    <div className="text-[10px] text-gray-400 mt-0.5 uppercase tracking-wider font-semibold">
-                                                        {isFilled ? 'Confirmed' : 'Open Slot'}
+                                                    <div className="mt-2 min-w-0">
+                                                        <div className="text-xs font-black truncate text-white">
+                                                            {isFilled ? (teamName || `Slot ${slot.slotNumber}`) : 'Available'}
+                                                        </div>
+                                                        <div className="text-[10px] text-gray-400 mt-0.5 uppercase tracking-wider font-semibold">
+                                                            {isFilled ? 'Confirmed' : 'Open Slot'}
+                                                        </div>
                                                     </div>
                                                 </div>
-                                            </div>
-                                        );
-                                    })}
+                                            );
+                                        });
+                                    })()}
                                 </div>
 
                                 {/* Confirmed Teams Roster Table */}
@@ -953,31 +967,86 @@ export default function TournamentDetails() {
                                             <thead className="text-gray-500 uppercase font-mono border-b border-gray-800">
                                                 <tr>
                                                     <th className="pb-3 px-2">Slot</th>
-                                                    <th className="pb-3 px-4">Team / Player</th>
+                                                    <th className="pb-3 px-4">Team</th>
+                                                    <th className="pb-3 px-4">Leader / IGN</th>
+                                                    <th className="pb-3 px-4">Free Fire UID</th>
+                                                    <th className="pb-3 px-4">Teammates</th>
                                                     <th className="pb-3 px-4">Status</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-gray-800/50">
-                                                {normalizeScrimSlots(tournament.slots, getSlotCount(tournament))
-                                                    .filter(s => s.status === 'filled')
-                                                    .map((s) => (
+                                                {(() => {
+                                                    const rawSlots: any[] = normalizeScrimSlots(tournament.slots, getSlotCount(tournament));
+                                                    const filledList = rawSlots.map((slot: any) => {
+                                                        const part = participants.find((p: any) =>
+                                                            p.slotNumber === slot.slotNumber ||
+                                                            (slot.teamId && (p.teamId === slot.teamId || p.userId === slot.teamId)) ||
+                                                            (slot.userId && p.userId === slot.userId) ||
+                                                            (slot.teamName && slot.teamName !== 'Reserved' && p.teamName === slot.teamName)
+                                                        );
+                                                        if (slot.status === 'filled' || part) {
+                                                            return {
+                                                                slotNumber: slot.slotNumber,
+                                                                teamName: slot.teamName || part?.teamName || part?.username || `Team ${slot.slotNumber}`,
+                                                                leader: slot.leader || part?.username || (part as any)?.inGameName || 'Player',
+                                                                inGameId: (slot as any).inGameId || part?.inGameId || (part as any)?.gameUid || null,
+                                                                inGameName: (part as any)?.inGameName || part?.username || null,
+                                                                teammates: part?.teammates || (part as any)?.members || [],
+                                                            };
+                                                        }
+                                                        return null;
+                                                    }).filter(Boolean) as any[];
+
+                                                    if (filledList.length === 0) {
+                                                        return (
+                                                            <tr>
+                                                                <td colSpan={6} className="py-6 text-center text-gray-500">
+                                                                    No teams registered yet. Open slots are available!
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    }
+
+                                                    return filledList.map((s) => (
                                                         <tr key={s.slotNumber} className="hover:bg-surface/30 transition-colors">
                                                             <td className="py-3 px-2 font-mono font-bold text-brand-400">Slot {s.slotNumber}</td>
-                                                            <td className="py-3 px-4 font-bold text-white">{s.teamName || `Team #${s.slotNumber}`}</td>
+                                                            <td className="py-3 px-4 font-bold text-white">{s.teamName}</td>
+                                                            <td className="py-3 px-4 text-gray-300">
+                                                                <div>
+                                                                    <span className="font-semibold">{s.leader}</span>
+                                                                    {s.inGameName && s.inGameName !== s.leader && (
+                                                                        <span className="text-gray-500 block text-[10px]">IGN: {s.inGameName}</span>
+                                                                    )}
+                                                                </div>
+                                                            </td>
+                                                            <td className="py-3 px-4 font-mono text-gray-300">
+                                                                {s.inGameId ? (
+                                                                    <span className="text-brand-400 font-semibold">{s.inGameId}</span>
+                                                                ) : (
+                                                                    <span className="text-gray-600">—</span>
+                                                                )}
+                                                            </td>
+                                                            <td className="py-3 px-4">
+                                                                {Array.isArray(s.teammates) && s.teammates.length > 0 ? (
+                                                                    <div className="flex flex-wrap gap-1">
+                                                                        {s.teammates.map((m: any, i: number) => (
+                                                                            <span key={i} className="px-1.5 py-0.5 rounded bg-surface border border-gray-800 text-[10px] text-gray-300">
+                                                                                {typeof m === 'string' ? m : (m?.name || m?.inGameName || m?.username)}
+                                                                            </span>
+                                                                        ))}
+                                                                    </div>
+                                                                ) : (
+                                                                    <span className="text-gray-600">—</span>
+                                                                )}
+                                                            </td>
                                                             <td className="py-3 px-4">
                                                                 <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-semibold">
                                                                     CONFIRMED
                                                                 </span>
                                                             </td>
                                                         </tr>
-                                                    ))}
-                                                {countFilledScrimSlots(normalizeScrimSlots(tournament.slots, getSlotCount(tournament))) === 0 && (
-                                                    <tr>
-                                                        <td colSpan={3} className="py-6 text-center text-gray-500">
-                                                            No teams registered yet. Open slots are available!
-                                                        </td>
-                                                    </tr>
-                                                )}
+                                                    ));
+                                                })()}
                                             </tbody>
                                         </table>
                                     </div>

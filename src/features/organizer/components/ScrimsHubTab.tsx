@@ -128,12 +128,18 @@ export const ScrimsHubTab: React.FC<ScrimsHubTabProps> = ({
               teamName?: string | null;
               leader?: string | null;
               inGameId?: string | null;
+              teammates?: any[];
+              teammatesCount: number;
             }> = Array.from({ length: totalSlots }, (_, i) => {
               const slotNum = i + 1;
               const docSlot = rawSlots.find((s: any) => s && s.slotNumber === slotNum) || rawSlots[i];
               const participant =
-                scrimParticipants.find((p: any) => p.slotNumber === slotNum) ||
-                scrimParticipants[i];
+                scrimParticipants.find((p: any) => 
+                  p.slotNumber === slotNum ||
+                  (docSlot?.teamId && (p.teamId === docSlot.teamId || p.userId === docSlot.teamId)) ||
+                  (docSlot?.userId && p.userId === docSlot.userId) ||
+                  (docSlot?.teamName && docSlot.teamName !== 'Reserved' && p.teamName === docSlot.teamName)
+                );
 
               const isFilled =
                 Boolean(participant) ||
@@ -158,12 +164,16 @@ export const ScrimsHubTab: React.FC<ScrimsHubTabProps> = ({
                 docSlot?.inGameId ||
                 null;
 
+              const teammates = participant?.teammates || (participant as any)?.members || [];
+
               return {
                 slotNumber: slotNum,
                 status: isFilled ? 'filled' : 'open',
                 teamName,
                 leader,
                 inGameId,
+                teammates,
+                teammatesCount: Array.isArray(teammates) ? teammates.length : 0,
               };
             });
 
@@ -433,27 +443,47 @@ export const ScrimsHubTab: React.FC<ScrimsHubTabProps> = ({
                         {registeredTeams.map((r) => (
                           <div
                             key={r.slotNumber}
-                            className="flex items-center justify-between p-2 rounded-lg bg-surface/50 border border-slate-800 text-xs"
+                            className="flex items-center justify-between p-2.5 rounded-lg bg-surface/50 border border-slate-800 text-xs gap-2"
                           >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-mono text-[10px] font-bold">
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-mono text-[10px] font-bold shrink-0">
                                 #{r.slotNumber}
                               </span>
-                              <div className="min-w-0">
-                                <div className="font-bold text-white truncate">{r.teamName}</div>
-                                {r.leader && (
-                                  <div className="text-[10px] text-slate-400 truncate">Leader: {r.leader}</div>
-                                )}
+                              <div className="min-w-0 flex-1">
+                                <div className="font-bold text-white truncate flex items-center gap-1.5">
+                                  <span className="truncate">{r.teamName}</span>
+                                  {r.teammatesCount > 0 && (
+                                    <span className="px-1.5 py-0.2 rounded bg-surface border border-slate-700 text-slate-300 text-[9px] shrink-0 font-medium">
+                                      +{r.teammatesCount} roster
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2 text-[10px] text-slate-400 truncate mt-0.5">
+                                  {r.leader && <span>Leader: <strong className="text-slate-300">{r.leader}</strong></span>}
+                                  {r.inGameId && <span className="font-mono text-emerald-400">UID: {r.inGameId}</span>}
+                                </div>
                               </div>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => handleSlotClick(scrim.id, r.slotNumber)}
-                              className="text-[10px] text-rose-400/80 hover:text-rose-300 px-2 py-1 rounded bg-rose-500/10 border border-rose-500/20 transition flex-shrink-0 cursor-pointer"
-                              title="Release this slot"
-                            >
-                              Release
-                            </button>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {onViewDetails && (
+                                <button
+                                  type="button"
+                                  onClick={() => onViewDetails(scrim.id)}
+                                  className="text-[10px] text-brand-400 hover:text-brand-300 px-2 py-1 rounded bg-brand-500/10 border border-brand-500/20 transition cursor-pointer"
+                                  title="View full details and manage"
+                                >
+                                  Details
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleSlotClick(scrim.id, r.slotNumber)}
+                                className="text-[10px] text-rose-400/80 hover:text-rose-300 px-2 py-1 rounded bg-rose-500/10 border border-rose-500/20 transition cursor-pointer"
+                                title="Release this slot"
+                              >
+                                Release
+                              </button>
+                            </div>
                           </div>
                         ))}
                       </div>
