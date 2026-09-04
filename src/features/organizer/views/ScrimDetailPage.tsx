@@ -7,6 +7,7 @@ import { useNotification } from '../../../shared/context/NotificationContext';
 import { fetchRoomCredentials, broadcastRoomCredentials } from '../../../shared/services/roomCredentials';
 import { countFilledScrimSlots, normalizeScrimSlots, getScrimSlotCount } from '../../../shared/utils/scrimSlots';
 import { fetchDedicatedTeams, resolveSlotTeam, DedicatedTeamsLookup } from '../../../shared/utils/teamUtils';
+import { releaseSlotWithRefund } from '../../../shared/services/slotRefundService';
 import { toDateSafe } from '../../../shared/utils/utils';
 import { DEFAULT_BANNER } from '../../../shared/constants/constants';
 import {
@@ -245,7 +246,17 @@ export default function ScrimDetailPage() {
     try {
       const currentSlots = normalizeScrimSlots(scrim.slots, scrim.totalSlots, scrim.filledSlots ?? scrim.currentPlayers);
       const targetSlot: any = currentSlots.find((s: any) => s.slotNumber === slotNumber);
-      const newSlots = currentSlots.map((s: any) => {
+
+      const res = await releaseSlotWithRefund({
+        scrimId: id,
+        scrimTitle: scrim.title || 'Scrim',
+        slotNumber,
+        entryFee: Number(scrim.entryFee || 0),
+        targetSlot,
+        participants,
+      });
+
+      const newSlots = res.updatedSlots || currentSlots.map((s: any) => {
         if (s.slotNumber !== slotNumber) return s;
         return {
           slotNumber: s.slotNumber,
@@ -256,37 +267,12 @@ export default function ScrimDetailPage() {
           leader: null,
         };
       });
-      const filled = countFilledScrimSlots(newSlots);
+      const filled = res.filledSlots ?? countFilledScrimSlots(newSlots);
 
-      const updatePayload = {
-        slots: newSlots,
-        filledSlots: filled,
-        currentPlayers: filled,
-        updatedAt: serverTimestamp(),
-      };
-
-      await Promise.all([
-        updateDoc(doc(db, 'scrims', id), updatePayload).catch(() => {}),
-        updateDoc(doc(db, 'tournaments', id), updatePayload).catch(() => {}),
-        setDoc(doc(db, 'scrims', id), updatePayload, { merge: true }).catch(() => {}),
-        setDoc(doc(db, 'tournaments', id), updatePayload, { merge: true }).catch(() => {}),
-      ]);
-
-      // Remove corresponding participant record if present
-      const matchParts = participants.filter(p => 
-        (p as any).slotNumber === slotNumber ||
-        (targetSlot?.teamId && (p.teamId === targetSlot.teamId || p.userId === targetSlot.teamId)) ||
-        (targetSlot?.userId && p.userId === targetSlot.userId) ||
-        (targetSlot?.teamName && targetSlot.teamName !== 'Reserved' && p.teamName === targetSlot.teamName)
-      );
-      for (const p of matchParts) {
-        await deleteDoc(doc(db, 'participants', p.id)).catch(() => {});
-      }
-
-      setParticipants(prev => prev.filter(p => !matchParts.some(mp => mp.id === p.id)));
-      setScrim((prev: any) => prev ? { ...prev, ...updatePayload } : prev);
+      setParticipants(prev => prev.filter(p => (p as any).slotNumber !== slotNumber && p.userId !== targetSlot?.userId));
+      setScrim((prev: any) => prev ? { ...prev, slots: newSlots, filledSlots: filled, currentPlayers: filled } : prev);
       setSelectedSlot(null);
-      showToast(`Slot #${slotNumber} released & cleared!`, 'success');
+      showToast(res.message, res.refunded ? 'success' : 'info');
     } catch (err: any) {
       showToast(err?.message || 'Failed to release slot', 'error');
     }
@@ -1334,7 +1320,11 @@ export default function ScrimDetailPage() {
                         <button
                           type="button"
                           onClick={() => {
-                            if (window.confirm(`Release slot #${s.slotNumber} ("${s.teamName}")?`)) {
+                            const entryFee = Number(scrim.entryFee || 0);
+                            const msg = entryFee > 0
+                              ? `Release slot #${s.slotNumber} ("${s.teamName}")? This will remove the team from the lobby and automatically refund their entry fee of Rs. ${entryFee.toLocaleString()} back to their wallet.`
+                              : `Release slot #${s.slotNumber} ("${s.teamName}")?`;
+                            if (window.confirm(msg)) {
                               handleReleaseSlot(s.slotNumber);
                             }
                           }}
@@ -1678,7 +1668,11 @@ export default function ScrimDetailPage() {
               <button
                 type="button"
                 onClick={() => {
-                  if (window.confirm(`Release slot #${selectedSlot.slotNumber} ("${selectedSlot.teamName}")? This will remove the team from the lobby.`)) {
+                  const entryFee = Number(scrim.entryFee || 0);
+                  const msg = entryFee > 0
+                    ? `Release slot #${selectedSlot.slotNumber} ("${selectedSlot.teamName}")? This will remove the team from the lobby and automatically refund their entry fee of Rs. ${entryFee.toLocaleString()} back to their wallet balance.`
+                    : `Release slot #${selectedSlot.slotNumber} ("${selectedSlot.teamName}")? This will remove the team from the lobby.`;
+                  if (window.confirm(msg)) {
                     handleReleaseSlot(selectedSlot.slotNumber);
                   }
                 }}

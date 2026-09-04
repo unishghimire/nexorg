@@ -274,8 +274,12 @@ const OrganizerPanel: React.FC = () => {
     if (!scrimId || !Number.isInteger(slotNumber) || slotNumber < 1 || isTogglingSlot) return;
     setIsTogglingSlot(true);
     try {
-      await org.toggleScrimSlot(scrimId, slotNumber);
-      showToast(`Slot ${slotNumber} toggled`, 'info');
+      const res = await org.toggleScrimSlot(scrimId, slotNumber);
+      if (res && res.refunded) {
+        showToast(`Slot ${slotNumber} released and Rs. ${res.refundAmount.toLocaleString()} entry fee refunded to team!`, 'success');
+      } else {
+        showToast(`Slot ${slotNumber} updated`, 'info');
+      }
       setScrimSlotTarget((prev: any) => {
         if (!prev || prev.id !== scrimId) return prev;
         const currentSlots = normalizeScrimSlots(prev.slots, prev.totalSlots, prev.filledSlots ?? prev.currentPlayers);

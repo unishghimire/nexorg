@@ -221,7 +221,7 @@ export const OrgOverlayManager: React.FC<OrgOverlayManagerProps> = ({
           <div className="p-6 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-gray-800">
               <p className="text-xs text-gray-400">
-                Click an open slot to manually reserve it. Click a filled slot to release/remove the registered team.
+                Click an open slot to manually reserve it. Click a filled slot to release the team (entry fees will be automatically refunded).
               </p>
               <div className="flex items-center gap-3 text-xs">
                 <span className="flex items-center gap-1.5 text-emerald-400 font-semibold">
