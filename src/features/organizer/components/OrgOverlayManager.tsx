@@ -263,12 +263,22 @@ export const OrgOverlayManager: React.FC<OrgOverlayManagerProps> = ({
                       </span>
                     </div>
                     <div className="mt-2 min-w-0">
-                      <div className="text-xs font-bold truncate text-white">
-                        {isFilled ? (slot.teamName || `Team ${slot.slotNumber}`) : '+ Open Slot'}
+                      <div className="text-xs font-bold truncate text-white flex items-center gap-1.5">
+                        <span className="truncate">{isFilled ? (slot.teamName || `Team ${slot.slotNumber}`) : '+ Open Slot'}</span>
+                        {slot.teamTag && (
+                          <span className="text-[9px] px-1 py-0.2 rounded bg-blue-500/20 text-blue-400 font-mono border border-blue-500/30 shrink-0">
+                            [{slot.teamTag}]
+                          </span>
+                        )}
+                        {slot.isDedicatedTeam && (
+                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-semibold shrink-0">
+                            Team
+                          </span>
+                        )}
                       </div>
-                      {slot.leader && (
+                      {slot.leader && slot.leader !== slot.teamName && (
                         <div className="text-[10px] text-gray-400 truncate mt-0.5">
-                          {slot.leader}
+                          Leader: <span className="text-gray-300">{slot.leader}</span>
                         </div>
                       )}
                     </div>

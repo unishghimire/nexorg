@@ -13,9 +13,10 @@ import {
 import { useOrgData } from '../hooks/useOrgData';
 import { OrgOverlayManager, OverlayType } from '../components/OrgOverlayManager';
 import { Seo } from '../../../shared/components/Seo';
-import { fetchRoomCredentials } from '../../../shared/services/roomCredentials';
 import TabErrorBoundary from '../../../shared/components/TabErrorBoundary';
+import { fetchRoomCredentials } from '../../../shared/services/roomCredentials';
 import { normalizeScrimSlots, countFilledScrimSlots } from '../../../shared/utils/scrimSlots';
+import { resolveSlotTeam, fetchDedicatedTeams } from '../../../shared/utils/teamUtils';
 
 // Lazy-load tab components
 const OverviewTab = React.lazy(() => import('../components/OverviewTab'));
@@ -213,22 +214,51 @@ const OrganizerPanel: React.FC = () => {
     }
   }, [roomDispatchTarget, roomId, roomPass, streamUrl, org, showToast]);
 
-  const handleOpenSlotGrid = useCallback((scrim: any) => {
+  const handleOpenSlotGrid = useCallback(async (scrim: any) => {
     if (!scrim) return;
     const scrimParts = org.participants.filter(p => p.tournamentId === scrim.id);
     const normalizedSlots = normalizeScrimSlots(scrim.slots, scrim.totalSlots, scrim.filledSlots ?? scrim.currentPlayers);
+
+    const isTeamFormat = (scrim.teamType || scrim.format || '').toLowerCase().includes('duo') ||
+                         (scrim.teamType || scrim.format || '').toLowerCase().includes('squad') ||
+                         (scrim.teamType || '').toLowerCase() !== 'solo';
+
+    const teamIds: string[] = [];
+    const userIds: string[] = [];
+    normalizedSlots.forEach((s: any) => {
+      if (s?.teamId) teamIds.push(s.teamId);
+      if (s?.userId) userIds.push(s.userId);
+    });
+    scrimParts.forEach((p: any) => {
+      if (p?.teamId) teamIds.push(p.teamId);
+      if (p?.userId) userIds.push(p.userId);
+    });
+
+    let teamsLookup = { teamById: new Map(), teamByUserId: new Map() };
+    if (teamIds.length > 0 || userIds.length > 0) {
+      try {
+        teamsLookup = await fetchDedicatedTeams({ teamIds, userIds });
+      } catch (e) {
+        console.warn('Failed to fetch dedicated teams for slot manager', e);
+      }
+    }
     
     // Merge live registered participants into slot grid
     const mergedSlots = normalizedSlots.map((slot, idx) => {
       const part = scrimParts.find(p => (p as any).slotNumber === slot.slotNumber) || scrimParts[idx];
-      if (part) {
+      const isFilled = Boolean(part) || slot.status === 'filled' || Boolean(slot.teamName);
+      if (isFilled) {
+        const resolved = resolveSlotTeam(slot, part, teamsLookup, isTeamFormat);
         return {
           ...slot,
           status: 'filled' as const,
-          teamName: part.teamName || part.username || slot.teamName || `Team ${slot.slotNumber}`,
-          teamId: part.teamId || part.userId || slot.teamId,
-          userId: part.userId,
-          leader: part.username || (part as any).inGameName,
+          teamName: resolved.teamName,
+          teamTag: resolved.teamTag,
+          isDedicatedTeam: resolved.isDedicatedTeam,
+          teamId: resolved.teamId || slot.teamId,
+          userId: part?.userId || slot.userId,
+          leader: resolved.leader,
+          inGameId: resolved.inGameId,
         };
       }
       return slot;

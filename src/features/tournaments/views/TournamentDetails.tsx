@@ -11,6 +11,7 @@ import { Clock, Users, Trophy, Lock, Eye, EyeOff, Play, Share2, Calendar, MapPin
 import RegistrationModal from '../components/RegistrationModal';
 import JoinTournamentModal from '../components/JoinTournamentModal';
 import { TournamentDisputeModal } from '../components/TournamentDisputeModal';
+import { fetchDedicatedTeams, resolveSlotTeam, DedicatedTeamsLookup } from '../../../shared/utils/teamUtils';
 import Modal from '../../../shared/components/Modal';
 import { motion, AnimatePresence } from 'motion/react';
 import { NotificationService } from '../../../shared/services/NotificationService';
@@ -51,6 +52,7 @@ export default function TournamentDetails() {
     const [showJoinModal, setShowJoinModal] = useState(false);
     const [showRegistrationModal, setShowRegistrationModal] = useState(false);
     const [teamMembers, setTeamMembers] = useState<any[]>([]);
+    const [dedicatedTeamsData, setDedicatedTeamsData] = useState<DedicatedTeamsLookup | null>(null);
     const [showPassword, setShowPassword] = useState(false);
     const [roomCreds, setRoomCreds] = useState<{ roomId?: string; roomPass?: string } | null>(null);
     const [hostProfile, setHostProfile] = useState<UserProfile | null>(null);
@@ -245,6 +247,19 @@ export default function TournamentDetails() {
     }, [profile?.teamId, user?.uid]);
 
     useEffect(() => {
+        if (!tournament) return;
+        const teamIds = [
+            ...participants.map(p => p.teamId),
+            ...(Array.isArray(tournament.slots) ? tournament.slots.map((s: any) => s.teamId) : []),
+        ];
+        const userIds = [
+            ...participants.map(p => p.userId),
+            ...(Array.isArray(tournament.slots) ? tournament.slots.map((s: any) => s.userId) : []),
+        ];
+        fetchDedicatedTeams({ teamIds, userIds }).then(setDedicatedTeamsData).catch(() => {});
+    }, [tournament?.id, participants, tournament?.slots]);
+
+    useEffect(() => {
         if (!tournament?.startTime) return;
 
         const startDate = toDateSafe(tournament.startTime);
@@ -373,14 +388,13 @@ export default function TournamentDetails() {
             return;
         }
 
-        // Requirement: Team Name is compulsory for solo tournaments (duo/squad use the JoinTournamentModal which has fallbacks)
-        if (tournament.teamType === 'solo' && !profile.teamName) {
-            showToast("Team Name is required for solo tournaments!", "warning");
-            navigate('/profile');
-            return;
-        }
+        const isTeamEvent = tournament.teamType === 'duo' || 
+                            tournament.teamType === 'squad' || 
+                            (tournament as any).format?.toLowerCase?.() === 'duo' || 
+                            (tournament as any).format?.toLowerCase?.() === 'squad' ||
+                            (isScrimEvent && (tournament as any).teamType !== 'solo');
 
-        if (tournament.teamType === 'duo' || tournament.teamType === 'squad') {
+        if (isTeamEvent) {
             setShowJoinModal(true);
         } else {
             setShowRegistrationModal(true);
@@ -920,6 +934,12 @@ export default function TournamentDetails() {
                                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
                                     {(() => {
                                         const rawSlots: any[] = normalizeScrimSlots(tournament.slots, getSlotCount(tournament));
+                                        const isTeamFormat = tournament.teamType === 'duo' || 
+                                                            tournament.teamType === 'squad' || 
+                                                            (tournament as any).format?.toLowerCase?.() === 'duo' || 
+                                                            (tournament as any).format?.toLowerCase?.() === 'squad' ||
+                                                            (isScrimEvent && (tournament as any).teamType !== 'solo');
+
                                         return rawSlots.map((slot: any) => {
                                             const part = participants.find((p: any) =>
                                                 p.slotNumber === slot.slotNumber ||
@@ -928,7 +948,7 @@ export default function TournamentDetails() {
                                                 (slot.teamName && slot.teamName !== 'Reserved' && p.teamName === slot.teamName)
                                             );
                                             const isFilled = slot.status === 'filled' || Boolean(part);
-                                            const teamName = slot.teamName || part?.teamName || part?.username;
+                                            const resolved = resolveSlotTeam(slot, part, dedicatedTeamsData || undefined, isTeamFormat);
 
                                             return (
                                                 <div
@@ -944,12 +964,24 @@ export default function TournamentDetails() {
                                                         <span className={`w-2 h-2 rounded-full ${isFilled ? 'bg-emerald-400 animate-pulse' : 'bg-gray-700'}`} />
                                                     </div>
                                                     <div className="mt-2 min-w-0">
-                                                        <div className="text-xs font-black truncate text-white">
-                                                            {isFilled ? (teamName || `Slot ${slot.slotNumber}`) : 'Available'}
+                                                        <div className="text-xs font-black truncate text-white flex items-center gap-1">
+                                                            {isFilled && resolved.teamTag && (
+                                                                <span className="text-[9px] px-1 py-0.2 rounded bg-brand-500/20 text-brand-400 font-mono font-bold shrink-0">
+                                                                    [{resolved.teamTag}]
+                                                                </span>
+                                                            )}
+                                                            <span className="truncate">{isFilled ? resolved.teamName : 'Available'}</span>
                                                         </div>
-                                                        <div className="text-[10px] text-gray-400 mt-0.5 uppercase tracking-wider font-semibold">
-                                                            {isFilled ? 'Confirmed' : 'Open Slot'}
-                                                        </div>
+                                                        {isFilled && resolved.leader && (
+                                                            <div className="text-[10px] text-gray-400 mt-0.5 truncate font-semibold">
+                                                                {resolved.leader}
+                                                            </div>
+                                                        )}
+                                                        {!isFilled && (
+                                                            <div className="text-[10px] text-gray-400 mt-0.5 uppercase tracking-wider font-semibold">
+                                                                Open Slot
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 </div>
                                             );
@@ -977,6 +1009,12 @@ export default function TournamentDetails() {
                                             <tbody className="divide-y divide-gray-800/50">
                                                 {(() => {
                                                     const rawSlots: any[] = normalizeScrimSlots(tournament.slots, getSlotCount(tournament));
+                                                    const isTeamFormat = tournament.teamType === 'duo' || 
+                                                                        tournament.teamType === 'squad' || 
+                                                                        (tournament as any).format?.toLowerCase?.() === 'duo' || 
+                                                                        (tournament as any).format?.toLowerCase?.() === 'squad' ||
+                                                                        (isScrimEvent && (tournament as any).teamType !== 'solo');
+
                                                     const filledList = rawSlots.map((slot: any) => {
                                                         const part = participants.find((p: any) =>
                                                             p.slotNumber === slot.slotNumber ||
@@ -985,13 +1023,16 @@ export default function TournamentDetails() {
                                                             (slot.teamName && slot.teamName !== 'Reserved' && p.teamName === slot.teamName)
                                                         );
                                                         if (slot.status === 'filled' || part) {
+                                                            const resolved = resolveSlotTeam(slot, part, dedicatedTeamsData || undefined, isTeamFormat);
                                                             return {
                                                                 slotNumber: slot.slotNumber,
-                                                                teamName: slot.teamName || part?.teamName || part?.username || `Team ${slot.slotNumber}`,
-                                                                leader: slot.leader || part?.username || (part as any)?.inGameName || 'Player',
-                                                                inGameId: (slot as any).inGameId || part?.inGameId || (part as any)?.gameUid || null,
-                                                                inGameName: (part as any)?.inGameName || part?.username || null,
-                                                                teammates: part?.teammates || (part as any)?.members || [],
+                                                                teamName: resolved.teamName,
+                                                                teamTag: resolved.teamTag,
+                                                                isDedicatedTeam: resolved.isDedicatedTeam,
+                                                                leader: resolved.leader,
+                                                                inGameId: resolved.inGameId,
+                                                                inGameName: resolved.inGameName,
+                                                                teammates: resolved.teammates,
                                                             };
                                                         }
                                                         return null;
@@ -1010,7 +1051,22 @@ export default function TournamentDetails() {
                                                     return filledList.map((s) => (
                                                         <tr key={s.slotNumber} className="hover:bg-surface/30 transition-colors">
                                                             <td className="py-3 px-2 font-mono font-bold text-brand-400">Slot {s.slotNumber}</td>
-                                                            <td className="py-3 px-4 font-bold text-white">{s.teamName}</td>
+                                                            <td className="py-3 px-4 font-bold text-white">
+                                                                <div className="flex items-center gap-2">
+                                                                    <Users className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                                                    {s.teamTag && (
+                                                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-500/20 text-brand-400 font-mono font-bold shrink-0">
+                                                                            [{s.teamTag}]
+                                                                        </span>
+                                                                    )}
+                                                                    <span>{s.teamName}</span>
+                                                                    {s.isDedicatedTeam && (
+                                                                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold uppercase tracking-wider">
+                                                                            Team
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            </td>
                                                             <td className="py-3 px-4 text-gray-300">
                                                                 <div>
                                                                     <span className="font-semibold">{s.leader}</span>
@@ -1040,8 +1096,8 @@ export default function TournamentDetails() {
                                                                 )}
                                                             </td>
                                                             <td className="py-3 px-4">
-                                                                <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-semibold">
-                                                                    CONFIRMED
+                                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 uppercase">
+                                                                    Confirmed
                                                                 </span>
                                                             </td>
                                                         </tr>

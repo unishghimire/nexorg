@@ -1,6 +1,7 @@
 import React from 'react';
 import { Gamepad2, RefreshCw, Clock, DollarSign, Trophy, Plus, Settings2, Edit2, Trash2, Radio, Play, CheckCircle2, RotateCcw, XCircle, Users } from 'lucide-react';
 import { toDateSafe } from '../../../shared/utils/utils';
+import { resolveSlotTeam, fetchDedicatedTeams, DedicatedTeamsLookup } from '../../../shared/utils/teamUtils';
 
 export interface ScrimsHubTabProps {
   scrims: any[];
@@ -57,6 +58,41 @@ export const ScrimsHubTab: React.FC<ScrimsHubTabProps> = ({
     if (formatStr.toLowerCase().includes('royale') || formatStr.toLowerCase().includes('br')) return 'Battle Royale';
     return formatStr;
   };
+
+  const [dedicatedTeamsData, setDedicatedTeamsData] = React.useState<DedicatedTeamsLookup>({
+    teamById: new Map(),
+    teamByUserId: new Map(),
+  });
+
+  React.useEffect(() => {
+    let isMounted = true;
+    const teamIds: string[] = [];
+    const userIds: string[] = [];
+
+    scrims.forEach((scrim) => {
+      (scrim.slots || []).forEach((s: any) => {
+        if (s?.teamId) teamIds.push(s.teamId);
+        if (s?.userId) userIds.push(s.userId);
+      });
+    });
+
+    participants.forEach((p: any) => {
+      if (p?.teamId) teamIds.push(p.teamId);
+      if (p?.userId) userIds.push(p.userId);
+    });
+
+    if (teamIds.length === 0 && userIds.length === 0) return;
+
+    fetchDedicatedTeams({ teamIds, userIds }).then((teamsMap) => {
+      if (isMounted) {
+        setDedicatedTeamsData(teamsMap);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [scrims, participants]);
 
   const handleSlotClick = (scrimId: string, slotNumber: number) => {
     if (typeof onToggleSlot === 'function') {
@@ -122,17 +158,24 @@ export const ScrimsHubTab: React.FC<ScrimsHubTabProps> = ({
                 : 20;
 
             const rawSlots = Array.isArray(scrim.slots) ? scrim.slots : [];
+            const isTeamFormat =
+              (scrim.teamType || scrim.format || '').toLowerCase().includes('duo') ||
+              (scrim.teamType || scrim.format || '').toLowerCase().includes('squad') ||
+              (scrim.teamType || '').toLowerCase() !== 'solo';
+
             const slotList: Array<{
               slotNumber: number;
               status: string;
               teamName?: string | null;
+              teamTag?: string | null;
+              isDedicatedTeam?: boolean;
               leader?: string | null;
               inGameId?: string | null;
               teammates?: any[];
               teammatesCount: number;
             }> = Array.from({ length: totalSlots }, (_, i) => {
               const slotNum = i + 1;
-              const docSlot = rawSlots.find((s: any) => s && s.slotNumber === slotNum) || rawSlots[i];
+              const docSlot = rawSlots.find((s: any) => s && s.slotNumber === slotNum) || rawSlots[i] || { slotNumber: slotNum, status: 'open' };
               const participant =
                 scrimParticipants.find((p: any) => 
                   p.slotNumber === slotNum ||
@@ -146,30 +189,18 @@ export const ScrimsHubTab: React.FC<ScrimsHubTabProps> = ({
                 docSlot?.status === 'filled' ||
                 Boolean(docSlot?.teamName);
 
-              const teamName =
-                participant?.teamName ||
-                participant?.username ||
-                docSlot?.teamName ||
-                (isFilled ? `Team ${slotNum}` : null);
-
-              const leader =
-                participant?.username ||
-                participant?.inGameName ||
-                docSlot?.leader ||
-                null;
-
-              const inGameId =
-                participant?.inGameId ||
-                participant?.gameUid ||
-                docSlot?.inGameId ||
-                null;
-
-              const teammates = participant?.teammates || (participant as any)?.members || [];
+              const resolved = resolveSlotTeam(docSlot, participant, dedicatedTeamsData, isTeamFormat);
+              const teamName = isFilled ? (resolved.teamName || `Team ${slotNum}`) : null;
+              const leader = resolved.leader || participant?.username || docSlot?.leader || null;
+              const inGameId = resolved.inGameId || participant?.inGameId || docSlot?.inGameId || null;
+              const teammates = resolved.teammates || [];
 
               return {
                 slotNumber: slotNum,
                 status: isFilled ? 'filled' : 'open',
                 teamName,
+                teamTag: resolved.teamTag,
+                isDedicatedTeam: resolved.isDedicatedTeam,
                 leader,
                 inGameId,
                 teammates,
@@ -420,6 +451,9 @@ export const ScrimsHubTab: React.FC<ScrimsHubTabProps> = ({
                             <span className="text-emerald-300 flex items-center gap-1 truncate">
                               <Users className="w-3 h-3 flex-shrink-0 text-emerald-400" />
                               <span className="truncate">{slot.teamName}</span>
+                              {slot.teamTag && (
+                                <span className="text-[10px] text-emerald-400 font-mono">[{slot.teamTag}]</span>
+                              )}
                             </span>
                           ) : (
                             <span className="text-slate-500 font-normal">+ Open</span>
@@ -452,6 +486,16 @@ export const ScrimsHubTab: React.FC<ScrimsHubTabProps> = ({
                               <div className="min-w-0 flex-1">
                                 <div className="font-bold text-white truncate flex items-center gap-1.5">
                                   <span className="truncate">{r.teamName}</span>
+                                  {r.teamTag && (
+                                    <span className="px-1 py-0.5 rounded bg-blue-500/20 text-blue-400 font-mono text-[9px] border border-blue-500/30">
+                                      [{r.teamTag}]
+                                    </span>
+                                  )}
+                                  {r.isDedicatedTeam && (
+                                    <span className="px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 text-[9px] border border-indigo-500/30 font-semibold">
+                                      Team
+                                    </span>
+                                  )}
                                   {r.teammatesCount > 0 && (
                                     <span className="px-1.5 py-0.2 rounded bg-surface border border-slate-700 text-slate-300 text-[9px] shrink-0 font-medium">
                                       +{r.teammatesCount} roster
@@ -459,7 +503,7 @@ export const ScrimsHubTab: React.FC<ScrimsHubTabProps> = ({
                                   )}
                                 </div>
                                 <div className="flex items-center gap-2 text-[10px] text-slate-400 truncate mt-0.5">
-                                  {r.leader && <span>Leader: <strong className="text-slate-300">{r.leader}</strong></span>}
+                                  {r.leader && r.leader !== r.teamName && <span>Leader: <strong className="text-slate-300">{r.leader}</strong></span>}
                                   {r.inGameId && <span className="font-mono text-emerald-400">UID: {r.inGameId}</span>}
                                 </div>
                               </div>

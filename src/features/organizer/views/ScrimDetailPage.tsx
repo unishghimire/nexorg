@@ -6,6 +6,7 @@ import { useAuth } from '../../../shared/context/AuthContext';
 import { useNotification } from '../../../shared/context/NotificationContext';
 import { fetchRoomCredentials, broadcastRoomCredentials } from '../../../shared/services/roomCredentials';
 import { countFilledScrimSlots, normalizeScrimSlots, getScrimSlotCount } from '../../../shared/utils/scrimSlots';
+import { fetchDedicatedTeams, resolveSlotTeam, DedicatedTeamsLookup } from '../../../shared/utils/teamUtils';
 import { toDateSafe } from '../../../shared/utils/utils';
 import { DEFAULT_BANNER } from '../../../shared/constants/constants';
 import {
@@ -64,6 +65,7 @@ export default function ScrimDetailPage() {
   const [manualLeader, setManualLeader] = useState('');
   const [manualUid, setManualUid] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [dedicatedTeamsData, setDedicatedTeamsData] = useState<DedicatedTeamsLookup | null>(null);
 
   // --- Load scrim ---
   useEffect(() => {
@@ -172,6 +174,19 @@ export default function ScrimDetailPage() {
       unsubParticipants();
     };
   }, [id, user, profile?.role, navigate, showToast, retryKey]);
+
+  useEffect(() => {
+    if (!scrim) return;
+    const teamIds = [
+      ...participants.map((p: any) => p.teamId),
+      ...(Array.isArray(scrim.slots) ? scrim.slots.map((s: any) => s.teamId) : []),
+    ];
+    const userIds = [
+      ...participants.map((p: any) => p.userId),
+      ...(Array.isArray(scrim.slots) ? scrim.slots.map((s: any) => s.userId) : []),
+    ];
+    fetchDedicatedTeams({ teamIds, userIds }).then(setDedicatedTeamsData).catch(() => {});
+  }, [scrim?.id, participants, scrim?.slots]);
 
   // --- Handlers ---
   const handleSaveEdit = useCallback(async () => {
@@ -660,6 +675,7 @@ export default function ScrimDetailPage() {
     );
   }
 
+  const isTeamFormat = scrim.teamType !== 'solo';
   const rawSlots: any[] = normalizeScrimSlots(scrim.slots, scrim.totalSlots, scrim.filledSlots ?? scrim.currentPlayers);
   const slots: any[] = rawSlots.map((slot: any) => {
     const part = participants.find((p: any) =>
@@ -669,19 +685,23 @@ export default function ScrimDetailPage() {
       (slot.teamName && slot.teamName !== 'Reserved' && p.teamName === slot.teamName)
     );
 
-    if (part) {
+    if (slot.status === 'filled' || part) {
+      const resolved = resolveSlotTeam(slot, part, dedicatedTeamsData || undefined, isTeamFormat);
       return {
         ...slot,
         status: 'filled' as const,
-        teamName: slot.teamName || part.teamName || part.username || `Team ${slot.slotNumber}`,
-        teamId: slot.teamId || part.teamId || part.userId,
-        userId: slot.userId || part.userId,
-        leader: slot.leader || part.username || (part as any).inGameName || 'Player',
-        inGameId: (slot as any).inGameId || part.inGameId || (part as any).gameUid || null,
-        inGameName: (part as any).inGameName || part.username || null,
-        teammates: part.teammates || (part as any).members || [],
-        joinedAt: part.timestamp || part.createdAt || (part as any).joinedAt || null,
-        participantId: part.id,
+        teamName: resolved.teamName,
+        isDedicatedTeam: resolved.isDedicatedTeam,
+        teamTag: resolved.teamTag,
+        teamLogoUrl: resolved.teamLogoUrl,
+        teamId: resolved.teamId || slot.teamId || part?.teamId || part?.userId,
+        userId: slot.userId || part?.userId,
+        leader: resolved.leader,
+        inGameId: resolved.inGameId,
+        inGameName: resolved.inGameName,
+        teammates: resolved.teammates,
+        joinedAt: part?.timestamp || part?.createdAt || (part as any)?.joinedAt || null,
+        participantId: part?.id,
       };
     }
 
@@ -1155,11 +1175,22 @@ export default function ScrimDetailPage() {
                     <>
                       <div className="font-bold text-white text-xs truncate flex items-center gap-1">
                         <Users className="w-3 h-3 text-emerald-400 shrink-0" />
+                        {slot.teamTag && (
+                          <span className="text-[9px] px-1 py-0.2 rounded bg-brand-500/20 text-brand-400 font-mono font-bold shrink-0">
+                            [{slot.teamTag}]
+                          </span>
+                        )}
                         <span className="truncate">{slot.teamName || 'Reserved'}</span>
+                        {slot.isDedicatedTeam && (
+                          <span className="text-[8px] px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-400 font-bold uppercase tracking-wider shrink-0">
+                            Team
+                          </span>
+                        )}
                       </div>
                       {slot.leader && (
-                        <div className="text-[10px] text-gray-400 truncate mt-0.5">
-                          {slot.leader}
+                        <div className="text-[10px] text-gray-400 truncate mt-0.5 flex items-center gap-1">
+                          <span className="text-gray-500">Leader:</span>
+                          <span className="truncate">{slot.leader}</span>
                         </div>
                       )}
                     </>
@@ -1228,7 +1259,17 @@ export default function ScrimDetailPage() {
                     <td className="py-3 px-4 font-bold text-white">
                       <div className="flex items-center gap-2">
                         <Users className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        {s.teamTag && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-500/20 text-brand-400 font-mono font-bold shrink-0">
+                            [{s.teamTag}]
+                          </span>
+                        )}
                         <span>{s.teamName}</span>
+                        {s.isDedicatedTeam && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold uppercase tracking-wider">
+                            Team
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="py-3 px-4 text-gray-300">
@@ -1533,10 +1574,15 @@ export default function ScrimDetailPage() {
                 </div>
                 <div>
                   <h3 className="text-base font-black text-white flex items-center gap-2">
-                    {selectedSlot.teamName || `Slot ${selectedSlot.slotNumber}`}
+                    {selectedSlot.teamTag && (
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-brand-500/20 text-brand-400 font-mono font-bold shrink-0">
+                        [{selectedSlot.teamTag}]
+                      </span>
+                    )}
+                    <span>{selectedSlot.teamName || `Slot ${selectedSlot.slotNumber}`}</span>
                   </h3>
                   <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-emerald-400">
-                    <ShieldCheck className="w-3 h-3" /> Confirmed Team Roster
+                    <ShieldCheck className="w-3 h-3" /> {selectedSlot.isDedicatedTeam ? 'Dedicated Team Roster' : 'Confirmed Team Roster'}
                   </span>
                 </div>
               </div>
@@ -1553,9 +1599,9 @@ export default function ScrimDetailPage() {
             <div className="space-y-3 text-xs">
               {/* Leader / Player */}
               <div className="p-3 rounded-xl bg-card border border-gray-800 space-y-1">
-                <span className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Team Leader / Registered By</span>
+                <span className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Team Captain / Registered By</span>
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-white text-sm">{selectedSlot.leader || selectedSlot.teamName || 'N/A'}</span>
+                  <span className="font-bold text-white text-sm">{selectedSlot.leader || 'Player'}</span>
                   {selectedSlot.inGameName && (
                     <span className="text-gray-400 font-mono text-xs">IGN: {selectedSlot.inGameName}</span>
                   )}

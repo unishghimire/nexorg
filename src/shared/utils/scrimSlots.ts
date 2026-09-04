@@ -1,8 +1,11 @@
 export interface ScrimSlot {
   slotNumber: number;
-  status: 'open' | 'filled';
+  status: 'open' | 'filled' | 'locked';
   teamName?: string | null;
   teamId?: string | null;
+  userId?: string | null;
+  leader?: string | null;
+  inGameId?: string | null;
 }
 
 export const SCRIM_FORMAT_SLOTS = {
@@ -34,11 +37,18 @@ export const normalizeScrimSlots = (
   if (Array.isArray(slots)) {
     return slots.map((slot, index) => {
       const record = slot && typeof slot === 'object' ? slot as Record<string, unknown> : {};
+      const rawStatus = record.status;
+      const status: 'open' | 'filled' | 'locked' =
+        rawStatus === 'filled' ? 'filled' : rawStatus === 'locked' ? 'locked' : 'open';
+
       return {
         slotNumber: toPositiveInteger(record.slotNumber, index + 1),
-        status: record.status === 'filled' ? 'filled' : 'open',
+        status,
         teamName: typeof record.teamName === 'string' ? record.teamName : null,
         teamId: typeof record.teamId === 'string' ? record.teamId : null,
+        userId: typeof record.userId === 'string' ? record.userId : null,
+        leader: typeof record.leader === 'string' ? record.leader : null,
+        inGameId: typeof record.inGameId === 'string' ? record.inGameId : null,
       };
     });
   }
@@ -47,7 +57,7 @@ export const normalizeScrimSlots = (
   const filled = Math.min(count, Math.max(0, Math.floor(Number(filledSlots) || 0)));
   return Array.from({ length: count }, (_, index) => ({
     slotNumber: index + 1,
-    status: index < filled ? 'filled' : 'open',
+    status: index < filled ? ('filled' as const) : ('open' as const),
     teamName: index < filled ? `Team ${index + 1}` : null,
     teamId: null,
   }));

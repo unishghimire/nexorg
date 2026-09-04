@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { db, auth } from '../../../shared/config/firebase';
-import { doc, collection, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, collection, setDoc, updateDoc, serverTimestamp, query, where, getDocs, getDoc } from 'firebase/firestore';
 import { normalizeScrimSlots, countFilledScrimSlots } from '../../../shared/utils/scrimSlots';
 import { Tournament, UserProfile } from '../../../shared/types/types';
 import Modal from '../../../shared/components/Modal';
@@ -56,6 +56,44 @@ const RegistrationModal: React.FC<RegistrationModalProps> = ({
                 if (Number(tournament.entryFee) > 0) {
                     throw new Error('Wallet service is currently unreachable. Please try again in a moment.');
                 }
+                // Determine team identity:
+                const isTeamFormat = tournament.teamType === 'duo' || tournament.teamType === 'squad' ||
+                    Boolean((tournament as any).format?.toLowerCase?.().includes('duo') || (tournament as any).format?.toLowerCase?.().includes('squad'));
+                
+                let finalTeamName = profile.teamName || '';
+                let finalTeamId = profile.teamId || '';
+
+                if (isTeamFormat && (!finalTeamName || finalTeamName.toLowerCase() === profile.username?.toLowerCase())) {
+                    try {
+                        const ownerQ = query(collection(db, 'teams'), where('ownerId', '==', user.uid));
+                        const ownerSnap = await getDocs(ownerQ);
+                        if (!ownerSnap.empty) {
+                            finalTeamName = ownerSnap.docs[0].data().name || finalTeamName;
+                            finalTeamId = ownerSnap.docs[0].id || finalTeamId;
+                        } else {
+                            const memberQ = query(collection(db, 'team_members'), where('userId', '==', user.uid));
+                            const memberSnap = await getDocs(memberQ);
+                            if (!memberSnap.empty) {
+                                const tid = memberSnap.docs[0].data().teamId;
+                                const tDoc = await getDoc(doc(db, 'teams', tid));
+                                if (tDoc.exists()) {
+                                    finalTeamName = tDoc.data().name || finalTeamName;
+                                    finalTeamId = tDoc.id;
+                                }
+                            }
+                        }
+                    } catch (err) {
+                        console.warn('Could not resolve dedicated team in RegistrationModal:', err);
+                    }
+                }
+
+                if (!finalTeamName) {
+                    finalTeamName = isTeamFormat ? 'Registered Team' : (profile.username || 'Player');
+                }
+                if (!finalTeamId) {
+                    finalTeamId = user.uid;
+                }
+
                 // Free event registration fallback: save participant & assign slot directly
                 const partRef = doc(collection(db, 'participants'));
                 await setDoc(partRef, {
@@ -65,8 +103,8 @@ const RegistrationModal: React.FC<RegistrationModalProps> = ({
                     username: profile.username || 'Player',
                     inGameName: profile.inGameName || profile.username,
                     inGameId: profile.inGameId || 'N/A',
-                    teamName: profile.teamName || profile.username,
-                    teamId: profile.teamId || user.uid,
+                    teamName: finalTeamName,
+                    teamId: finalTeamId,
                     timestamp: serverTimestamp(),
                     status: 'confirmed',
                 });
@@ -80,10 +118,11 @@ const RegistrationModal: React.FC<RegistrationModalProps> = ({
                             return {
                                 ...s,
                                 status: 'filled' as const,
-                                teamName: profile.teamName || profile.username,
-                                teamId: profile.teamId || user.uid,
+                                teamName: finalTeamName,
+                                teamId: finalTeamId,
                                 userId: user.uid,
-                                leader: profile.username,
+                                leader: profile.username || profile.inGameName,
+                                inGameId: profile.inGameId || null,
                             };
                         }
                         return s;

@@ -34,6 +34,7 @@ const JoinTournamentModal: React.FC<JoinTournamentModalProps> = ({
 
     const [userTeams, setUserTeams] = useState<Team[]>([]);
     const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
+    const [customTeamName, setCustomTeamName] = useState(profile?.teamName || '');
     const [availableMembers, setAvailableMembers] = useState<TeamMember[]>([]);
     const [loadingTeams, setLoadingTeams] = useState(false);
 
@@ -52,31 +53,76 @@ const JoinTournamentModal: React.FC<JoinTournamentModalProps> = ({
         if (!user) return;
         setLoadingTeams(true);
         try {
-            // Find teams owned by user or where user is a member
-            const memberQ = query(collection(db, 'team_members'), where('userId', '==', user.uid));
-            const memberSnap = await getDocs(memberQ);
-            const teamIds = Array.from(new Set(memberSnap.docs.map(d => d.data().teamId)));
+            const fetchedTeams: Team[] = [];
 
-            const ownerQ = query(collection(db, 'teams'), where('ownerId', '==', user.uid));
-            const ownerSnap = await getDocs(ownerQ);
-            const ownedTeams = ownerSnap.docs.map(d => ({ id: d.id, ...d.data() } as Team));
-
-            const fetchedTeams = [...ownedTeams];
-            for (const tid of teamIds) {
-                if (!fetchedTeams.some(t => t.id === tid)) {
-                    const tDoc = await getDoc(doc(db, 'teams', tid));
+            // 1. Direct profile.teamId check if present
+            if (profile?.teamId) {
+                try {
+                    const tDoc = await getDoc(doc(db, 'teams', profile.teamId));
                     if (tDoc.exists()) {
                         fetchedTeams.push({ id: tDoc.id, ...tDoc.data() } as Team);
                     }
+                } catch (err) {
+                    console.warn('Error loading team from profile.teamId:', err);
                 }
+            }
+
+            // 2. Teams owned by user
+            try {
+                const ownerQ = query(collection(db, 'teams'), where('ownerId', '==', user.uid));
+                const ownerSnap = await getDocs(ownerQ);
+                ownerSnap.docs.forEach(d => {
+                    if (!fetchedTeams.some(t => t.id === d.id)) {
+                        fetchedTeams.push({ id: d.id, ...d.data() } as Team);
+                    }
+                });
+            } catch (err) {
+                console.warn('Error loading owned teams:', err);
+            }
+
+            // 3. Teams where user is captain
+            try {
+                const captainQ = query(collection(db, 'teams'), where('captainId', '==', user.uid));
+                const captainSnap = await getDocs(captainQ);
+                captainSnap.docs.forEach(d => {
+                    if (!fetchedTeams.some(t => t.id === d.id)) {
+                        fetchedTeams.push({ id: d.id, ...d.data() } as Team);
+                    }
+                });
+            } catch (err) {
+                console.warn('Error loading captain teams:', err);
+            }
+
+            // 4. Teams where user is a member (team_members collection)
+            try {
+                const memberQ = query(collection(db, 'team_members'), where('userId', '==', user.uid));
+                const memberSnap = await getDocs(memberQ);
+                const teamIds = Array.from(new Set(memberSnap.docs.map(d => d.data().teamId)));
+
+                for (const tid of teamIds) {
+                    if (!fetchedTeams.some(t => t.id === tid)) {
+                        const tDoc = await getDoc(doc(db, 'teams', tid));
+                        if (tDoc.exists()) {
+                            fetchedTeams.push({ id: tDoc.id, ...tDoc.data() } as Team);
+                        }
+                    }
+                }
+            } catch (err) {
+                console.warn('Error loading member teams:', err);
             }
 
             setUserTeams(fetchedTeams);
             if (fetchedTeams.length > 0) {
                 setSelectedTeam(fetchedTeams[0]);
+                setCustomTeamName(fetchedTeams[0].name);
                 fetchTeamRoster(fetchedTeams[0].id);
-            } else if (initialTeamMembers.length > 0) {
-                setAvailableMembers(initialTeamMembers);
+            } else {
+                if (profile?.teamName) {
+                    setCustomTeamName(profile.teamName);
+                }
+                if (initialTeamMembers.length > 0) {
+                    setAvailableMembers(initialTeamMembers);
+                }
             }
         } catch (err) {
             console.warn('Error loading user teams:', err);
@@ -101,12 +147,13 @@ const JoinTournamentModal: React.FC<JoinTournamentModalProps> = ({
     const handleTeamChange = (teamId: string) => {
         const team = userTeams.find(t => t.id === teamId) || null;
         setSelectedTeam(team);
+        if (team) {
+            setCustomTeamName(team.name);
+            fetchTeamRoster(team.id);
+        }
         setTeammate1('');
         setTeammate2('');
         setTeammate3('');
-        if (team) {
-            fetchTeamRoster(team.id);
-        }
     };
 
     const handleSubmit = async () => {
@@ -146,8 +193,19 @@ const JoinTournamentModal: React.FC<JoinTournamentModalProps> = ({
             const token = await auth.currentUser?.getIdToken();
             if (!token) throw new Error('Authentication required');
 
-            const teamId = selectedTeam?.id || profile.teamId || user.uid;
-            const teamName = selectedTeam?.name || profile.teamName || profile.username || 'Registered Team';
+            const isTeamFormat = tournament.teamType === 'duo' || tournament.teamType === 'squad';
+            const rawResolvedTeamName = selectedTeam?.name || customTeamName.trim() || profile.teamName?.trim();
+
+            if (isTeamFormat) {
+                if (!rawResolvedTeamName || (profile.username && rawResolvedTeamName.toLowerCase() === profile.username.toLowerCase())) {
+                    showToast("Please enter or select your Dedicated Team Name for Duo/Squad.", "warning");
+                    setLoading(false);
+                    return;
+                }
+            }
+
+            const teamId = selectedTeam?.id || profile.teamId || `team_${user.uid.slice(0, 8)}`;
+            const teamName = rawResolvedTeamName || (isTeamFormat ? 'Registered Team' : (profile.teamName || profile.username));
 
             let joinedViaApi = false;
             try {
@@ -202,6 +260,7 @@ const JoinTournamentModal: React.FC<JoinTournamentModalProps> = ({
                                 teamId,
                                 userId: user.uid,
                                 leader: profile.username || profile.inGameName,
+                                inGameId: profile.inGameId || null,
                             };
                         }
                         return s;
@@ -235,9 +294,9 @@ const JoinTournamentModal: React.FC<JoinTournamentModalProps> = ({
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={`Join ${tournament.teamType.toUpperCase()} Tournament`}>
-            <div className="space-y-5">
+            <div className="space-y-6">
                 <div className="bg-brand-600/10 border border-brand-500/20 p-4 rounded-2xl">
-                    <div className="flex items-center gap-3 mb-3">
+                    <div className="flex items-center gap-3 mb-4">
                         <div className="w-10 h-10 bg-brand-600 rounded-xl flex items-center justify-center shadow-lg shadow-brand-600/20">
                             <Trophy className="w-6 h-6 text-white" />
                         </div>
@@ -246,34 +305,78 @@ const JoinTournamentModal: React.FC<JoinTournamentModalProps> = ({
                             <p className="text-[10px] text-brand-500 font-black uppercase tracking-widest">{formatGameName(tournament.game)} • {tournament.teamType.toUpperCase()}</p>
                         </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                        <div className="bg-dark/50 p-2.5 rounded-xl border border-white/5">
-                            <div className="text-[9px] text-gray-500 font-black uppercase tracking-widest">Entry Fee</div>
-                            <div className="text-white font-black text-sm">{tournament.entryFee > 0 ? formatCurrency(tournament.entryFee) : 'FREE'}</div>
-                        </div>
-                        <div className="bg-dark/50 p-2.5 rounded-xl border border-white/5">
-                            <div className="text-[9px] text-gray-500 font-black uppercase tracking-widest">Your Balance</div>
-                            <div className={`text-sm font-black ${profile.balance >= (tournament.entryFee || 0) ? 'text-green-400' : 'text-red-400'}`}>
-                                {formatCurrency(profile.balance || 0)}
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="bg-dark/50 p-3 rounded-xl border border-white/5">
+                            <div className="text-[9px] text-gray-500 font-black uppercase tracking-widest mb-1 flex items-center gap-1">
+                                <DollarSign className="w-3 h-3" /> Entry Fee
                             </div>
+                            <div className="text-white font-black">{tournament.entryFee > 0 ? formatCurrency(tournament.entryFee) : 'FREE'}</div>
+                        </div>
+                        <div className="bg-dark/50 p-3 rounded-xl border border-white/5">
+                            <div className="text-[9px] text-gray-500 font-black uppercase tracking-widest mb-1 flex items-center gap-1">
+                                <Users className="w-3 h-3" /> Format
+                            </div>
+                            <div className="text-white font-black uppercase">{tournament.teamType}</div>
                         </div>
                     </div>
                 </div>
 
-                {tournament.teamType !== 'solo' && userTeams.length > 0 && (
+                {tournament.teamType !== 'solo' && (
                     <div>
-                        <label className="text-[10px] text-gray-500 uppercase font-black tracking-wider mb-2 block">
-                            Select Permanent Team
-                        </label>
-                        <select
-                            value={selectedTeam?.id || ''}
-                            onChange={(e) => handleTeamChange(e.target.value)}
-                            className="w-full bg-dark border border-gray-700 rounded-xl p-3 text-white focus:border-brand-500 focus-visible:outline-none font-bold text-sm"
-                        >
-                            {userTeams.map(t => (
-                                <option key={t.id} value={t.id}>{t.name} ({t.tag || 'TEAM'})</option>
-                            ))}
-                        </select>
+                        {userTeams.length > 0 ? (
+                            <div>
+                                <div className="flex items-center justify-between mb-1.5">
+                                    <label className="text-[10px] text-gray-400 uppercase font-black tracking-wider block">
+                                        Dedicated Team (Slot Display)
+                                    </label>
+                                    <button
+                                        type="button"
+                                        onClick={() => navigate('/teams')}
+                                        className="text-[10px] text-brand-400 hover:text-brand-300 font-bold underline cursor-pointer"
+                                    >
+                                        Manage Teams
+                                    </button>
+                                </div>
+                                <select
+                                    value={selectedTeam?.id || ''}
+                                    onChange={(e) => handleTeamChange(e.target.value)}
+                                    className="w-full bg-dark border border-gray-700 rounded-xl p-3 text-white focus:border-brand-500 focus-visible:outline-none font-bold text-sm"
+                                >
+                                    {userTeams.map(t => (
+                                        <option key={t.id} value={t.id}>{t.name} {t.tag ? `[${t.tag}]` : ''}</option>
+                                    ))}
+                                </select>
+                                <p className="text-[10px] text-emerald-400/90 mt-1 font-semibold">
+                                    ✓ "{selectedTeam?.name}" will be displayed as the Team Name in the lobby slot.
+                                </p>
+                            </div>
+                        ) : (
+                            <div>
+                                <div className="flex items-center justify-between mb-1.5">
+                                    <label className="text-[10px] text-gray-400 uppercase font-black tracking-wider block">
+                                        Dedicated Team Name <span className="text-brand-400">*</span>
+                                    </label>
+                                    <button
+                                        type="button"
+                                        onClick={() => navigate('/teams')}
+                                        className="text-[10px] text-brand-400 hover:text-brand-300 font-bold underline cursor-pointer"
+                                    >
+                                        + Create Permanent Team
+                                    </button>
+                                </div>
+                                <input
+                                    type="text"
+                                    value={customTeamName}
+                                    onChange={(e) => setCustomTeamName(e.target.value)}
+                                    placeholder="Enter your Dedicated Team Name"
+                                    className="w-full bg-dark border border-gray-700 rounded-xl p-3 text-white focus:border-brand-500 focus-visible:outline-none font-bold text-sm"
+                                />
+                                <p className="text-[10px] text-gray-500 mt-1">
+                                    This Team Name will be displayed in the lobby slot instead of your personal player username.
+                                </p>
+                            </div>
+                        )}
                     </div>
                 )}
 
