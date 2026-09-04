@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { doc, getDoc, onSnapshot, setDoc, updateDoc, deleteDoc, collection, query, where, Timestamp, serverTimestamp, increment } from 'firebase/firestore';
 import { db, auth } from '../../../shared/config/firebase';
@@ -9,6 +9,9 @@ import { countFilledScrimSlots, normalizeScrimSlots, getScrimSlotCount } from '.
 import { fetchDedicatedTeams, resolveSlotTeam, DedicatedTeamsLookup } from '../../../shared/utils/teamUtils';
 import { releaseSlotWithRefund } from '../../../shared/services/slotRefundService';
 import { NotificationService } from '../../../shared/services/NotificationService';
+import { checkFinancialReadiness } from '../../../shared/services/prizeDistributionService';
+import { FinancialLockBanner } from '../../../shared/components/FinancialLockBanner';
+import { PrizeDistributionModal } from '../../../shared/components/PrizeDistributionModal';
 import { toDateSafe } from '../../../shared/utils/utils';
 import { DEFAULT_BANNER } from '../../../shared/constants/constants';
 import {
@@ -68,6 +71,8 @@ export default function ScrimDetailPage() {
   const [manualUid, setManualUid] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [dedicatedTeamsData, setDedicatedTeamsData] = useState<DedicatedTeamsLookup | null>(null);
+
+  const financialReadiness = useMemo(() => checkFinancialReadiness(scrim), [scrim]);
 
   // --- Load scrim ---
   useEffect(() => {
@@ -397,7 +402,12 @@ export default function ScrimDetailPage() {
   }, [scrim, id, handleReleaseSlot, showToast]);
 
   const handleBroadcast = useCallback(async () => {
-    if (!id) return;
+    if (!id || !scrim) return;
+    const readiness = checkFinancialReadiness(scrim);
+    if (readiness.isLocked) {
+      showToast(`Cannot broadcast room credentials: Match is locked until ${readiness.slotsRemaining} more registered slots fulfill the prize pool (Rs. ${readiness.shortfall.toLocaleString()} needed).`, 'warning');
+      return;
+    }
     try {
       await broadcastRoomCredentials(id, roomId, roomPass, streamUrl, 'scrims');
       setScrim((prev: any) => prev ? { ...prev, roomId, roomPass, ytLink: streamUrl } : prev);
@@ -405,10 +415,18 @@ export default function ScrimDetailPage() {
     } catch (err: any) {
       showToast(err?.message || 'Failed to broadcast', 'error');
     }
-  }, [id, roomId, roomPass, streamUrl, showToast]);
+  }, [id, scrim, roomId, roomPass, streamUrl, showToast]);
 
   const handleStatusChange = useCallback(async (newStatus: string) => {
     if (!id || !scrim) return;
+
+    if (newStatus === 'live') {
+      const readiness = checkFinancialReadiness(scrim);
+      if (readiness.isLocked) {
+        showToast(`Cannot start scrim: Paid matches require full prize pool balance. Needs ${readiness.slotsRemaining} more registered ${readiness.slotsRemaining === 1 ? 'slot' : 'slots'} (Rs. ${readiness.shortfall.toLocaleString()} needed to fund Rs. ${readiness.prizePool.toLocaleString()} prize pool).`, 'error');
+        return;
+      }
+    }
 
     if (newStatus === 'completed') {
       const hasPrizePool = Number(scrim?.prizePool) > 0;
@@ -909,14 +927,32 @@ export default function ScrimDetailPage() {
         </div>
       </div>
 
+      {/* Financial Readiness Lock Banner */}
+      <FinancialLockBanner readiness={financialReadiness} className="mb-4" />
+
       {/* Status control bar & Multi-Tier Settlement Trigger */}
       <div className="flex items-center justify-between gap-3 flex-wrap bg-dark/40 border border-gray-800 rounded-xl p-3">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs text-gray-400 font-medium">Quick Status:</span>
           {scrim.status === 'open' && (
-            <button type="button" onClick={() => handleStatusChange('live')} className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-semibold hover:bg-emerald-500/20 flex items-center gap-1.5 transition-colors">
-              <Play className="w-3.5 h-3.5" /> Go Live
-            </button>
+            financialReadiness.isLocked ? (
+              <button
+                type="button"
+                onClick={() => showToast(financialReadiness.statusText, 'warning')}
+                className="px-3 py-1.5 rounded-lg bg-amber-500/10 text-amber-400/90 border border-amber-500/30 text-xs font-semibold flex items-center gap-1.5 cursor-not-allowed transition-colors"
+                title={financialReadiness.statusText}
+              >
+                <Lock className="w-3.5 h-3.5 text-amber-400" /> Go Live (Locked)
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => handleStatusChange('live')}
+                className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-semibold hover:bg-emerald-500/20 flex items-center gap-1.5 transition-colors"
+              >
+                <Play className="w-3.5 h-3.5" /> Go Live
+              </button>
+            )
           )}
           {scrim.status === 'live' && (
             <button type="button" onClick={() => handleStatusChange('completed')} className="px-3 py-1.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20 text-xs font-semibold hover:bg-blue-500/20 flex items-center gap-1.5 transition-colors">
@@ -1428,219 +1464,16 @@ export default function ScrimDetailPage() {
 
       {/* Multi-Tier Winner Settlement Modal */}
       {showWinnerModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-gray-950 border border-gray-800 rounded-2xl max-w-2xl w-full p-6 space-y-6 shadow-2xl relative">
-            <div className="flex items-center justify-between border-b border-gray-800 pb-4">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center">
-                  <Trophy className="w-5 h-5 text-amber-400" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-black text-white">Multi-Tier Winner Payout</h3>
-                  <p className="text-xs text-gray-400">Total Scrim Prize Pool: <span className="font-bold text-amber-400">{formatRupees(scrimPrizePool)}</span></p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowWinnerModal(false)}
-                className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-card"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Presets Bar */}
-            <div className="space-y-2">
-              <span className="text-xs uppercase font-bold text-gray-400 tracking-wider">Quick Split Presets</span>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                <button
-                  type="button"
-                  onClick={() => applyPreset('top3')}
-                  className="px-3 py-2 rounded-xl bg-card border border-gray-800 hover:border-amber-500/50 text-xs font-bold text-gray-200 hover:text-white transition-all text-center"
-                >
-                  🥇🥈🥉 Top 3 (50/30/20)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => applyPreset('top2')}
-                  className="px-3 py-2 rounded-xl bg-card border border-gray-800 hover:border-amber-500/50 text-xs font-bold text-gray-200 hover:text-white transition-all text-center"
-                >
-                  🥇🥈 Top 2 (70/30)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => applyPreset('all')}
-                  className="px-3 py-2 rounded-xl bg-card border border-gray-800 hover:border-amber-500/50 text-xs font-bold text-gray-200 hover:text-white transition-all text-center"
-                >
-                  👑 Winner Takes All (100%)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => applyPreset('top5')}
-                  className="px-3 py-2 rounded-xl bg-card border border-gray-800 hover:border-amber-500/50 text-xs font-bold text-gray-200 hover:text-white transition-all text-center"
-                >
-                  🎖️ Top 5 (40/25/15/10/10)
-                </button>
-              </div>
-            </div>
-
-            {/* Dynamic Tier Rows */}
-            <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
-              {winnerTiers.map((tier, idx) => (
-                <div key={idx} className="bg-card/80 border border-gray-800/80 rounded-xl p-3 flex flex-wrap sm:flex-nowrap items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-lg bg-surface flex items-center justify-center font-black text-sm text-amber-400 flex-shrink-0">
-                    {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${tier.rank}`}
-                  </div>
-
-                  {/* Team Selector / Input */}
-                  <div className="flex-1 min-w-[140px]">
-                    <select
-                      value={tier.teamName}
-                      onChange={(e) => {
-                        const selectedTeam = e.target.value;
-                        const matchedSlot = slots.find(s => s.teamName === selectedTeam);
-                        const matchedPart = participants.find(p => p.teamName === selectedTeam || (matchedSlot?.userId && p.userId === matchedSlot.userId));
-                        const resolvedUserId = (
-                          matchedSlot?.userId ||
-                          (matchedSlot as any)?.captainUid ||
-                          (matchedSlot as any)?.reservedBy ||
-                          matchedPart?.userId ||
-                          (matchedSlot?.teamId && !matchedSlot.teamId.startsWith('manual_') ? matchedSlot.teamId : null) ||
-                          ''
-                        );
-                        const updated = [...winnerTiers];
-                        updated[idx].teamName = selectedTeam;
-                        updated[idx].teamId = matchedSlot?.teamId || matchedPart?.teamId || '';
-                        updated[idx].userId = resolvedUserId;
-                        setWinnerTiers(updated);
-                      }}
-                      className="w-full bg-black border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-amber-500 focus-visible:outline-none"
-                    >
-                      <option value="">-- Select Team --</option>
-                      {filledTeams.map((s, sIdx) => (
-                        <option key={sIdx} value={s.teamName}>{s.teamName} (Slot {s.slotNumber})</option>
-                      ))}
-                      {tier.teamName && !filledTeams.some(s => s.teamName === tier.teamName) && (
-                        <option value={tier.teamName}>{tier.teamName}</option>
-                      )}
-                    </select>
-                  </div>
-
-                  {/* Kills Input */}
-                  <div className="w-16 flex-shrink-0">
-                    <input
-                      type="number"
-                      placeholder="Kills"
-                      value={tier.kills || ''}
-                      onChange={(e) => {
-                        const updated = [...winnerTiers];
-                        updated[idx].kills = Number(e.target.value) || 0;
-                        setWinnerTiers(updated);
-                      }}
-                      className="w-full bg-black border border-gray-800 rounded-lg px-2 py-1.5 text-xs text-center text-white focus:border-amber-500 focus-visible:outline-none"
-                      title="Kills"
-                    />
-                  </div>
-
-                  {/* Placement Points Input */}
-                  <div className="w-16 flex-shrink-0">
-                    <input
-                      type="number"
-                      placeholder="Pts"
-                      value={tier.points || ''}
-                      onChange={(e) => {
-                        const updated = [...winnerTiers];
-                        updated[idx].points = Number(e.target.value) || 0;
-                        setWinnerTiers(updated);
-                      }}
-                      className="w-full bg-black border border-gray-800 rounded-lg px-2 py-1.5 text-xs text-center text-white focus:border-amber-500 focus-visible:outline-none"
-                      title="Placement Points"
-                    />
-                  </div>
-
-                  {/* Prize Amount Input */}
-                  <div className="w-28 flex-shrink-0">
-                    <input
-                      type="number"
-                      placeholder="Prize NPR"
-                      value={tier.prize || ''}
-                      onChange={(e) => {
-                        const updated = [...winnerTiers];
-                        updated[idx].prize = Number(e.target.value) || 0;
-                        setWinnerTiers(updated);
-                      }}
-                      className="w-full bg-black border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-amber-400 font-bold focus:border-amber-500 focus-visible:outline-none"
-                      title="Prize NPR"
-                    />
-                  </div>
-
-                  {/* Delete Tier Action */}
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveTier(idx)}
-                    className="p-1.5 text-gray-500 hover:text-red-400 hover:bg-card rounded-lg transition-colors flex-shrink-0"
-                    title="Remove Tier"
-                  >
-                    <Trash className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
-
-            {/* Add Tier Action */}
-            <button
-              type="button"
-              onClick={handleAddTier}
-              className="w-full py-2 border border-dashed border-gray-800 hover:border-gray-700 rounded-xl text-xs font-bold text-gray-400 hover:text-white flex items-center justify-center gap-1.5 transition-colors"
-            >
-              <Plus className="w-4 h-4" /> Add Another Winner Tier
-            </button>
-
-            {/* Prize Balance & Allocation Summary */}
-            <div className={`p-4 rounded-xl border flex items-center justify-between text-xs ${
-              isPrizeBalanced ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
-            }`}>
-              <div className="flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                <span>
-                  Allocated: <strong className="text-white">{formatRupees(totalAllocatedPrize)}</strong> / {formatRupees(scrimPrizePool)}
-                </span>
-              </div>
-              <span className="font-bold">
-                {isPrizeBalanced ? '✓ Exact Match' : `Remaining: ${formatRupees(scrimPrizePool - totalAllocatedPrize)}`}
-              </span>
-            </div>
-
-            {/* Modal Actions */}
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowWinnerModal(false)}
-                className="px-4 py-2 rounded-xl bg-card border border-gray-800 hover:bg-surface text-gray-300 text-xs font-bold transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handlePayoutMultiTier}
-                disabled={submittingPayout || !isPrizeBalanced}
-                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-brand-500 hover:from-amber-400 hover:to-brand-400 disabled:opacity-50 text-white text-xs font-black flex items-center gap-2 shadow-lg shadow-amber-500/20 transition-all cursor-pointer"
-              >
-                {submittingPayout ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Distributing...
-                  </>
-                ) : (
-                  <>
-                    <Trophy className="w-4 h-4" />
-                    Confirm & Distribute Prizes
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
+        <PrizeDistributionModal
+          isOpen={showWinnerModal}
+          onClose={() => setShowWinnerModal(false)}
+          event={scrim}
+          eventType="scrim"
+          participants={participants}
+          onSuccess={() => {
+            setShowWinnerModal(false);
+          }}
+        />
       )}
       {/* Slot Player Details Modal */}
       {selectedSlot && (

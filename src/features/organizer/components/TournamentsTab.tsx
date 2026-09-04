@@ -14,6 +14,9 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { getSlotCount, getFilledSlotCount } from '../../../shared/utils/scrimSlots';
+import { checkFinancialReadiness } from '../../../shared/services/prizeDistributionService';
+import { FinancialLockBanner } from '../../../shared/components/FinancialLockBanner';
+import { PrizeDistributionModal } from '../../../shared/components/PrizeDistributionModal';
 
 export interface BracketMatch {
   id?: string;
@@ -52,6 +55,7 @@ const TournamentsTab: React.FC<TournamentsTabProps> = ({
   onActivateTournament,
 }) => {
   const [expandedBrackets, setExpandedBrackets] = useState<Record<string, boolean>>({});
+  const [finalizingTournament, setFinalizingTournament] = useState<any | null>(null);
 
   const toggleBracket = (id: string) => {
     setExpandedBrackets((prev) => ({
@@ -254,6 +258,7 @@ const TournamentsTab: React.FC<TournamentsTabProps> = ({
             const isLive = tournament.status === 'live';
             const isCompleted =
               tournament.status === 'completed' || tournament.status === 'finalized';
+            const readiness = checkFinancialReadiness(tournament);
 
             return (
               <div
@@ -267,7 +272,12 @@ const TournamentsTab: React.FC<TournamentsTabProps> = ({
                       {tournament.title}
                     </h3>
                   </div>
-                  <div>{getStatusBadge(tournament.status, tournament.fundingStatus)}</div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {getStatusBadge(tournament.status, tournament.fundingStatus)}
+                    {readiness.isPaid && (
+                      <FinancialLockBanner readiness={readiness} compact={true} />
+                    )}
+                  </div>
                 </div>
 
                 {/* Stats Grid */}
@@ -344,21 +354,42 @@ const TournamentsTab: React.FC<TournamentsTabProps> = ({
 
                   {/* Status Toggles: Go Live or Finalize */}
                   {isLive ? (
-                    <button
-                      onClick={() => onUpdateStatus(tournament.id, 'completed')}
-                      className="min-h-[44px] px-3.5 py-2 rounded-lg text-sm font-medium bg-amber-600 hover:bg-amber-500 text-white transition-colors flex items-center justify-center gap-2 shadow-sm"
-                    >
-                      <Check className="w-4 h-4" />
-                      <span>Finalize</span>
-                    </button>
+                    (tournament.prizePool || 0) > 0 && !tournament.payoutCompleted ? (
+                      <button
+                        onClick={() => setFinalizingTournament(tournament)}
+                        className="min-h-[44px] px-3.5 py-2 rounded-lg text-sm font-medium bg-gradient-to-r from-amber-600 to-brand-500 hover:from-amber-500 hover:to-brand-400 text-white transition-colors flex items-center justify-center gap-2 shadow-sm"
+                      >
+                        <Trophy className="w-4 h-4" />
+                        <span>Finalize & Distribute Prizes</span>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => onUpdateStatus(tournament.id, 'completed')}
+                        className="min-h-[44px] px-3.5 py-2 rounded-lg text-sm font-medium bg-amber-600 hover:bg-amber-500 text-white transition-colors flex items-center justify-center gap-2 shadow-sm"
+                      >
+                        <Check className="w-4 h-4" />
+                        <span>Finalize</span>
+                      </button>
+                    )
                   ) : !isCompleted && tournament.status !== 'pending_funding' ? (
-                    <button
-                      onClick={() => onUpdateStatus(tournament.id, 'live')}
-                      className="min-h-[44px] px-3.5 py-2 rounded-lg text-sm font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition-colors flex items-center justify-center gap-2 shadow-sm"
-                    >
-                      <Play className="w-4 h-4 fill-current" />
-                      <span>Go Live</span>
-                    </button>
+                    readiness.isLocked ? (
+                      <button
+                        onClick={() => alert(readiness.statusText)}
+                        className="min-h-[44px] px-3.5 py-2 rounded-lg text-sm font-medium bg-amber-500/10 text-amber-400 border border-amber-500/30 transition-colors flex items-center justify-center gap-2 cursor-not-allowed shadow-sm"
+                        title={readiness.statusText}
+                      >
+                        <Lock className="w-4 h-4 text-amber-400" />
+                        <span>Go Live (Locked)</span>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => onUpdateStatus(tournament.id, 'live')}
+                        className="min-h-[44px] px-3.5 py-2 rounded-lg text-sm font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition-colors flex items-center justify-center gap-2 shadow-sm"
+                      >
+                        <Play className="w-4 h-4 fill-current" />
+                        <span>Go Live</span>
+                      </button>
+                    )
                   ) : null}
 
                   {/* Delete */}
@@ -392,6 +423,19 @@ const TournamentsTab: React.FC<TournamentsTabProps> = ({
             );
           })}
         </div>
+      )}
+
+      {/* Prize Distribution Modal */}
+      {finalizingTournament && (
+        <PrizeDistributionModal
+          isOpen={Boolean(finalizingTournament)}
+          onClose={() => setFinalizingTournament(null)}
+          event={finalizingTournament}
+          eventType="tournament"
+          onSuccess={() => {
+            setFinalizingTournament(null);
+          }}
+        />
       )}
     </div>
   );

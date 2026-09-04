@@ -3,6 +3,7 @@ import { doc, onSnapshot, updateDoc, collection, query, where, getDocs, writeBat
 import { db, auth } from '../../../shared/config/firebase';
 import { useAuth } from '../../../shared/context/AuthContext';
 import { Tournament, TournamentGroup, Match, Team, TournamentEarning } from '../../../shared/types/types';
+import { checkFinancialReadiness } from '../../../shared/services/prizeDistributionService';
 import { formatDate } from '../../../shared/utils/utils';
 import { getMapsForGame } from '../../../shared/constants/constants';
 import {
@@ -130,6 +131,14 @@ export function useTournamentAdmin(
 
     const handleUpdateStatus = async (status: 'upcoming' | 'live' | 'completed' | 'paused') => {
         if (!tournament) return;
+
+        if (status === 'live') {
+            const readiness = checkFinancialReadiness(tournament);
+            if (readiness.isLocked) {
+                showToast(`Cannot start tournament: Paid events require full prize pool balance. Needs ${readiness.slotsRemaining} more registered ${readiness.slotsRemaining === 1 ? 'slot' : 'slots'} (Rs. ${readiness.shortfall.toLocaleString()} needed to fund Rs. ${readiness.prizePool.toLocaleString()} prize pool).`, 'error');
+                return;
+            }
+        }
 
         const isScrim = tournament.matchType === 'scrims' || (tournament as any).isScrim === true || (tournament as any).type === 'scrim';
 

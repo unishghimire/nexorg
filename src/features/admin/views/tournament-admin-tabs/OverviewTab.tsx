@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { RotateCcw, DollarSign, TrendingUp, TrendingDown, Play, Pause, Send } from 'lucide-react';
+import { RotateCcw, DollarSign, TrendingUp, TrendingDown, Play, Pause, Send, Lock, Award } from 'lucide-react';
 import { formatCurrency } from '../../../../shared/utils/utils';
 import { TournamentAdminTabProps } from './types';
 import { TournamentRoadmap } from '../../../tournaments/components/TournamentRoadmap';
 import { QualificationPanel } from '../../../tournaments/components/QualificationPanel';
 import { isRoundComplete } from '../../../../shared/services/tournamentEngine';
+import { checkFinancialReadiness } from '../../../../shared/services/prizeDistributionService';
+import { FinancialLockBanner } from '../../../../shared/components/FinancialLockBanner';
+import { PrizeDistributionModal } from '../../../../shared/components/PrizeDistributionModal';
 
 export const OverviewTab: React.FC<TournamentAdminTabProps> = (props) => {
     const {
@@ -13,9 +16,13 @@ export const OverviewTab: React.FC<TournamentAdminTabProps> = (props) => {
         setGameStartGroupId, handleUpdateStatus, handleUpdateStage, handleAdvanceRound,
         handleDiscord,
         handleGenerateGroupMatches, showToast,
+        participants = [],
     } = props;
 
     const [showQualification, setShowQualification] = useState(false);
+    const [isDistributeOpen, setIsDistributeOpen] = useState(false);
+
+    const readiness = checkFinancialReadiness(tournament);
 
     // Check if current round is complete enough to show qualification preview
     const roundStatus = tournament?.groups?.length
@@ -23,13 +30,17 @@ export const OverviewTab: React.FC<TournamentAdminTabProps> = (props) => {
         : { complete: false, totalMatches: 0, completedMatches: 0 };
 
     return (
-                        <motion.div 
+        <>
+            <motion.div 
                             key="overview"
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: -10 }}
                             className="space-y-4 sm:space-y-6"
                         >
+                             {/* Financial Readiness Lock Banner */}
+                             <FinancialLockBanner readiness={readiness} className="mb-2" />
+
                              {/* Dynamic roadmap — derived from actual tournament state */}
                              <div className="rounded-xl bg-card border border-gray-800 p-4">
                                  <TournamentRoadmap tournament={tournament} />
@@ -97,13 +108,23 @@ export const OverviewTab: React.FC<TournamentAdminTabProps> = (props) => {
                                  <div className="bg-card/50 p-4 sm:p-6 rounded-2xl sm:rounded-[2rem] border border-gray-800">
                                      <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-6">Status Control</h3>
                                      <div className="flex gap-3">
-                                         <button type="button" 
-                                             onClick={() => handleUpdateStatus('live')}
-                                             disabled={tournament.status === 'live'}
-                                             className="flex-1 bg-green-500/10 hover:bg-green-500/20 text-green-500 border border-green-500/20 disabled:opacity-30 disabled:cursor-not-allowed py-4 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-colors"
-                                         >
-                                             <Play className="w-3 h-3" /> Start
-                                         </button>
+                                         {readiness.isLocked ? (
+                                             <button type="button" 
+                                                 onClick={() => showToast(readiness.statusText, 'warning')}
+                                                 className="flex-1 bg-amber-500/10 text-amber-400 border border-amber-500/30 py-4 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 cursor-not-allowed transition-colors"
+                                                 title={readiness.statusText}
+                                             >
+                                                 <Lock className="w-3 h-3 text-amber-400" /> Locked
+                                             </button>
+                                         ) : (
+                                             <button type="button" 
+                                                 onClick={() => handleUpdateStatus('live')}
+                                                 disabled={tournament.status === 'live'}
+                                                 className="flex-1 bg-green-500/10 hover:bg-green-500/20 text-green-500 border border-green-500/20 disabled:opacity-30 disabled:cursor-not-allowed py-4 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-colors"
+                                             >
+                                                 <Play className="w-3 h-3" /> Start
+                                             </button>
+                                         )}
                                          <button type="button" 
                                              onClick={() => handleUpdateStatus('paused')}
                                              disabled={tournament.status === 'paused'}
@@ -129,6 +150,12 @@ export const OverviewTab: React.FC<TournamentAdminTabProps> = (props) => {
                                  <div className="bg-card/50 p-4 sm:p-6 rounded-2xl sm:rounded-[2rem] border border-gray-800 sm:col-span-2 lg:col-span-1">
                                      <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-6">Quick Actions</h3>
                                      <div className="flex flex-col sm:flex-row lg:flex-col gap-3">
+                                         <button type="button"
+                                             onClick={() => setIsDistributeOpen(true)}
+                                             className="flex-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/20 py-4 rounded-full text-[10px] font-black uppercase tracking-widest transition-colors flex items-center justify-center gap-2"
+                                         >
+                                             <Award className="w-3.5 h-3.5" /> Distribute Prizes
+                                         </button>
                                          <button type="button" 
                                              onClick={() => {
                                                  if (tournament.groups && tournament.groups.length > 0) {
@@ -226,5 +253,21 @@ export const OverviewTab: React.FC<TournamentAdminTabProps> = (props) => {
                                  </div>
                              </div>
                         </motion.div>
+
+            {/* Prize Distribution Modal */}
+            {isDistributeOpen && (
+                <PrizeDistributionModal
+                    isOpen={isDistributeOpen}
+                    onClose={() => setIsDistributeOpen(false)}
+                    event={tournament}
+                    eventType="tournament"
+                    participants={participants}
+                    onSuccess={() => {
+                        setIsDistributeOpen(false);
+                        handleUpdateStatus('completed');
+                    }}
+                />
+            )}
+        </>
     );
 };

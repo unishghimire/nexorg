@@ -1,7 +1,10 @@
-import React from 'react';
-import { Gamepad2, RefreshCw, Clock, DollarSign, Trophy, Plus, Settings2, Edit2, Trash2, Radio, Play, CheckCircle2, RotateCcw, XCircle, Users } from 'lucide-react';
+import React, { useState } from 'react';
+import { Gamepad2, RefreshCw, Clock, DollarSign, Trophy, Plus, Settings2, Edit2, Trash2, Radio, Play, CheckCircle2, RotateCcw, XCircle, Users, Lock } from 'lucide-react';
 import { toDateSafe } from '../../../shared/utils/utils';
 import { resolveSlotTeam, fetchDedicatedTeams, DedicatedTeamsLookup } from '../../../shared/utils/teamUtils';
+import { checkFinancialReadiness } from '../../../shared/services/prizeDistributionService';
+import { FinancialLockBanner } from '../../../shared/components/FinancialLockBanner';
+import { PrizeDistributionModal } from '../../../shared/components/PrizeDistributionModal';
 
 export interface ScrimsHubTabProps {
   scrims: any[];
@@ -28,6 +31,8 @@ export const ScrimsHubTab: React.FC<ScrimsHubTabProps> = ({
   onUpdateStatus,
   onOpenRoomDispatch,
 }) => {
+  const [settleScrim, setSettleScrim] = useState<any | null>(null);
+
   const formatTime = (timeInput?: any) => {
     if (!timeInput) return 'TBD';
     try {
@@ -214,6 +219,8 @@ export const ScrimsHubTab: React.FC<ScrimsHubTabProps> = ({
 
             const statusUpper = (scrim.status || 'OPEN').toUpperCase();
 
+            const readiness = checkFinancialReadiness(scrim);
+
             return (
               <div
                 key={scrim.id}
@@ -239,6 +246,9 @@ export const ScrimsHubTab: React.FC<ScrimsHubTabProps> = ({
                       >
                         {statusUpper}
                       </span>
+                      {readiness.isPaid && (
+                        <FinancialLockBanner readiness={readiness} compact={true} />
+                      )}
                     </div>
 
                     {(scrim.recurring || scrim.recurrencePattern) && (
@@ -315,21 +325,38 @@ export const ScrimsHubTab: React.FC<ScrimsHubTabProps> = ({
                     {onUpdateStatus && (
                       <div className="flex items-center gap-1">
                         {scrim.status !== 'live' && scrim.status !== 'completed' && (
-                          <button
-                            type="button"
-                            onClick={() => onUpdateStatus(scrim.id, 'live')}
-                            className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 p-2 rounded-lg text-xs font-semibold transition-colors"
-                            title="Go Live"
-                          >
-                            <Play className="w-3.5 h-3.5" />
-                          </button>
+                          readiness.isLocked ? (
+                            <button
+                              type="button"
+                              onClick={() => alert(readiness.statusText)}
+                              className="bg-amber-500/10 text-amber-400 border border-amber-500/30 p-2 rounded-lg text-xs font-semibold cursor-not-allowed transition-colors"
+                              title={readiness.statusText}
+                            >
+                              <Lock className="w-3.5 h-3.5" />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => onUpdateStatus(scrim.id, 'live')}
+                              className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 p-2 rounded-lg text-xs font-semibold transition-colors"
+                              title="Go Live"
+                            >
+                              <Play className="w-3.5 h-3.5" />
+                            </button>
+                          )
                         )}
                         {scrim.status === 'live' && (
                           <button
                             type="button"
-                            onClick={() => onUpdateStatus(scrim.id, 'completed')}
+                            onClick={() => {
+                              if (Number(scrim.prizePool) > 0 && !scrim.payoutCompleted) {
+                                setSettleScrim(scrim);
+                              } else {
+                                onUpdateStatus(scrim.id, 'completed');
+                              }
+                            }}
                             className="bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 p-2 rounded-lg text-xs font-semibold transition-colors"
-                            title="Complete / Finalize"
+                            title="Complete & Distribute Prizes"
                           >
                             <CheckCircle2 className="w-3.5 h-3.5" />
                           </button>
@@ -542,6 +569,20 @@ export const ScrimsHubTab: React.FC<ScrimsHubTabProps> = ({
             );
           })}
         </div>
+      )}
+
+      {/* Settle / Distribute Prizes Modal */}
+      {settleScrim && (
+        <PrizeDistributionModal
+          isOpen={Boolean(settleScrim)}
+          onClose={() => setSettleScrim(null)}
+          event={settleScrim}
+          eventType="scrim"
+          participants={participants}
+          onSuccess={() => {
+            setSettleScrim(null);
+          }}
+        />
       )}
     </div>
   );

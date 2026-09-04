@@ -25,6 +25,7 @@ import { commitFirestoreBatches } from '../../../shared/utils/firestoreBatches';
 import { toDateSafe } from '../../../shared/utils/utils';
 import { countFilledScrimSlots, normalizeScrimSlots, getSlotCount, getFilledSlotCount } from '../../../shared/utils/scrimSlots';
 import { releaseSlotWithRefund } from '../../../shared/services/slotRefundService';
+import { checkFinancialReadiness } from '../../../shared/services/prizeDistributionService';
 
 export function useOrgData() {
   const { user, profile } = useAuth();
@@ -433,6 +434,15 @@ export function useOrgData() {
   }, [user, assertTournamentHost]);
 
   const updateTournamentStatus = useCallback(async (id: string, status: Tournament['status']) => {
+    const target = hostedTournaments.find(t => t.id === id);
+
+    if (status === 'live' && target) {
+      const readiness = checkFinancialReadiness(target);
+      if (readiness.isLocked) {
+        throw new Error(readiness.statusText);
+      }
+    }
+
     let updatePayload: Record<string, any> = { status, updatedAt: serverTimestamp() };
 
     if (status === 'completed') {

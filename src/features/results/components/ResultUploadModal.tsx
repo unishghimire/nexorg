@@ -11,6 +11,7 @@ import { useInvisibleImage } from '../../../shared/hooks/useInvisibleImage';
 import { MediaCategory } from '../../../shared/services/mediaService';
 import ManualResultManager from './ManualResultManager';
 import { useAuth } from '../../../shared/context/AuthContext';
+import { executePrizeDistribution } from '../../../shared/services/prizeDistributionService';
 
 interface ResultUploadModalProps {
     isOpen: boolean;
@@ -163,32 +164,59 @@ const ResultUploadModal: React.FC<ResultUploadModalProps> = ({ isOpen, onClose, 
 
         setLoading(true);
         try {
-            const validWinners = winners.filter(w => w.uid !== '').map(({ uid, amount, rank, username }) => ({ userId: uid, prize: Number(amount) || 0, rank, username }));
+            const validWinners = winners
+                .filter(w => w.uid !== '' && Number(w.amount) > 0)
+                .map(({ uid, amount, rank, username }) => ({ 
+                    userId: uid, 
+                    prize: Number(amount) || 0, 
+                    rank, 
+                    username,
+                    teamName: username || `Rank ${rank}`
+                }));
 
-            const token = await auth.currentUser?.getIdToken();
-            if (!token) throw new Error('Authentication required');
-
-            const res = await fetch('/api/wallet/distribute-prizes', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                body: JSON.stringify({
-                    tournamentId: tournament.id,
+            if (validWinners.length > 0) {
+                const distResult = await executePrizeDistribution({
+                    eventId: tournament.id,
+                    eventType: 'tournament',
+                    eventTitle: tournament.title,
+                    prizePool: tournament.prizePool || 0,
                     winners: validWinners,
-                    resultsData: { manualResults, resultTemplate: templateConfig }
-                }),
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.message || 'Failed to distribute prizes');
+                    manualResults,
+                    scoringData: templateConfig,
+                    participants,
+                    organizerUid: user?.uid
+                });
 
-            await NotificationService.notifyParticipants(
-                tournament.id,
-                'Results Uploaded!',
-                `Final results for ${tournament.title} are now available. Check the leaderboard!`,
-                'success',
-                `/tournaments/${tournament.id}`
-            );
+                if (resultUrl) {
+                    await updateDoc(doc(db, 'tournaments', tournament.id), {
+                        resultUrl,
+                        updatedAt: new Date().toISOString()
+                    });
+                }
 
-            showToast('Results finalized and winners paid!', 'success');
+                showToast(`Results finalized and ${distResult.creditedCount} winner(s) credited!`, 'success');
+            } else {
+                const updatePayload: any = {
+                    status: 'completed',
+                    updatedAt: new Date().toISOString()
+                };
+                if (resultUrl) updatePayload.resultUrl = resultUrl;
+                if (manualResults && manualResults.length > 0) updatePayload.manualResults = manualResults;
+                if (templateConfig) updatePayload.resultTemplate = templateConfig;
+                
+                await updateDoc(doc(db, 'tournaments', tournament.id), updatePayload);
+
+                await NotificationService.notifyParticipants(
+                    tournament.id,
+                    'Results Uploaded!',
+                    `Final results for ${tournament.title} are now available. Check the leaderboard!`,
+                    'success',
+                    `/tournaments/${tournament.id}`
+                );
+
+                showToast('Results finalized successfully!', 'success');
+            }
+
             onSuccess();
             onClose();
         } catch (error: any) {
