@@ -153,22 +153,10 @@ export function useTournamentAdmin(
 
         try {
             let updatePayload: Record<string, any> = { status, updatedAt: serverTimestamp() };
-            if (status === 'completed' && isScrim && Array.isArray(tournament.slots)) {
-                const totalSlotCount = Number((tournament as any).totalSlots) || tournament.slots.length || 12;
-                const releasedSlots = Array.from({ length: totalSlotCount }, (_, idx) => ({
-                    slotNumber: idx + 1,
-                    status: 'open' as const,
-                    teamName: null,
-                    teamId: null,
-                    userId: null,
-                    leader: null,
-                }));
+            if (status === 'completed' && isScrim) {
                 updatePayload = {
                     ...updatePayload,
                     stage: 'completed',
-                    slots: releasedSlots,
-                    filledSlots: 0,
-                    currentPlayers: 0,
                     completedAt: serverTimestamp(),
                 };
             }

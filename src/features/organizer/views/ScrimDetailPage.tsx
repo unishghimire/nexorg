@@ -13,6 +13,7 @@ import { checkFinancialReadiness } from '../../../shared/services/prizeDistribut
 import { FinancialLockBanner } from '../../../shared/components/FinancialLockBanner';
 import { PrizeDistributionModal } from '../../../shared/components/PrizeDistributionModal';
 import { toDateSafe } from '../../../shared/utils/utils';
+import { resolveAllScrimResults } from '../../../shared/utils/scrimResults';
 import { DEFAULT_BANNER } from '../../../shared/constants/constants';
 import {
   ChevronLeft, Save, Radio, Users, DollarSign, Calendar,
@@ -441,29 +442,26 @@ export default function ScrimDetailPage() {
     try {
       let updatePayload: Record<string, any> = { status: newStatus, updatedAt: serverTimestamp() };
       if (newStatus === 'completed') {
-        const totalSlotCount = Number(scrim?.totalSlots) || (Array.isArray(scrim?.slots) ? scrim.slots.length : 12);
-        const releasedSlots = Array.from({ length: totalSlotCount }, (_, idx) => ({
-          slotNumber: idx + 1,
-          status: 'open' as const,
-          teamName: null,
-          teamId: null,
-          userId: null,
-          leader: null,
-        }));
+        const compiled = resolveAllScrimResults(scrim, participants);
         updatePayload = {
           ...updatePayload,
           stage: 'completed',
-          slots: releasedSlots,
-          filledSlots: 0,
-          currentPlayers: 0,
+          manualResults: compiled.map(r => ({
+            id: r.id,
+            rank: r.rank,
+            team: r.teamName,
+            score: r.score,
+            kills: r.kills,
+            prize: r.prize,
+            status: r.status,
+            slotNumber: r.slotNumber,
+            leader: r.leader,
+            userId: r.userId,
+            teamId: r.teamId,
+          })),
+          finalRoster: Array.isArray(scrim?.slots) ? scrim.slots.filter((s: any) => s.status === 'filled' || s.teamName) : [],
           completedAt: serverTimestamp(),
         };
-
-        // Clean up registered participants for this finished match
-        for (const p of participants) {
-          await deleteDoc(doc(db, 'participants', p.id)).catch(() => {});
-        }
-        setParticipants([]);
       }
 
       await Promise.all([
@@ -666,36 +664,38 @@ export default function ScrimDetailPage() {
         }
       }
 
-      // Release all slots after payment and result are finalized
-      const totalSlotCount = Number(scrim.totalSlots) || (Array.isArray(scrim.slots) ? scrim.slots.length : 12);
-      const releasedSlots = Array.from({ length: totalSlotCount }, (_, idx) => ({
-        slotNumber: idx + 1,
-        status: 'open' as const,
-        teamName: null,
-        teamId: null,
-        userId: null,
-        leader: null,
-      }));
+      // Compile complete results for all registered teams and players who competed in this scrim
+      const compiledResults = resolveAllScrimResults(
+        { ...scrim, winners: validTiers, podium: validTiers },
+        participants
+      );
 
       const winnerPayload = {
         winners: validTiers,
         podium: validTiers,
+        manualResults: compiledResults.map(r => ({
+          id: r.id,
+          rank: r.rank,
+          team: r.teamName,
+          score: r.score,
+          kills: r.kills,
+          prize: r.prize,
+          status: r.status,
+          slotNumber: r.slotNumber,
+          leader: r.leader,
+          userId: r.userId,
+          teamId: r.teamId,
+          inGameName: r.inGameName,
+          inGameId: r.inGameId,
+        })),
+        finalRoster: Array.isArray(scrim?.slots) ? scrim.slots.filter((s: any) => s.status === 'filled' || s.teamName) : [],
         payoutCompleted: true,
         payoutStatus: 'paid',
         status: 'completed',
         stage: 'completed',
-        slots: releasedSlots,
-        filledSlots: 0,
-        currentPlayers: 0,
         completedAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
-
-      // Clean up registered participants for this finalized scrim
-      for (const p of participants) {
-        await deleteDoc(doc(db, 'participants', p.id)).catch(() => {});
-      }
-      setParticipants([]);
 
       await Promise.all([
         updateDoc(doc(db, 'scrims', id!), winnerPayload).catch(() => {}),
@@ -806,7 +806,15 @@ export default function ScrimDetailPage() {
   const scrimPrizePool = Number(scrim.prizePool) || 0;
   const isPrizeBalanced = Math.abs(totalAllocatedPrize - scrimPrizePool) < 0.01;
 
-  const resultsList = scrim.winners || scrim.results || [];
+  const allResolvedResults = useMemo(() => {
+    return resolveAllScrimResults(scrim, participants);
+  }, [scrim, participants]);
+
+  const resultsList = useMemo(() => {
+    if (Array.isArray(scrim?.winners) && scrim.winners.length > 0) return scrim.winners;
+    if (Array.isArray(scrim?.podium) && scrim.podium.length > 0) return scrim.podium;
+    return allResolvedResults.filter(r => r.isWinner || r.prize > 0 || r.rank <= 3);
+  }, [scrim?.winners, scrim?.podium, allResolvedResults]);
 
   return (
     <div className="min-h-[100dvh] pt-20 sm:pt-24 pb-16 px-4 sm:px-6 lg:px-8 max-w-5xl mx-auto space-y-6">
@@ -1072,6 +1080,110 @@ export default function ScrimDetailPage() {
               </div>
             )}
           </div>
+
+          {/* Full Scrim Results Table of all registered teams */}
+          {allResolvedResults.length > 0 && (
+            <div className="mt-6 pt-6 border-t border-gray-800">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h4 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-brand-500" />
+                    Complete Scrim Standings & Results ({allResolvedResults.length} Registered Teams)
+                  </h4>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Official rankings and results for all registered teams who competed in this scrim.
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-card/40 border border-gray-800 rounded-xl overflow-hidden shadow-xl">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-dark/80 text-gray-400 uppercase font-mono border-b border-gray-800">
+                      <tr>
+                        <th className="py-3 px-4 text-center w-16">Rank</th>
+                        <th className="py-3 px-3 w-20">Slot</th>
+                        <th className="py-3 px-4">Team / Player</th>
+                        <th className="py-3 px-3 text-center">Kills</th>
+                        <th className="py-3 px-3 text-center">Points</th>
+                        <th className="py-3 px-4 text-right">Prize</th>
+                        <th className="py-3 px-4 text-right">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-800/60">
+                      {allResolvedResults.map((r) => (
+                        <tr key={r.id} className="hover:bg-surface/30 transition-colors">
+                          <td className="py-3 px-4 text-center">
+                            {r.rank === 1 ? (
+                              <span className="inline-flex items-center justify-center w-6 h-6 rounded bg-yellow-500/20 text-yellow-400 font-black text-xs">
+                                🥇 1
+                              </span>
+                            ) : r.rank === 2 ? (
+                              <span className="inline-flex items-center justify-center w-6 h-6 rounded bg-slate-400/20 text-slate-300 font-black text-xs">
+                                🥈 2
+                              </span>
+                            ) : r.rank === 3 ? (
+                              <span className="inline-flex items-center justify-center w-6 h-6 rounded bg-amber-700/20 text-amber-500 font-black text-xs">
+                                🥉 3
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center justify-center w-6 h-6 rounded bg-surface text-gray-400 font-mono font-bold text-xs">
+                                #{r.rank}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-3">
+                            {r.slotNumber ? (
+                              <span className="font-mono font-bold text-brand-400 bg-brand-500/10 px-2 py-0.5 rounded text-[10px]">
+                                Slot {r.slotNumber}
+                              </span>
+                            ) : (
+                              <span className="text-gray-600 font-mono">—</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="font-bold text-white flex items-center gap-1.5">
+                              {r.teamTag && (
+                                <span className="text-[9px] px-1 py-0.2 rounded bg-brand-500/20 text-brand-400 font-mono font-bold">
+                                  [{r.teamTag}]
+                                </span>
+                              )}
+                              <span>{r.teamName}</span>
+                            </div>
+                            {r.leader && r.leader !== r.teamName && (
+                              <div className="text-[10px] text-gray-400">
+                                {r.leader} {r.inGameName && r.inGameName !== r.leader ? `(${r.inGameName})` : ''}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-3 px-3 text-center font-bold text-gray-200">
+                            {r.kills || 0}
+                          </td>
+                          <td className="py-3 px-3 text-center font-mono font-bold text-white">
+                            {r.score || 0}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            {r.prize > 0 ? (
+                              <span className="font-bold text-emerald-400">
+                                {formatRupees(r.prize)}
+                              </span>
+                            ) : (
+                              <span className="text-gray-600 font-mono">—</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <span className="text-[10px] uppercase font-bold text-gray-400">
+                              {r.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

@@ -449,21 +449,9 @@ export function useOrgData() {
       const target = hostedTournaments.find(t => t.id === id);
       const isScrim = target && (target.matchType === 'scrims' || (target as any).isScrim === true || (target as any).type === 'scrim');
       if (isScrim && Array.isArray(target?.slots)) {
-        const totalSlotCount = Number((target as any).totalSlots) || target.slots.length || 12;
-        const releasedSlots = Array.from({ length: totalSlotCount }, (_, idx) => ({
-          slotNumber: idx + 1,
-          status: 'open' as const,
-          teamName: null,
-          teamId: null,
-          userId: null,
-          leader: null,
-        }));
         updatePayload = {
           ...updatePayload,
           stage: 'completed',
-          slots: releasedSlots,
-          filledSlots: 0,
-          currentPlayers: 0,
           completedAt: serverTimestamp(),
         };
       }

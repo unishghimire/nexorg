@@ -11,6 +11,7 @@ import {
 import { db, auth } from '../config/firebase';
 import { NotificationService } from './NotificationService';
 import { countFilledScrimSlots, getFilledSlotCount, getSlotCount } from '../utils/scrimSlots';
+import { resolveAllScrimResults } from '../utils/scrimResults';
 
 export interface WinnerPayoutEntry {
   rank: number;
@@ -375,22 +376,48 @@ export async function executePrizeDistribution(
     }
   }
 
-  // Step 3: Prepare tournament & scrim document update
-  const formattedManualResults =
-    manualResults && manualResults.length > 0
-      ? manualResults
-      : validWinners.map((w) => ({
-          rank: w.rank,
-          team: w.teamName,
-          score: w.points || 0,
-          kills: w.kills || 0,
-          prize: w.prize,
-        }));
+  // Step 3: Fetch existing event doc to access slots & metadata
+  let targetDoc = await getDoc(doc(db, 'tournaments', eventId)).catch(() => null);
+  if (!targetDoc || !targetDoc.exists()) {
+    targetDoc = await getDoc(doc(db, 'scrims', eventId)).catch(() => null);
+  }
+
+  const existingData = targetDoc?.data();
+
+  // Compile full results for ALL registered teams and players who competed in this match
+  const allResolvedResults = resolveAllScrimResults(
+    {
+      ...existingData,
+      winners: validWinners,
+      podium: validWinners,
+      manualResults: manualResults && manualResults.length > 0 ? manualResults : undefined,
+    },
+    participants
+  );
+
+  const formattedManualResults = allResolvedResults.map((r) => ({
+    id: r.id,
+    rank: r.rank,
+    team: r.teamName,
+    score: r.score,
+    kills: r.kills,
+    prize: r.prize,
+    status: r.status,
+    slotNumber: r.slotNumber,
+    leader: r.leader,
+    userId: r.userId,
+    teamId: r.teamId,
+    inGameName: r.inGameName,
+    inGameId: r.inGameId,
+  }));
 
   let docUpdatePayload: Record<string, any> = {
     winners: validWinners,
     podium: validWinners,
     manualResults: formattedManualResults,
+    finalRoster: Array.isArray(existingData?.slots)
+      ? existingData.slots.filter((s: any) => s.status === 'filled' || s.teamName)
+      : allResolvedResults,
     payoutCompleted: true,
     payoutStatus: 'paid',
     payoutTotal: totalDistributed,
@@ -402,44 +429,6 @@ export async function executePrizeDistribution(
 
   if (scoringData) {
     docUpdatePayload.resultTemplate = scoringData;
-  }
-
-  // If this is a scrim or has slots, reset slots to open and release lobby
-  let targetDoc = await getDoc(doc(db, 'tournaments', eventId)).catch(() => null);
-  if (!targetDoc || !targetDoc.exists()) {
-    targetDoc = await getDoc(doc(db, 'scrims', eventId)).catch(() => null);
-  }
-
-  const existingData = targetDoc?.data();
-  const isScrimEvent =
-    eventType === 'scrim' ||
-    existingData?.matchType === 'scrims' ||
-    Boolean(existingData?.isScrim);
-
-  if (isScrimEvent && (existingData?.slots || existingData?.totalSlots)) {
-    const totalSlotCount = Number(existingData?.totalSlots) || (Array.isArray(existingData?.slots) ? existingData.slots.length : 12);
-    const releasedSlots = Array.from({ length: totalSlotCount }, (_, idx) => ({
-      slotNumber: idx + 1,
-      status: 'open' as const,
-      teamName: null,
-      teamId: null,
-      userId: null,
-      leader: null,
-    }));
-
-    docUpdatePayload = {
-      ...docUpdatePayload,
-      slots: releasedSlots,
-      filledSlots: 0,
-      currentPlayers: 0,
-    };
-
-    // Clean up registered participants for this finished scrim
-    for (const p of participants) {
-      if (p.id) {
-        await deleteDoc(doc(db, 'participants', p.id)).catch(() => {});
-      }
-    }
   }
 
   // Update both collections for consistency

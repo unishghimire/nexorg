@@ -19,7 +19,6 @@ import { useNotification } from '../../../shared/context/NotificationContext';
 import Seo from '../../../shared/components/Seo';
 import ProfileLink from '../../profile/components/ProfileLink';
 import PrizeBoard from '../components/PrizeBoard';
-import ScoringInfoCard from '../components/ScoringInfoCard';
 import TournamentResultModal from '../components/TournamentResultModal';
 import PerKillResultView from '../components/PerKillResultView';
 import PerKillLeaderboard from '../components/PerKillLeaderboard';
@@ -895,9 +894,6 @@ export default function TournamentDetails() {
                                         </div>
                                     ))}
                                 </div>
-
-                                {/* Scoring Info — show participants how points work */}
-                                <ScoringInfoCard tournament={tournament} />
                             </motion.div>
                         )}
 
@@ -1535,19 +1531,12 @@ export default function TournamentDetails() {
                 />
             )}
 
-            {(tournament as any).tournamentMode === 'PER_KILL_REWARD' ? (
-                <TournamentResultModal
-                    isOpen={isResultModalOpen}
-                    onClose={() => setIsResultModalOpen(false)}
-                    tournament={tournament}
-                />
-            ) : (
-                <TournamentResultModal
-                    isOpen={isResultModalOpen}
-                    onClose={() => setIsResultModalOpen(false)}
-                    tournament={tournament}
-                />
-            )}
+            <TournamentResultModal
+                isOpen={isResultModalOpen}
+                onClose={() => setIsResultModalOpen(false)}
+                tournament={tournament}
+                participants={participants}
+            />
 
             {/* Host / Admin Delete Confirmation Modal */}
             {showDeleteModal && tournament && (
