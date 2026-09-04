@@ -1,23 +1,27 @@
-import React, { useState } from 'react';
+import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Wallet,
-  ArrowDownToLine,
+  ArrowUpRight,
   TrendingUp,
   Clock,
   DollarSign,
-  CheckCircle2,
-  AlertCircle,
+  ShieldCheck,
+  Coins,
+  ArrowDownToLine,
+  Sparkles,
 } from 'lucide-react';
 import { formatDate } from '../../../shared/utils/utils';
+import { useAuth } from '../../../shared/context/AuthContext';
 
 export interface WalletPayoutsTabProps {
-  kpis: {
+  kpis?: {
     orgWalletBalance: number;
     escrowBalance: number;
     pendingPayouts: number;
   };
-  transactions: any[];
-  onRequestWithdraw: (amount: number, method: string, details: string) => void;
+  transactions?: any[];
+  onRequestWithdraw?: (amount: number, method: string, details: string) => void;
 }
 
 // Currency formatter using Intl.NumberFormat for Rs. (no decimals for amounts > 100)
@@ -34,59 +38,21 @@ const formatCurrency = (amount: number): string => {
 export const WalletPayoutsTab: React.FC<WalletPayoutsTabProps> = ({
   kpis = { orgWalletBalance: 0, escrowBalance: 0, pendingPayouts: 0 },
   transactions = [],
-  onRequestWithdraw,
 }) => {
-  const [withdrawAmount, setWithdrawAmount] = useState<string>('');
-  const [withdrawMethod, setWithdrawMethod] = useState<string>('Bank Transfer');
-  const [accountDetails, setAccountDetails] = useState<string>('');
-  const [error, setError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const navigate = useNavigate();
+  const { profile } = useAuth();
 
-  const walletBalance = kpis?.orgWalletBalance ?? 0;
+  // User's registered NexPlay wallet balance is authoritative
+  const registeredBalance = typeof profile?.balance === 'number' 
+    ? profile.balance 
+    : (kpis?.orgWalletBalance ?? 0);
+
   const escrowBalance = kpis?.escrowBalance ?? 0;
   const pendingPayouts = kpis?.pendingPayouts ?? 0;
 
-  const handleWithdrawSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (isSubmitting) return;
-    setError(null);
-    setSuccessMessage(null);
-
-    const numAmount = parseFloat(withdrawAmount);
-
-    if (isNaN(numAmount) || numAmount <= 0) {
-      setError('Please enter a valid withdrawal amount greater than 0.');
-      return;
-    }
-
-    if (numAmount > walletBalance) {
-      setError(`Withdrawal amount cannot exceed available wallet balance (${formatCurrency(walletBalance)}).`);
-      return;
-    }
-
-    if (!accountDetails.trim()) {
-      setError('Please enter your account or wallet details.');
-      return;
-    }
-
-    if (onRequestWithdraw) {
-      setIsSubmitting(true);
-      try {
-        await onRequestWithdraw(numAmount, withdrawMethod, accountDetails.trim());
-        setSuccessMessage(`Withdrawal request for ${formatCurrency(numAmount)} submitted successfully!`);
-        setWithdrawAmount('');
-        setAccountDetails('');
-      } catch (err: any) {
-        setError(err?.message || 'Failed to submit withdrawal request.');
-      } finally {
-        setIsSubmitting(false);
-      }
-    }
-  };
-
   const getTypeBadge = (type: string) => {
-    switch (type) {
+    const norm = (type || '').toLowerCase();
+    switch (norm) {
       case 'entry_fee':
         return (
           <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-surface text-slate-300 border border-slate-700">
@@ -94,27 +60,42 @@ export const WalletPayoutsTab: React.FC<WalletPayoutsTabProps> = ({
           </span>
         );
       case 'prize':
+      case 'prize_pool_payout':
         return (
           <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-indigo-950/80 text-indigo-300 border border-indigo-800/50">
-            Prize
+            Prize Payout
+          </span>
+        );
+      case 'earnings_release':
+      case 'org_share':
+        return (
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-emerald-950/80 text-emerald-300 border border-emerald-800/50">
+            Host Profit
           </span>
         );
       case 'withdraw':
+      case 'withdrawal':
         return (
           <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-amber-950/80 text-amber-300 border border-amber-800/50">
             Withdrawal
           </span>
         );
+      case 'deposit':
+        return (
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-green-950/80 text-green-300 border border-green-800/50">
+            Deposit
+          </span>
+        );
       case 'sponsor':
         return (
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-emerald-950/80 text-emerald-300 border border-emerald-800/50">
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-purple-950/80 text-purple-300 border border-purple-800/50">
             Sponsor
           </span>
         );
       default:
         return (
           <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-surface text-slate-300 border border-slate-700">
-            {type ? type.replace('_', ' ') : 'Transaction'}
+            {type ? type.replace(/_/g, ' ') : 'Transaction'}
           </span>
         );
     }
@@ -159,173 +140,170 @@ export const WalletPayoutsTab: React.FC<WalletPayoutsTabProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
-            <h2 className="text-2xl font-bold text-white tracking-tight">Wallet & Payouts</h2>
+            <h2 className="text-2xl font-black text-white tracking-tight uppercase">Finances & Revenue</h2>
+            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-brand-500/10 text-brand-400 border border-brand-500/20">
+              Direct Settlement
+            </span>
           </div>
           <p className="text-sm text-slate-400 mt-1">
-            Escrow balances, prize distribution, and transaction history
+            Real-time event revenues, prize escrow, and payouts settled directly to your registered NexPlay user account.
           </p>
         </div>
+
+        <button
+          type="button"
+          onClick={() => navigate('/wallet')}
+          className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-brand-500/20 active:scale-95 transition-all self-start sm:self-auto"
+        >
+          <Wallet className="w-4 h-4" />
+          <span>Open Main Wallet</span>
+          <ArrowUpRight className="w-3.5 h-3.5 opacity-70" />
+        </button>
       </div>
 
-      {/* 2. Balance cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-        {/* Wallet Balance */}
-        <div className="bg-dark/50 border border-slate-800 rounded-2xl p-5">
+      {/* 2. Financial Overview Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {/* Main Registered User Balance */}
+        <div className="bg-dark/50 border border-emerald-500/20 rounded-2xl p-5 relative overflow-hidden group hover:border-emerald-500/40 transition-colors">
+          <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-emerald-500/5 rounded-full blur-2xl pointer-events-none" />
           <div className="flex items-center justify-between text-slate-400">
-            <span className="text-xs font-medium uppercase tracking-wider">Wallet Balance</span>
-            <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400">
-              <Wallet className="w-5 h-5" />
+            <span className="text-[11px] font-black uppercase tracking-widest text-emerald-400 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Registered Wallet Balance
+            </span>
+            <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              <Wallet className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-semibold text-white mt-2">
-            {formatCurrency(walletBalance)}
+          <div className="text-3xl font-black text-white mt-3 font-mono">
+            {formatCurrency(registeredBalance)}
           </div>
-          <div className="flex items-center gap-1 text-xs text-slate-400 mt-2">
-            <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Available for withdrawal</span>
+          <div className="flex items-center justify-between gap-1 text-xs text-slate-400 mt-3 pt-3 border-t border-slate-800/80">
+            <span className="flex items-center gap-1 text-[11px] text-slate-400">
+              <TrendingUp className="w-3 h-3 text-emerald-400 shrink-0" />
+              Available to withdraw
+            </span>
+            <button
+              type="button"
+              onClick={() => navigate('/wallet')}
+              className="text-[11px] font-black text-emerald-400 hover:text-emerald-300 underline underline-offset-2 flex items-center gap-1 transition-colors"
+            >
+              Cash Out <ArrowUpRight className="w-3 h-3" />
+            </button>
           </div>
         </div>
 
         {/* In Escrow */}
-        <div className="bg-dark/50 border border-slate-800 rounded-2xl p-5">
+        <div className="bg-dark/50 border border-indigo-500/20 rounded-2xl p-5 relative overflow-hidden group hover:border-indigo-500/40 transition-colors">
           <div className="flex items-center justify-between text-slate-400">
-            <span className="text-xs font-medium uppercase tracking-wider">In Escrow</span>
-            <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400">
-              <Clock className="w-5 h-5" />
+            <span className="text-[11px] font-black uppercase tracking-widest text-indigo-400">
+              Active Prize Escrow
+            </span>
+            <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+              <Clock className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-semibold text-white mt-2">
+          <div className="text-3xl font-black text-white mt-3 font-mono">
             {formatCurrency(escrowBalance)}
           </div>
-          <div className="flex items-center gap-1 text-xs text-slate-400 mt-2">
-            <DollarSign className="w-3.5 h-3.5 text-indigo-400" />
-            <span>Locked for active tournament prizes</span>
+          <div className="flex items-center gap-1 text-xs text-slate-400 mt-3 pt-3 border-t border-slate-800/80">
+            <DollarSign className="w-3 h-3 text-indigo-400 shrink-0" />
+            <span className="text-[11px] text-slate-400">Locked for ongoing tournament & scrim prizes</span>
           </div>
         </div>
 
-        {/* Pending Payouts */}
-        <div className="bg-dark/50 border border-slate-800 rounded-2xl p-5">
+        {/* Pending Settlements */}
+        <div className="bg-dark/50 border border-amber-500/20 rounded-2xl p-5 relative overflow-hidden group hover:border-amber-500/40 transition-colors">
           <div className="flex items-center justify-between text-slate-400">
-            <span className="text-xs font-medium uppercase tracking-wider">Pending Payouts</span>
-            <div className="p-2 rounded-lg bg-amber-500/10 text-amber-400">
-              <ArrowDownToLine className="w-5 h-5" />
+            <span className="text-[11px] font-black uppercase tracking-widest text-amber-400">
+              Pending Settlements
+            </span>
+            <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
+              <ArrowDownToLine className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-semibold text-white mt-2">
+          <div className="text-3xl font-black text-white mt-3 font-mono">
             {formatCurrency(pendingPayouts)}
           </div>
-          <div className="flex items-center gap-1 text-xs text-slate-400 mt-2">
-            <Clock className="w-3.5 h-3.5 text-amber-400" />
-            <span>Processing payouts</span>
+          <div className="flex items-center gap-1 text-xs text-slate-400 mt-3 pt-3 border-t border-slate-800/80">
+            <Clock className="w-3 h-3 text-amber-400 shrink-0" />
+            <span className="text-[11px] text-slate-400">Processing event releases and shares</span>
           </div>
         </div>
       </div>
 
-      {/* 3. Withdrawal form card */}
-      <div className="bg-dark/50 border border-slate-800 rounded-2xl p-5">
-        <div className="flex items-center gap-2 mb-4">
-          <ArrowDownToLine className="w-5 h-5 text-emerald-400" />
-          <h3 className="text-lg font-semibold text-white">Request Withdrawal</h3>
-        </div>
-
-        <form onSubmit={handleWithdrawSubmit} className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {/* Amount Input */}
-            <div>
-              <label htmlFor="withdraw-amount" className="block text-xs font-medium text-slate-300 mb-1.5">
-                Amount (NPR)
-              </label>
-              <input
-                id="withdraw-amount"
-                type="number"
-                min="1"
-                max={walletBalance}
-                step="any"
-                value={withdrawAmount}
-                onChange={(e) => {
-                  setWithdrawAmount(e.target.value);
-                  if (error) setError(null);
-                }}
-                placeholder="e.g. 5000"
-                className="w-full bg-card border border-slate-800 rounded-lg px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus-visible:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-colors"
-              />
+      {/* 3. Direct Wallet Settlement & Cashout Hub */}
+      <div className="bg-gradient-to-br from-card/90 via-dark to-dark border border-brand-500/20 rounded-2xl p-6 relative overflow-hidden">
+        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
+          <div className="space-y-2 max-w-2xl">
+            <div className="flex items-center gap-2 text-brand-400 text-xs font-black uppercase tracking-widest">
+              <ShieldCheck className="w-4 h-4 text-brand-400" />
+              <span>Direct Wallet Settlement Architecture</span>
             </div>
-
-            {/* Method Select */}
-            <div>
-              <label htmlFor="withdraw-method" className="block text-xs font-medium text-slate-300 mb-1.5">
-                Payment Method
-              </label>
-              <select
-                id="withdraw-method"
-                value={withdrawMethod}
-                onChange={(e) => setWithdrawMethod(e.target.value)}
-                className="w-full bg-card border border-slate-800 rounded-lg px-3.5 py-2.5 text-sm text-white focus-visible:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-colors"
-              >
-                <option value="Bank Transfer">Bank Transfer</option>
-                <option value="eSewa">eSewa</option>
-                <option value="Khalti">Khalti</option>
-                <option value="IME Pay">IME Pay</option>
-              </select>
-            </div>
-
-            {/* Account Details Input */}
-            <div>
-              <label htmlFor="account-details" className="block text-xs font-medium text-slate-300 mb-1.5">
-                Account Details
-              </label>
-              <input
-                id="account-details"
-                type="text"
-                value={accountDetails}
-                onChange={(e) => {
-                  setAccountDetails(e.target.value);
-                  if (error) setError(null);
-                }}
-                placeholder="e.g. 9800000000 or Bank Acc No."
-                className="w-full bg-card border border-slate-800 rounded-lg px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus-visible:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-colors"
-              />
+            <h3 className="text-lg sm:text-xl font-black text-white uppercase tracking-tight">
+              All Organizer Earnings Go Directly to Your Registered NexPlay Wallet
+            </h3>
+            <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
+              When your tournaments or scrims finish, your net profits and host earnings are credited directly to your registered user wallet account balance (<code className="text-brand-300 font-mono text-xs">users/{'{uid}'}.balance</code>). You do not need a separate withdrawal request here.
+            </p>
+            <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] text-slate-400">
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">
+                <Sparkles className="w-3 h-3" /> eSewa
+              </span>
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-purple-500/10 text-purple-400 border border-purple-500/20 font-bold">
+                <Sparkles className="w-3 h-3" /> Khalti
+              </span>
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20 font-bold">
+                <Sparkles className="w-3 h-3" /> Bank Transfer
+              </span>
+              <span className="text-slate-400">Supported for instant cashouts in the main wallet.</span>
             </div>
           </div>
 
-          {/* Validation Error Message */}
-          {error && (
-            <p className="text-xs text-red-400 mt-2 flex items-center gap-1">
-              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-              <span>{error}</span>
-            </p>
-          )}
-
-          {/* Success Message */}
-          {successMessage && (
-            <p className="text-xs text-emerald-400 mt-2 flex items-center gap-1">
-              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-              <span>{successMessage}</span>
-            </p>
-          )}
-
-          {/* Submit Button */}
-          <div className="flex justify-end pt-1">
+          <div className="flex flex-col sm:flex-row lg:flex-col gap-3 w-full lg:w-auto shrink-0">
             <button
-              type="submit"
-              className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-sm px-6 py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2 min-h-[44px]"
+              type="button"
+              onClick={() => navigate('/wallet')}
+              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-dark font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-500/20 active:scale-95 transition-all"
             >
               <ArrowDownToLine className="w-4 h-4" />
-              Submit Request
+              <span>Withdraw to Bank / eSewa</span>
+              <ArrowUpRight className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/wallet')}
+              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-card hover:bg-card/80 border border-slate-700 text-slate-300 hover:text-white font-bold text-xs uppercase tracking-wider transition-all"
+            >
+              <Coins className="w-4 h-4 text-brand-400" />
+              <span>Deposit / Pre-fund Prizes</span>
             </button>
           </div>
-        </form>
+        </div>
       </div>
 
-      {/* 4. Transaction history table */}
+      {/* 4. Transaction & Revenue Settlement History */}
       <div className="bg-dark/50 border border-slate-800 rounded-2xl p-5">
-        <div className="mb-4">
-          <h3 className="text-lg font-semibold text-white">Transaction History</h3>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+          <div>
+            <h3 className="text-lg font-black text-white uppercase tracking-tight">Revenue & Transaction History</h3>
+            <p className="text-xs text-slate-400">
+              Live audit record of entry fees, prize payouts, and account credits.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate('/wallet')}
+            className="text-xs text-brand-400 hover:text-brand-300 font-black uppercase tracking-wider flex items-center gap-1 self-start sm:self-auto transition-colors"
+          >
+            View Full Statement <ArrowUpRight className="w-3.5 h-3.5" />
+          </button>
         </div>
 
         {transactions.length === 0 ? (
-          <div className="text-center py-8 text-slate-400 text-sm">
-            No transactions found.
+          <div className="text-center py-12 text-slate-500 text-xs">
+            <Coins className="w-8 h-8 text-slate-600 mx-auto mb-2 opacity-50" />
+            No financial transactions recorded yet.
           </div>
         ) : (
           <>
@@ -333,10 +311,10 @@ export const WalletPayoutsTab: React.FC<WalletPayoutsTabProps> = ({
             <div className="hidden sm:block overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
               <table className="w-full text-left text-sm">
                 <thead>
-                  <tr className="border-b border-slate-800 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  <tr className="border-b border-slate-800 text-xs font-black uppercase tracking-wider text-slate-400">
                     <th className="py-3 px-4">Type</th>
                     <th className="py-3 px-4">Amount</th>
-                    <th className="py-3 px-4">Method</th>
+                    <th className="py-3 px-4">Method / Channel</th>
                     <th className="py-3 px-4">Ref ID</th>
                     <th className="py-3 px-4">Status</th>
                     <th className="py-3 px-4">Date</th>
@@ -348,11 +326,11 @@ export const WalletPayoutsTab: React.FC<WalletPayoutsTabProps> = ({
                       <td className="py-3.5 px-4 whitespace-nowrap">
                         {getTypeBadge(tx.type)}
                       </td>
-                      <td className="py-3.5 px-4 whitespace-nowrap font-mono font-semibold text-white">
+                      <td className="py-3.5 px-4 whitespace-nowrap font-mono font-bold text-white">
                         {formatCurrency(tx.amount)}
                       </td>
-                      <td className="py-3.5 px-4 whitespace-nowrap text-slate-300">
-                        {tx.method || '—'}
+                      <td className="py-3.5 px-4 whitespace-nowrap text-slate-300 text-xs">
+                        {tx.method || tx.gateway || 'NexPlay Wallet'}
                       </td>
                       <td className="py-3.5 px-4 whitespace-nowrap font-mono text-xs text-slate-400">
                         {tx.refId || tx.id || '—'}
@@ -394,8 +372,8 @@ export const WalletPayoutsTab: React.FC<WalletPayoutsTabProps> = ({
 
                   <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-slate-800/60 text-slate-400">
                     <div>
-                      <span className="block text-[10px] uppercase text-slate-400 font-medium">Method</span>
-                      <span className="text-slate-300">{tx.method || '—'}</span>
+                      <span className="block text-[10px] uppercase text-slate-400 font-medium">Channel</span>
+                      <span className="text-slate-300">{tx.method || tx.gateway || 'NexPlay Wallet'}</span>
                     </div>
                     <div>
                       <span className="block text-[10px] uppercase text-slate-400 font-medium">Ref ID</span>
