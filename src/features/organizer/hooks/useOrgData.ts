@@ -649,17 +649,25 @@ export function useOrgData() {
     const willRelease = targetSlot?.status === 'filled';
 
     if (willRelease) {
-      const scrimParts = participants.filter(p => p.tournamentId === scrimId);
+      const scrimParts = participants.filter(p => p.tournamentId === scrimId || (p as any).scrimId === scrimId);
+      const resolvedFee = Number(
+        data.entryFee ??
+        data.requirements?.entryFee ??
+        data.price ??
+        data.fee ??
+        targetSlot?.entryFee ??
+        0
+      );
       const res = await releaseSlotWithRefund({
         scrimId,
         scrimTitle: data.title || 'Scrim',
         slotNumber,
-        entryFee: Number(data.entryFee || 0),
+        entryFee: resolvedFee,
         targetSlot,
         participants: scrimParts,
       });
 
-      setParticipants(prev => prev.filter(p => p.tournamentId !== scrimId || ((p as any).slotNumber !== slotNumber && p.userId !== targetSlot?.userId)));
+      setParticipants(prev => prev.filter(p => (p.tournamentId !== scrimId && (p as any).scrimId !== scrimId) || ((p as any).slotNumber !== slotNumber && p.userId !== targetSlot?.userId)));
       return res;
     } else {
       const newSlots = currentSlots.map((s: any) => {

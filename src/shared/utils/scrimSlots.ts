@@ -4,8 +4,11 @@ export interface ScrimSlot {
   teamName?: string | null;
   teamId?: string | null;
   userId?: string | null;
+  captainUid?: string | null;
+  reservedBy?: string | null;
   leader?: string | null;
   inGameId?: string | null;
+  entryFee?: number;
 }
 
 export const SCRIM_FORMAT_SLOTS = {
@@ -41,14 +44,28 @@ export const normalizeScrimSlots = (
       const status: 'open' | 'filled' | 'locked' =
         rawStatus === 'filled' ? 'filled' : rawStatus === 'locked' ? 'locked' : 'open';
 
+      const resolvedUserId = (
+        (typeof record.userId === 'string' && record.userId) ||
+        (typeof record.captainUid === 'string' && record.captainUid) ||
+        (typeof record.reservedBy === 'string' && record.reservedBy) ||
+        (typeof record.playerUid === 'string' && record.playerUid) ||
+        (typeof record.uid === 'string' && record.uid) ||
+        (typeof record.captainId === 'string' && record.captainId) ||
+        (typeof record.teamOwnerId === 'string' && record.teamOwnerId) ||
+        null
+      );
+
       return {
         slotNumber: toPositiveInteger(record.slotNumber, index + 1),
         status,
         teamName: typeof record.teamName === 'string' ? record.teamName : null,
         teamId: typeof record.teamId === 'string' ? record.teamId : null,
-        userId: typeof record.userId === 'string' ? record.userId : null,
+        userId: resolvedUserId,
+        captainUid: typeof record.captainUid === 'string' ? record.captainUid : (typeof record.userId === 'string' ? record.userId : null),
+        reservedBy: typeof record.reservedBy === 'string' ? record.reservedBy : null,
         leader: typeof record.leader === 'string' ? record.leader : null,
         inGameId: typeof record.inGameId === 'string' ? record.inGameId : null,
+        entryFee: typeof record.entryFee === 'number' ? record.entryFee : undefined,
       };
     });
   }

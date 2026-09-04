@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
-import { doc, onSnapshot, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { doc, onSnapshot, getDoc, serverTimestamp, updateDoc, collection, query, where, increment, setDoc } from 'firebase/firestore';
 import { onAuthStateChanged, signOut, getRedirectResult, User as FirebaseUser } from 'firebase/auth';
 import { db, auth } from '../config/firebase';
 import { UserProfile } from '../types/types';
@@ -262,6 +262,55 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 // Error in user profile snapshot
             });
 
+            // Auto-claim any pending entry fee refunds for this user (resilient refund crediting)
+            const qRefunds = query(
+                collection(db, 'pending_refunds'),
+                where('userId', '==', user.uid),
+                where('status', '==', 'pending')
+            );
+            const unsubscribeRefunds = onSnapshot(qRefunds, async (snapshot) => {
+                if (snapshot.empty) return;
+                for (const rDoc of snapshot.docs) {
+                    const rData = rDoc.data();
+                    const amount = Number(rData.amount || 0);
+                    if (amount > 0 && rData.status === 'pending') {
+                        try {
+                            // Atomically increment the user's balance
+                            await updateDoc(userRef, {
+                                balance: increment(amount),
+                                updatedAt: serverTimestamp(),
+                            });
+                            // Mark pending refund as completed
+                            await updateDoc(rDoc.ref, {
+                                status: 'completed',
+                                claimedAt: serverTimestamp(),
+                                claimedBy: user.uid,
+                            });
+                            // Record transaction in ledger if not already recorded
+                            const txRef = doc(collection(db, 'transactions'));
+                            await setDoc(txRef, {
+                                id: txRef.id,
+                                userId: user.uid,
+                                username: user.username || 'Player',
+                                type: 'refund',
+                                amount,
+                                method: 'Scrim Entry Refund',
+                                status: 'success',
+                                refId: rData.id || `RFD-${rDoc.id}`,
+                                desc: `Refund for released Slot #${rData.slotNumber ?? ''} in ${rData.scrimTitle || 'Scrim'}`,
+                                tournamentId: rData.scrimId || null,
+                                slotNumber: rData.slotNumber || null,
+                                timestamp: serverTimestamp(),
+                            }).catch(() => {});
+                        } catch (claimErr) {
+                            console.error('Failed to claim pending refund:', claimErr);
+                        }
+                    }
+                }
+            }, (err) => {
+                console.warn('Pending refunds listener warning:', err);
+            });
+
             // Presence Management — debounced to avoid excessive Firestore writes
             // ponytail: was writing on every visibilitychange event; now debounced 5s
             let presenceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -303,6 +352,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
             return () => {
                 unsubscribeProfile();
+                unsubscribeRefunds();
                 document.removeEventListener('visibilitychange', handleVisibilityChange);
                 window.removeEventListener('beforeunload', handleBeforeUnload);
             };

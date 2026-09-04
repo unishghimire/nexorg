@@ -31,7 +31,10 @@ service cloud.firestore {
         isAdmin() ||
         request.auth.token.role == 'organizer' ||
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-         getUserData().role == 'organizer')
+         (getUserData().role == 'organizer' ||
+          getUserData().isOrganizer == true ||
+          getUserData().orgStatus == 'approved' ||
+          getUserData().isPowerOrganizer == true))
       );
     }
 
@@ -194,6 +197,20 @@ service cloud.firestore {
         request.resource.data.userId == request.auth.uid || isAdmin() || isOrganizer()
       );
       allow update, delete: if isAdmin();
+    }
+
+    // ===============================================================
+    // PENDING REFUNDS QUEUE
+    // ===============================================================
+    match /pending_refunds/{refundId} {
+      allow read: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid || isOrganizer() || isAdmin()
+      );
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid || isOrganizer() || isAdmin()
+      );
+      allow delete: if isAdmin();
     }
 
     // ===============================================================

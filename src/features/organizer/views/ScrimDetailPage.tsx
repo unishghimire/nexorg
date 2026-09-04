@@ -245,13 +245,22 @@ export default function ScrimDetailPage() {
     if (!scrim || !id) return;
     try {
       const currentSlots = normalizeScrimSlots(scrim.slots, scrim.totalSlots, scrim.filledSlots ?? scrim.currentPlayers);
-      const targetSlot: any = currentSlots.find((s: any) => s.slotNumber === slotNumber);
+      const targetSlot: any = currentSlots.find((s: any) => Number(s.slotNumber) === Number(slotNumber));
+
+      const resolvedFee = Number(
+        scrim.entryFee ??
+        scrim.requirements?.entryFee ??
+        scrim.price ??
+        scrim.fee ??
+        targetSlot?.entryFee ??
+        0
+      );
 
       const res = await releaseSlotWithRefund({
         scrimId: id,
         scrimTitle: scrim.title || 'Scrim',
         slotNumber,
-        entryFee: Number(scrim.entryFee || 0),
+        entryFee: resolvedFee,
         targetSlot,
         participants,
       });
@@ -1320,7 +1329,14 @@ export default function ScrimDetailPage() {
                         <button
                           type="button"
                           onClick={() => {
-                            const entryFee = Number(scrim.entryFee || 0);
+                            const entryFee = Number(
+                              scrim.entryFee ??
+                              scrim.requirements?.entryFee ??
+                              scrim.price ??
+                              scrim.fee ??
+                              s.entryFee ??
+                              0
+                            );
                             const msg = entryFee > 0
                               ? `Release slot #${s.slotNumber} ("${s.teamName}")? This will remove the team from the lobby and automatically refund their entry fee of Rs. ${entryFee.toLocaleString()} back to their wallet.`
                               : `Release slot #${s.slotNumber} ("${s.teamName}")?`;
@@ -1668,7 +1684,14 @@ export default function ScrimDetailPage() {
               <button
                 type="button"
                 onClick={() => {
-                  const entryFee = Number(scrim.entryFee || 0);
+                  const entryFee = Number(
+                    scrim.entryFee ??
+                    scrim.requirements?.entryFee ??
+                    scrim.price ??
+                    scrim.fee ??
+                    selectedSlot.entryFee ??
+                    0
+                  );
                   const msg = entryFee > 0
                     ? `Release slot #${selectedSlot.slotNumber} ("${selectedSlot.teamName}")? This will remove the team from the lobby and automatically refund their entry fee of Rs. ${entryFee.toLocaleString()} back to their wallet balance.`
                     : `Release slot #${selectedSlot.slotNumber} ("${selectedSlot.teamName}")? This will remove the team from the lobby.`;
