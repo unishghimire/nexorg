@@ -363,6 +363,28 @@ const OrganizerPanel: React.FC = () => {
     }
   }, [disputeTarget, isResolvingDispute, org, showToast]);
 
+  const handleUpdateDispute = useCallback(async (
+    disputeId: string,
+    updates: any,
+    notify: boolean = true
+  ) => {
+    try {
+      await org.updateDispute(disputeId, updates, notify);
+      showToast('Dispute record updated successfully', 'success');
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to update dispute', 'error');
+    }
+  }, [org, showToast]);
+
+  const handleDeleteDispute = useCallback(async (disputeId: string) => {
+    try {
+      await org.deleteDispute(disputeId);
+      showToast('Dispute record removed', 'info');
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to delete dispute', 'error');
+    }
+  }, [org, showToast]);
+
   const handleRequestWithdraw = useCallback(async (amount: number, method: string, details: string) => {
     try {
       await org.requestWithdrawal(amount, method, details);
@@ -446,6 +468,8 @@ const OrganizerPanel: React.FC = () => {
             <DisputesTab
               disputes={org.disputes}
               onResolveDispute={handleResolveDispute}
+              onUpdateDispute={handleUpdateDispute}
+              onDeleteDispute={handleDeleteDispute}
               onOpenDisputeOverlay={handleOpenDisputeOverlay}
             />
           </TabErrorBoundary>

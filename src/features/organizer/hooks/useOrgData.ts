@@ -882,6 +882,85 @@ export function useOrgData() {
     }
   }, [user, assertTournamentHost]);
 
+  const updateDispute = useCallback(async (
+    disputeId: string,
+    updates: {
+      status?: 'pending' | 'resolved' | 'dismissed';
+      resolutionAction?: 'warn' | 'ban' | 'dismiss' | 'none';
+      resolutionNote?: string;
+      reason?: string;
+      matchRoom?: string;
+      reportedTeamName?: string;
+      category?: string;
+    },
+    notifyPlayers: boolean = true
+  ) => {
+    if (!user) throw new Error('Not authenticated');
+
+    // 0ms Optimistic update
+    setDisputes(prev => prev.map(d => d.id === disputeId ? {
+      ...d,
+      ...updates,
+      updatedAt: new Date().toISOString(),
+    } : d));
+
+    const dRef = doc(db, 'disputes', disputeId);
+    const dSnap = await getDoc(dRef);
+    if (!dSnap.exists()) throw new Error('Dispute not found');
+    const dData = dSnap.data();
+    const tournamentId = dData.tournamentId as string | undefined;
+    if (tournamentId) {
+      await assertTournamentHost(tournamentId).catch(() => {});
+    }
+
+    const payload = cleanFirestoreData({
+      ...updates,
+      updatedAt: serverTimestamp(),
+      lastEditedBy: user.uid,
+      lastEditedAt: serverTimestamp(),
+    });
+
+    await updateDoc(dRef, payload);
+
+    if (notifyPlayers) {
+      try {
+        const eventTitle = dData.tournamentName || 'Tournament / Scrim';
+        const reporterUid = dData.userId || dData.reporterUid;
+        if (reporterUid && updates.status) {
+          await NotificationService.create({
+            userId: reporterUid,
+            title: `Dispute Case #${disputeId.slice(0, 8)} Updated`,
+            message: updates.resolutionNote?.trim() || `The ruling for "${eventTitle}" was revised by the organizer. Status: ${updates.status.toUpperCase()}.`,
+            type: 'alert',
+            actionUrl: tournamentId ? `/tournaments/${tournamentId}` : undefined,
+          });
+        }
+
+        const accusedUid = dData.reportedUserId || dData.reportedTeamId;
+        if (accusedUid && updates.resolutionAction && updates.resolutionAction !== 'none') {
+          await NotificationService.create({
+            userId: accusedUid,
+            title: `Ruling Revision: ${eventTitle}`,
+            message: `The organizer updated the ruling on your match report. Current action: ${updates.resolutionAction.toUpperCase()}. Note: ${updates.resolutionNote?.trim() || 'Record updated by organizer.'}`,
+            type: 'alert',
+            actionUrl: tournamentId ? `/tournaments/${tournamentId}` : undefined,
+          });
+        }
+      } catch (e) {
+        console.warn('Dispute update notification warning:', e);
+      }
+    }
+  }, [user, assertTournamentHost]);
+
+  const deleteDispute = useCallback(async (disputeId: string) => {
+    if (!user) throw new Error('Not authenticated');
+    // 0ms Optimistic update
+    setDisputes(prev => prev.filter(d => d.id !== disputeId));
+
+    const dRef = doc(db, 'disputes', disputeId);
+    await deleteDoc(dRef);
+  }, [user]);
+
   return {
     hostedTournaments,
     tournamentsOnly,
@@ -914,5 +993,7 @@ export function useOrgData() {
     issueWarning,
     toggleBanTeam,
     resolveDispute,
+    updateDispute,
+    deleteDispute,
   };
 }
