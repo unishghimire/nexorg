@@ -234,7 +234,7 @@ const Wallet: React.FC = () => {
                     <div className="relative z-10">
                         <h2 className="text-xs font-black text-gray-500 uppercase tracking-widest mb-4">Total Balance</h2>
                         <p className="text-4xl sm:text-5xl md:text-6xl font-black text-white tracking-tighter mb-8">
-                            {formatCurrency(profile.balance || 0)}
+                            {formatCurrency((profile.balance || 0) + (profile.orgWalletBalance || 0))}
                         </p>
                         
                         {isOrg && (
