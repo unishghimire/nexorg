@@ -35,7 +35,7 @@ interface OrgOverlayManagerProps {
   // Dispute resolver
   disputeId?: string;
   dispute?: any;
-  onResolveDispute?: (action: 'warn' | 'ban' | 'dismiss', resolutionNote?: string) => void;
+  onResolveDispute?: (action: 'solve' | 'warn' | 'ban' | 'dismiss', resolutionNote?: string) => void;
   // Scrim slots
   scrimTitle?: string;
   slotGrid?: { slotNumber: number; teamName: string | null; status: string }[];
@@ -304,28 +304,37 @@ export const OrgOverlayManager: React.FC<OrgOverlayManagerProps> = ({
             </div>
 
             {/* Actions */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+            <div className="space-y-2 pt-2">
               <button
                 type="button"
-                onClick={() => onResolveDispute?.('dismiss', internalDisputeNote)}
-                className="bg-surface hover:bg-surface text-gray-300 border border-gray-700 py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition min-h-[44px]"
+                onClick={() => onResolveDispute?.('solve', internalDisputeNote || 'Issue investigated, solved, and settled.')}
+                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-xl font-black text-xs uppercase tracking-wider transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/40 min-h-[44px]"
               >
-                Dismiss Report
+                ✅ Mark as Solved (Issue Settled)
               </button>
-              <button
-                type="button"
-                onClick={() => onResolveDispute?.('warn', internalDisputeNote)}
-                className="bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition min-h-[44px]"
-              >
-                Issue Warning
-              </button>
-              <button
-                type="button"
-                onClick={() => onResolveDispute?.('ban', internalDisputeNote)}
-                className="bg-red-600 hover:bg-red-500 text-white py-3 rounded-xl font-black text-xs uppercase tracking-wider transition min-h-[44px] shadow-lg shadow-red-950/40"
-              >
-                Disqualify / Ban
-              </button>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => onResolveDispute?.('warn', internalDisputeNote)}
+                  className="bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition min-h-[40px]"
+                >
+                  ⚠️ Issue Warning
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onResolveDispute?.('ban', internalDisputeNote)}
+                  className="bg-red-600 hover:bg-red-500 text-white py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition min-h-[40px] shadow-md shadow-red-950/40"
+                >
+                  🚫 Disqualify / Ban
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onResolveDispute?.('dismiss', internalDisputeNote)}
+                  className="bg-surface hover:bg-surface text-gray-300 border border-gray-700 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition min-h-[40px]"
+                >
+                  📁 Dismiss Report
+                </button>
+              </div>
             </div>
           </div>
         </Modal>

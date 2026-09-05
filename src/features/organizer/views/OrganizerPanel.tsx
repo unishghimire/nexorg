@@ -344,16 +344,23 @@ const OrganizerPanel: React.FC = () => {
 
   const handleResolveDispute = useCallback(async (
     disputeIdOrAction: string,
-    actionParam?: 'warn' | 'ban' | 'dismiss',
+    actionParam?: 'solve' | 'warn' | 'ban' | 'dismiss',
     resolutionNote?: string
   ) => {
     const disputeId = actionParam ? disputeIdOrAction : disputeTarget;
-    const action = actionParam || (disputeIdOrAction as 'warn' | 'ban' | 'dismiss');
+    const action = actionParam || (disputeIdOrAction as 'solve' | 'warn' | 'ban' | 'dismiss');
     if (!disputeId || isResolvingDispute) return;
     setIsResolvingDispute(true);
     try {
       await org.resolveDispute(disputeId, action, resolutionNote);
-      showToast(`Dispute ${action === 'dismiss' ? 'dismissed' : `resolved — ${action} issued`}`, 'success');
+      showToast(
+        action === 'solve'
+          ? 'Dispute marked as solved'
+          : action === 'dismiss'
+          ? 'Dispute dismissed'
+          : `Dispute resolved — ${action} issued`,
+        'success'
+      );
       setActiveOverlay(null);
       setDisputeTarget(null);
     } catch (err: any) {

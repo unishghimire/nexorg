@@ -814,7 +814,7 @@ export function useOrgData() {
 
   const resolveDispute = useCallback(async (
     disputeId: string,
-    action: 'warn' | 'ban' | 'dismiss',
+    action: 'solve' | 'warn' | 'ban' | 'dismiss',
     resolutionNote?: string
   ) => {
     if (!user) throw new Error('Not authenticated');
@@ -838,7 +838,9 @@ export function useOrgData() {
       await assertTournamentHost(tournamentId).catch(() => {});
     }
 
-    const defaultNote = action === 'dismiss'
+    const defaultNote = action === 'solve'
+      ? 'Issue investigated, solved, and settled by tournament organizer.'
+      : action === 'dismiss'
       ? 'Dispute dismissed after review.'
       : `Action: ${action === 'ban' ? 'Disqualification / Ban' : 'Official Warning'} issued.`;
 
@@ -860,22 +862,32 @@ export function useOrgData() {
       if (reporterUid) {
         await NotificationService.create({
           userId: reporterUid,
-          title: `Dispute Report ${status === 'dismissed' ? 'Closed' : 'Resolved'}`,
-          message: resolutionNote?.trim() || `Your report regarding "${eventTitle}" was reviewed and marked as ${status}.`,
+          title: action === 'solve' ? `Dispute Solved: ${eventTitle}` : `Dispute Report ${status === 'dismissed' ? 'Closed' : 'Resolved'}`,
+          message: resolutionNote?.trim() || (action === 'solve' ? `Your dispute report regarding "${eventTitle}" has been reviewed and marked as SOLVED.` : `Your report regarding "${eventTitle}" was reviewed and marked as ${status}.`),
           type: 'alert',
           actionUrl: tournamentId ? `/tournaments/${tournamentId}` : undefined,
         });
       }
 
       const accusedUid = dData.reportedUserId || dData.reportedTeamId;
-      if (accusedUid && (action === 'warn' || action === 'ban')) {
-        await NotificationService.create({
-          userId: accusedUid,
-          title: `Disciplinary Notice: ${eventTitle}`,
-          message: `The organizer has issued an official ${action === 'ban' ? 'DISQUALIFICATION' : 'WARNING'}. Reason: ${resolutionNote?.trim() || 'Tournament rules infraction.'}`,
-          type: 'alert',
-          actionUrl: tournamentId ? `/tournaments/${tournamentId}` : undefined,
-        });
+      if (accusedUid) {
+        if (action === 'warn' || action === 'ban') {
+          await NotificationService.create({
+            userId: accusedUid,
+            title: `Disciplinary Notice: ${eventTitle}`,
+            message: `The organizer has issued an official ${action === 'ban' ? 'DISQUALIFICATION' : 'WARNING'}. Reason: ${resolutionNote?.trim() || 'Tournament rules infraction.'}`,
+            type: 'alert',
+            actionUrl: tournamentId ? `/tournaments/${tournamentId}` : undefined,
+          });
+        } else if (action === 'solve') {
+          await NotificationService.create({
+            userId: accusedUid,
+            title: `Dispute Case Resolved: ${eventTitle}`,
+            message: resolutionNote?.trim() || `The dispute report regarding "${eventTitle}" has been investigated and settled by the organizer.`,
+            type: 'alert',
+            actionUrl: tournamentId ? `/tournaments/${tournamentId}` : undefined,
+          });
+        }
       }
     } catch (notifErr) {
       console.warn('Dispute resolution notification warning:', notifErr);
@@ -886,7 +898,7 @@ export function useOrgData() {
     disputeId: string,
     updates: {
       status?: 'pending' | 'resolved' | 'dismissed';
-      resolutionAction?: 'warn' | 'ban' | 'dismiss' | 'none';
+      resolutionAction?: 'solve' | 'warn' | 'ban' | 'dismiss' | 'none';
       resolutionNote?: string;
       reason?: string;
       matchRoom?: string;

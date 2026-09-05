@@ -31,7 +31,7 @@ export interface MatchRoomsTabProps {
   matchRooms: any[];
   disputes: any[];
   onOpenRoomDispatch: (room: any) => void;
-  onResolveDispute: (disputeId: string, action: 'warn' | 'ban' | 'dismiss', note?: string) => void;
+  onResolveDispute: (disputeId: string, action: 'solve' | 'warn' | 'ban' | 'dismiss', note?: string) => void;
   onOpenDisputeOverlay?: (disputeId: string) => void;
   onBroadcastLobby?: (
     id: string,
