@@ -21,6 +21,7 @@ import { db, auth } from '../../../shared/config/firebase';
 import { useAuth } from '../../../shared/context/AuthContext';
 import { Tournament, Participant, Transaction } from '../../../shared/types/types';
 import { fetchRoomCredentials, broadcastRoomCredentials } from '../../../shared/services/roomCredentials';
+import { NotificationService } from '../../../shared/services/NotificationService';
 import { commitFirestoreBatches } from '../../../shared/utils/firestoreBatches';
 import { toDateSafe, cleanFirestoreData } from '../../../shared/utils/utils';
 import { countFilledScrimSlots, normalizeScrimSlots, getSlotCount, getFilledSlotCount } from '../../../shared/utils/scrimSlots';
@@ -142,20 +143,36 @@ export function useOrgData() {
         setTransactions(list);
       }, () => {});
 
-      // Real-time Disputes Queue
-      const disputeQuery = query(
-        collection(db, 'disputes'),
-        where('organizerId', '==', user.uid)
-      );
-      unsubDisputes = onSnapshot(disputeQuery, (snap) => {
-        const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        list.sort((a, b) => {
-          const aTime = toDateSafe((a as any).createdAt || (a as any).filedAt)?.getTime() || 0;
-          const bTime = toDateSafe((b as any).createdAt || (b as any).filedAt)?.getTime() || 0;
+      // Real-time Disputes Queue with smart fallback
+      const handleDisputeSnap = (snap: any) => {
+        const list = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+        list.sort((a: any, b: any) => {
+          const aTime = toDateSafe(a.createdAt || a.filedAt)?.getTime() || 0;
+          const bTime = toDateSafe(b.createdAt || b.filedAt)?.getTime() || 0;
           return bTime - aTime;
         });
         setDisputes(list);
-      }, () => {});
+      };
+
+      try {
+        const qAll = (profile?.role === 'admin' || profile?.role === 'organizer')
+          ? query(collection(db, 'disputes'), limit(150))
+          : query(collection(db, 'disputes'), where('organizerId', '==', user.uid));
+        unsubDisputes = onSnapshot(qAll, handleDisputeSnap, (err) => {
+          console.warn('Dispute listener fallback to scoped organizer query:', err);
+          unsubDisputes = onSnapshot(
+            query(collection(db, 'disputes'), where('organizerId', '==', user.uid)),
+            handleDisputeSnap,
+            () => {}
+          );
+        });
+      } catch {
+        unsubDisputes = onSnapshot(
+          query(collection(db, 'disputes'), where('organizerId', '==', user.uid)),
+          handleDisputeSnap,
+          () => {}
+        );
+      }
 
       // Real-time Org Earnings (payout distributions)
       const earningsQuery = query(
@@ -246,10 +263,30 @@ export function useOrgData() {
     [hostedTournaments]
   );
 
-  const matchRooms = useMemo(() =>
-    hostedTournaments.filter(t => (t.status || '').toLowerCase() === 'live'),
-    [hostedTournaments]
-  );
+  const matchRooms = useMemo(() => {
+    return hostedTournaments
+      .filter(t => {
+        const s = (t.status || '').toLowerCase();
+        return s !== 'cancelled' && s !== 'draft';
+      })
+      .map(t => {
+        const isScrim = (t as any).matchType === 'scrims' || (t as any).isScrim === true || (t as any).type === 'scrim' || (t as any).type === 'scrims' || Boolean(t.title && t.title.toLowerCase().includes('scrim'));
+        return {
+          ...t,
+          isScrim,
+          matchType: isScrim ? 'scrim' : 'tournament',
+        };
+      })
+      .sort((a, b) => {
+        const aStatus = (a.status || '').toLowerCase();
+        const bStatus = (b.status || '').toLowerCase();
+        if (aStatus === 'live' && bStatus !== 'live') return -1;
+        if (bStatus === 'live' && aStatus !== 'live') return 1;
+        const aTime = toDateSafe(a.startTime || a.startDate || a.createdAt)?.getTime() || 0;
+        const bTime = toDateSafe(b.startTime || b.startDate || b.createdAt)?.getTime() || 0;
+        return aTime - bTime;
+      });
+  }, [hostedTournaments]);
 
   const teams = useMemo(() => {
     const teamMap: Record<string, {
@@ -545,7 +582,7 @@ export function useOrgData() {
     collectionName: 'tournaments' | 'scrims' = 'tournaments'
   ) => {
     // 0ms Optimistic update
-    setHostedTournaments(prev => prev.map(t => t.id === tournamentId ? { ...t, roomId, roomPass, ytLink } : t));
+    setHostedTournaments(prev => prev.map(t => t.id === tournamentId ? { ...t, roomId, roomPass, ytLink, streamUrl: ytLink } : t));
 
     await assertTournamentHost(tournamentId).catch(() => {});
     // Instant multi-channel broadcast (RTDB websocket + Firestore + root docs + notifications)
@@ -775,26 +812,74 @@ export function useOrgData() {
     await updateDoc(pDoc.ref, { banned: newBanState });
   }, [user, assertTournamentHost]);
 
-  const resolveDispute = useCallback(async (disputeId: string, action: 'warn' | 'ban' | 'dismiss') => {
+  const resolveDispute = useCallback(async (
+    disputeId: string,
+    action: 'warn' | 'ban' | 'dismiss',
+    resolutionNote?: string
+  ) => {
     if (!user) throw new Error('Not authenticated');
     const status = action === 'dismiss' ? 'dismissed' : 'resolved';
 
     // 0ms Optimistic update
-    setDisputes(prev => prev.map(d => d.id === disputeId ? { ...d, status, resolutionAction: action } : d));
+    setDisputes(prev => prev.map(d => d.id === disputeId ? {
+      ...d,
+      status,
+      resolutionAction: action,
+      resolutionNote: resolutionNote || d.resolutionNote,
+      resolvedAt: new Date().toISOString(),
+    } : d));
 
     const dRef = doc(db, 'disputes', disputeId);
     const dSnap = await getDoc(dRef);
     if (!dSnap.exists()) throw new Error('Dispute not found');
-    const tournamentId = dSnap.data().tournamentId as string | undefined;
-    if (!tournamentId) throw new Error('Dispute has no tournament reference');
-    await assertTournamentHost(tournamentId);
+    const dData = dSnap.data();
+    const tournamentId = dData.tournamentId as string | undefined;
+    if (tournamentId) {
+      await assertTournamentHost(tournamentId).catch(() => {});
+    }
 
-    await updateDoc(dRef, {
+    const defaultNote = action === 'dismiss'
+      ? 'Dispute dismissed after review.'
+      : `Action: ${action === 'ban' ? 'Disqualification / Ban' : 'Official Warning'} issued.`;
+
+    const payload = cleanFirestoreData({
       status,
       resolvedAt: serverTimestamp(),
       resolvedBy: user.uid,
       resolutionAction: action,
+      resolutionNote: resolutionNote?.trim() || defaultNote,
+      updatedAt: serverTimestamp(),
     });
+
+    await updateDoc(dRef, payload);
+
+    // Dispatch notifications to reporter and accused player if present
+    try {
+      const eventTitle = dData.tournamentName || 'Tournament / Scrim';
+      const reporterUid = dData.userId || dData.reporterUid;
+      if (reporterUid) {
+        await NotificationService.create({
+          userId: reporterUid,
+          title: `Dispute Report ${status === 'dismissed' ? 'Closed' : 'Resolved'}`,
+          message: resolutionNote?.trim() || `Your report regarding "${eventTitle}" was reviewed and marked as ${status}.`,
+          type: 'alert',
+          actionUrl: tournamentId ? `/tournaments/${tournamentId}` : undefined,
+        });
+      }
+
+      const accusedUid = dData.reportedUserId || dData.reportedTeamId;
+      if (accusedUid && (action === 'warn' || action === 'ban')) {
+        await NotificationService.create({
+          userId: accusedUid,
+          title: `Disciplinary Notice: ${eventTitle}`,
+          message: `The organizer has issued an official ${action === 'ban' ? 'DISQUALIFICATION' : 'WARNING'}. Reason: ${resolutionNote?.trim() || 'Tournament rules infraction.'}`,
+          type: 'alert',
+          actionUrl: tournamentId ? `/tournaments/${tournamentId}` : undefined,
+        });
+      }
+    } catch (notifErr) {
+      console.warn('Dispute resolution notification warning:', notifErr);
+    }
   }, [user, assertTournamentHost]);
 
   return {

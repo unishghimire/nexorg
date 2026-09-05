@@ -342,13 +342,17 @@ const OrganizerPanel: React.FC = () => {
     setActiveOverlay('DISPUTE_RESOLVER');
   }, []);
 
-  const handleResolveDispute = useCallback(async (disputeIdOrAction: string, actionParam?: 'warn' | 'ban' | 'dismiss') => {
+  const handleResolveDispute = useCallback(async (
+    disputeIdOrAction: string,
+    actionParam?: 'warn' | 'ban' | 'dismiss',
+    resolutionNote?: string
+  ) => {
     const disputeId = actionParam ? disputeIdOrAction : disputeTarget;
     const action = actionParam || (disputeIdOrAction as 'warn' | 'ban' | 'dismiss');
     if (!disputeId || isResolvingDispute) return;
     setIsResolvingDispute(true);
     try {
-      await org.resolveDispute(disputeId, action);
+      await org.resolveDispute(disputeId, action, resolutionNote);
       showToast(`Dispute ${action === 'dismiss' ? 'dismissed' : `resolved — ${action} issued`}`, 'success');
       setActiveOverlay(null);
       setDisputeTarget(null);
@@ -431,6 +435,8 @@ const OrganizerPanel: React.FC = () => {
               onOpenRoomDispatch={handleOpenRoomDispatch}
               onResolveDispute={handleResolveDispute}
               onOpenDisputeOverlay={handleOpenDisputeOverlay}
+              onBroadcastLobby={org.broadcastLobby}
+              onSwitchToDisputesTab={() => handleTabChange('disputes')}
             />
           </TabErrorBoundary>
         );
@@ -571,6 +577,7 @@ const OrganizerPanel: React.FC = () => {
         warningReason={warningReason}
         setWarningReason={setWarningReason}
         onIssueWarning={confirmWarning}
+        roomTargetTitle={roomDispatchTarget?.title || roomDispatchTarget?.tournamentName}
         roomId={roomId}
         setRoomId={setRoomId}
         roomPass={roomPass}
@@ -579,6 +586,7 @@ const OrganizerPanel: React.FC = () => {
         setStreamUrl={setStreamUrl}
         onBroadcastRoom={handleBroadcastRoom}
         disputeId={disputeTarget ?? undefined}
+        dispute={org.disputes.find(d => d.id === disputeTarget)}
         onResolveDispute={handleResolveDispute}
         scrimTitle={scrimSlotTarget?.title}
         slotGrid={scrimSlotTarget?.slots}
