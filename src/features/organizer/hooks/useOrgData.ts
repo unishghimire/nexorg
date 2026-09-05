@@ -22,7 +22,7 @@ import { useAuth } from '../../../shared/context/AuthContext';
 import { Tournament, Participant, Transaction } from '../../../shared/types/types';
 import { fetchRoomCredentials, broadcastRoomCredentials } from '../../../shared/services/roomCredentials';
 import { commitFirestoreBatches } from '../../../shared/utils/firestoreBatches';
-import { toDateSafe } from '../../../shared/utils/utils';
+import { toDateSafe, cleanFirestoreData } from '../../../shared/utils/utils';
 import { countFilledScrimSlots, normalizeScrimSlots, getSlotCount, getFilledSlotCount } from '../../../shared/utils/scrimSlots';
 import { releaseSlotWithRefund } from '../../../shared/services/slotRefundService';
 import { checkFinancialReadiness } from '../../../shared/services/prizeDistributionService';
@@ -489,10 +489,11 @@ export function useOrgData() {
     // 0ms Optimistic local update
     setHostedTournaments(prev => prev.map(t => t.id === id ? { ...t, ...updatePayload } : t));
 
+    const cleanedPayload = cleanFirestoreData(updatePayload);
     await assertTournamentHost(id);
     await Promise.all([
-      updateDoc(doc(db, 'tournaments', id), updatePayload).catch(() => {}),
-      updateDoc(doc(db, 'scrims', id), updatePayload).catch(() => {}),
+      updateDoc(doc(db, 'tournaments', id), cleanedPayload).catch(() => {}),
+      updateDoc(doc(db, 'scrims', id), cleanedPayload).catch(() => {}),
     ]);
   }, [assertTournamentHost, hostedTournaments]);
 
@@ -703,12 +704,13 @@ export function useOrgData() {
       });
       const filled = countFilledScrimSlots(newSlots);
       const updatePayload = { slots: newSlots, filledSlots: filled, currentPlayers: filled, updatedAt: serverTimestamp() };
+      const cleanedPayload = cleanFirestoreData(updatePayload);
 
       await Promise.all([
-        updateDoc(targetDocRef, updatePayload).catch(() => {}),
-        updateDoc(doc(db, targetCollection === 'tournaments' ? 'scrims' : 'tournaments', scrimId), updatePayload).catch(() => {}),
-        setDoc(targetDocRef, updatePayload, { merge: true }).catch(() => {}),
-        setDoc(doc(db, targetCollection === 'tournaments' ? 'scrims' : 'tournaments', scrimId), updatePayload, { merge: true }).catch(() => {}),
+        updateDoc(targetDocRef, cleanedPayload).catch(() => {}),
+        updateDoc(doc(db, targetCollection === 'tournaments' ? 'scrims' : 'tournaments', scrimId), cleanedPayload).catch(() => {}),
+        setDoc(targetDocRef, cleanedPayload, { merge: true }).catch(() => {}),
+        setDoc(doc(db, targetCollection === 'tournaments' ? 'scrims' : 'tournaments', scrimId), cleanedPayload, { merge: true }).catch(() => {}),
       ]);
     }
   }, [user, profile?.role, participants]);

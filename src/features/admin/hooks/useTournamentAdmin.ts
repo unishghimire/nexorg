@@ -4,7 +4,7 @@ import { db, auth } from '../../../shared/config/firebase';
 import { useAuth } from '../../../shared/context/AuthContext';
 import { Tournament, TournamentGroup, Match, Team, TournamentEarning } from '../../../shared/types/types';
 import { checkFinancialReadiness } from '../../../shared/services/prizeDistributionService';
-import { formatDate } from '../../../shared/utils/utils';
+import { formatDate, cleanFirestoreData } from '../../../shared/utils/utils';
 import { getMapsForGame } from '../../../shared/constants/constants';
 import {
     announceNewTournament,
@@ -161,9 +161,10 @@ export function useTournamentAdmin(
                 };
             }
 
+            const cleanedPayload = cleanFirestoreData(updatePayload);
             await Promise.all([
-                updateDoc(doc(db, 'tournaments', tournament.id), updatePayload),
-                updateDoc(doc(db, 'scrims', tournament.id), updatePayload).catch(() => {}),
+                updateDoc(doc(db, 'tournaments', tournament.id), cleanedPayload),
+                updateDoc(doc(db, 'scrims', tournament.id), cleanedPayload).catch(() => {}),
             ]);
 
             if (status === 'completed') {
@@ -199,11 +200,11 @@ export function useTournamentAdmin(
     const handleUpdateStage = async (stage: string) => {
         if (!tournament) return;
         try {
-            await updateDoc(doc(db, 'tournaments', tournament.id), { 
+            await updateDoc(doc(db, 'tournaments', tournament.id), cleanFirestoreData({ 
                 stage,
                 status: stage === 'completed' ? 'completed' : 
                         stage === 'registration' ? 'upcoming' : 'live'
-            });
+            }));
             showToast(`Tournament stage updated to ${stage}`, 'success');
         } catch (error) {
             showToast('Failed to update stage', 'error');
@@ -281,12 +282,12 @@ export function useTournamentAdmin(
                 roundNumber: 1,
             });
 
-            await updateDoc(doc(db, 'tournaments', tournament.id), {
+            await updateDoc(doc(db, 'tournaments', tournament.id), cleanFirestoreData({
                 groups: groupsWithMatches,
                 stage: 'group_stage',
                 currentRound: 1,
                 auditLog: [...(tournament.auditLog || []), auditEntry] as TournamentAuditEntry[],
-            });
+            }));
 
             showToast(`Groups generated: ${result.groups.length} groups, ${result.totalAssigned} teams assigned`, 'success');
 
@@ -385,11 +386,11 @@ export function useTournamentAdmin(
                         details: `Round ${nextRound.roundNumber}: ${qualifiers.length} qualified, ${preview.totalEliminated} eliminated`,
                         roundNumber: nextRound.roundNumber,
                     });
-                    await updateDoc(doc(db, 'tournaments', tournament.id), {
+                    await updateDoc(doc(db, 'tournaments', tournament.id), cleanFirestoreData({
                         groups: allGroups,
                         currentRound: nextRound.roundNumber,
                         auditLog: [...(tournament.auditLog || []), advanceAudit] as TournamentAuditEntry[],
-                    });
+                    }));
                     showToast(`Advanced to ${nextRoundConfig.stageName || 'Round ' + nextRound.roundNumber}! ${qualifiers.length} teams qualified, ${preview.totalEliminated} eliminated.`, 'success');
                 } else {
                     // No more rounds in roadmap — generate knockout bracket from qualifiers
@@ -428,10 +429,10 @@ export function useTournamentAdmin(
                         roundNum++;
                     }
 
-                    await updateDoc(doc(db, 'tournaments', tournament.id), {
+                    await updateDoc(doc(db, 'tournaments', tournament.id), cleanFirestoreData({
                         bracketMatches,
                         stage: 'knockout'
-                    });
+                    }));
                     showToast(`Advanced to Knockout! ${qualifiers.length} teams qualified.`, 'success');
                 }
             } else {
@@ -461,9 +462,9 @@ export function useTournamentAdmin(
             }
             
             const updatedGroups = [...(tournament.groups || []), group as TournamentGroup];
-            await updateDoc(doc(db, 'tournaments', tournament.id), {
+            await updateDoc(doc(db, 'tournaments', tournament.id), cleanFirestoreData({
                 groups: updatedGroups
-            });
+            }));
             
             setTournament({ ...tournament, groups: updatedGroups });
             setIsCreateGroupModalOpen(false);
@@ -480,9 +481,9 @@ export function useTournamentAdmin(
         if (!window.confirm('Are you sure you want to delete this group?')) return;
         try {
             const updatedGroups = (tournament.groups || []).filter(g => g.id !== groupId);
-            await updateDoc(doc(db, 'tournaments', tournament.id), {
+            await updateDoc(doc(db, 'tournaments', tournament.id), cleanFirestoreData({
                 groups: updatedGroups
-            });
+            }));
             showToast('Group deleted', 'success');
         } catch (error) {
             console.error("Error deleting group:", error);
@@ -500,7 +501,7 @@ export function useTournamentAdmin(
             });
             // Room credentials live exclusively in the protected subcollection.
             const batch = writeBatch(db);
-            batch.update(doc(db, 'tournaments', tournament.id), { groups: updatedGroups });
+            batch.update(doc(db, 'tournaments', tournament.id), cleanFirestoreData({ groups: updatedGroups }));
             if (updatedGroups.some(group => group.id === groupId)) {
                 const credRef = doc(db, 'tournaments', tournament.id, 'credentials', `group_${groupId}`);
                 batch.set(credRef, { [field]: value }, { merge: true });
@@ -542,9 +543,9 @@ export function useTournamentAdmin(
                 return g;
             }) || [];
 
-            await updateDoc(doc(db, 'tournaments', tournament.id), {
+            await updateDoc(doc(db, 'tournaments', tournament.id), cleanFirestoreData({
                 groups: updatedGroups
-            });
+            }));
 
             setSelectedGroup({ ...selectedGroup, teams: [...selectedGroup.teams, team] });
             showToast('Team assigned to group', 'success');
@@ -565,9 +566,9 @@ export function useTournamentAdmin(
                 return g;
             }) || [];
 
-            await updateDoc(doc(db, 'tournaments', tournament.id), {
+            await updateDoc(doc(db, 'tournaments', tournament.id), cleanFirestoreData({
                 groups: updatedGroups
-            });
+            }));
 
             setSelectedGroup({ ...selectedGroup, teams: selectedGroup.teams.filter(t => t.id !== teamId) });
             showToast('Team removed from group', 'success');
@@ -722,9 +723,9 @@ export function useTournamentAdmin(
             showToast(`${newMatches.length} match(es) added to ${selectedGroup.name}`, 'success');
 
             // Async background Firestore persistence
-            await updateDoc(doc(db, 'tournaments', tournament.id), {
+            await updateDoc(doc(db, 'tournaments', tournament.id), cleanFirestoreData({
                 groups: updatedGroups
-            });
+            }));
         } catch (error) {
             console.error("Error adding match:", error);
             showToast('Failed to add match', 'error');
@@ -777,9 +778,9 @@ export function useTournamentAdmin(
                     }
                 }
 
-                await updateDoc(doc(db, 'tournaments', tournament.id), {
+                await updateDoc(doc(db, 'tournaments', tournament.id), cleanFirestoreData({
                     bracketMatches: updatedBracketMatches
-                });
+                }));
             } else {
                 const updatedGroups = tournament.groups?.map(g => {
                     if (g.id === selectedMatch.groupId) {
@@ -802,9 +803,9 @@ export function useTournamentAdmin(
                     return g;
                 }) || [];
 
-                await updateDoc(doc(db, 'tournaments', tournament.id), {
+                await updateDoc(doc(db, 'tournaments', tournament.id), cleanFirestoreData({
                     groups: updatedGroups
-                });
+                }));
             }
             
             setIsUpdateScoreModalOpen(false);
@@ -882,10 +883,10 @@ export function useTournamentAdmin(
                 round++;
             }
 
-            await updateDoc(doc(db, 'tournaments', tournament.id), {
+            await updateDoc(doc(db, 'tournaments', tournament.id), cleanFirestoreData({
                 bracketMatches,
                 stage: 'knockout'
-            });
+            }));
 
             showToast('Knockout bracket generated', 'success');
         } catch (error) {
@@ -930,9 +931,9 @@ export function useTournamentAdmin(
             setTournament({ ...tournament, groups: updatedGroups });
             showToast(`${matches.length} ${isBR ? 'lobby' : 'round-robin'} match(es) generated`, 'success');
 
-            await updateDoc(doc(db, 'tournaments', tournament.id), {
+            await updateDoc(doc(db, 'tournaments', tournament.id), cleanFirestoreData({
                 groups: updatedGroups
-            });
+            }));
 
             showToast(`${matches.length} ${isBR ? 'lobby' : 'round-robin'} match(es) generated`, 'success');
         } catch (error) {

@@ -14,6 +14,7 @@ import { db, auth } from '../../../shared/config/firebase';
 import { calculateTeamScore, validateResult } from '../../../shared/services/scoringEngine';
 import { GameScoringConfig, FREE_FIRE_DEFAULT_SCORING, TournamentScoringSnapshot } from '../../../shared/types/scoring';
 import { uploadImage, MediaCategory } from '../../../shared/services/mediaService';
+import { cleanFirestoreData } from '../../../shared/utils/utils';
 
 interface ResultUploaderProps {
     isOpen: boolean;
@@ -219,9 +220,9 @@ export const ResultUploader: React.FC<ResultUploaderProps> = ({ isOpen, onClose,
                 return g;
             }) || [];
 
-            await updateDoc(tournamentRef, {
+            await updateDoc(tournamentRef, cleanFirestoreData({
                 groups: updatedGroups
-            });
+            }));
 
             // Update participant stats — fetch the tournament's participants once,
             // index by userId, and look up in memory instead of N+1 queries.
@@ -237,11 +238,11 @@ export const ResultUploader: React.FC<ResultUploaderProps> = ({ isOpen, onClose,
             for (const res of scoredResults) {
                 const p = participantsByUser.get(res.teamId);
                 if (!p) continue;
-                batch.update(p.ref, {
+                batch.update(p.ref, cleanFirestoreData({
                     totalKills: (p.data.totalKills || 0) + res.kills,
                     totalPoints: (p.data.totalPoints || 0) + res.totalPoints,
                     matchesPlayed: (p.data.matchesPlayed || 0) + 1
-                });
+                }));
             }
             await batch.commit();
 

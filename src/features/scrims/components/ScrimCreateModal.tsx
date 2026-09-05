@@ -23,7 +23,7 @@ import {
   Save,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { formatCurrency, formatGameName, toDateSafe } from '../../../shared/utils/utils';
+import { formatCurrency, formatGameName, toDateSafe, cleanFirestoreData } from '../../../shared/utils/utils';
 import { commitFirestoreBatches } from '../../../shared/utils/firestoreBatches';
 import { normalizeScrimSlots, countFilledScrimSlots, ScrimSlot } from '../../../shared/utils/scrimSlots';
 import { fetchRoomCredentials, broadcastRoomCredentials } from '../../../shared/services/roomCredentials';
@@ -253,12 +253,14 @@ export default function ScrimCreateModal({
         updatedAt: serverTimestamp(),
       };
 
+      const cleanedPayload = cleanFirestoreData(scrimPayload);
+
       if (editScrim) {
         await Promise.all([
-          updateDoc(doc(db, 'tournaments', editScrim.id), scrimPayload).catch(() => {}),
-          updateDoc(doc(db, 'scrims', editScrim.id), scrimPayload).catch(() => {}),
-          setDoc(doc(db, 'scrims', editScrim.id), scrimPayload, { merge: true }).catch(() => {}),
-          setDoc(doc(db, 'tournaments', editScrim.id), scrimPayload, { merge: true }).catch(() => {}),
+          updateDoc(doc(db, 'tournaments', editScrim.id), cleanedPayload).catch(() => {}),
+          updateDoc(doc(db, 'scrims', editScrim.id), cleanedPayload).catch(() => {}),
+          setDoc(doc(db, 'scrims', editScrim.id), cleanedPayload, { merge: true }).catch(() => {}),
+          setDoc(doc(db, 'tournaments', editScrim.id), cleanedPayload, { merge: true }).catch(() => {}),
         ]);
 
         if (formData.roomId || formData.roomPass) {

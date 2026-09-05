@@ -65,7 +65,7 @@ export const normalizeScrimSlots = (
         reservedBy: typeof record.reservedBy === 'string' ? record.reservedBy : null,
         leader: typeof record.leader === 'string' ? record.leader : null,
         inGameId: typeof record.inGameId === 'string' ? record.inGameId : null,
-        entryFee: typeof record.entryFee === 'number' ? record.entryFee : undefined,
+        entryFee: typeof record.entryFee === 'number' ? record.entryFee : null,
       };
     });
   }

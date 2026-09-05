@@ -9,7 +9,7 @@ import { NotificationService } from '../../../shared/services/NotificationServic
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../shared/context/AuthContext';
 import { Trophy, Users, DollarSign, ShieldCheck } from 'lucide-react';
-import { formatCurrency, formatGameName } from '../../../shared/utils/utils';
+import { formatCurrency, formatGameName, cleanFirestoreData } from '../../../shared/utils/utils';
 
 interface RegistrationModalProps {
     isOpen: boolean;
@@ -118,19 +118,20 @@ const RegistrationModal: React.FC<RegistrationModalProps> = ({
                             return {
                                 ...s,
                                 status: 'filled' as const,
-                                teamName: finalTeamName,
-                                teamId: finalTeamId,
+                                teamName: finalTeamName || null,
+                                teamId: finalTeamId || null,
                                 userId: user.uid,
-                                leader: profile.username || profile.inGameName,
+                                leader: profile.username || profile.inGameName || null,
                                 inGameId: profile.inGameId || null,
                             };
                         }
                         return s;
                     });
                     const filledCount = countFilledScrimSlots(updated);
+                    const updatePayload = cleanFirestoreData({ slots: updated, filledSlots: filledCount, currentPlayers: filledCount });
                     await Promise.all([
-                        updateDoc(doc(db, 'tournaments', tournament.id), { slots: updated, filledSlots: filledCount, currentPlayers: filledCount }).catch(() => {}),
-                        updateDoc(doc(db, 'scrims', tournament.id), { slots: updated, filledSlots: filledCount, currentPlayers: filledCount }).catch(() => {}),
+                        updateDoc(doc(db, 'tournaments', tournament.id), updatePayload).catch(() => {}),
+                        updateDoc(doc(db, 'scrims', tournament.id), updatePayload).catch(() => {}),
                     ]);
                 }
             }

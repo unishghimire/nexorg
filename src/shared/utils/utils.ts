@@ -147,3 +147,48 @@ export function isSafeInternalPath(pathname: unknown): pathname is string {
     if (pathname === '/login' || pathname === '/register' || pathname === '/complete-profile') return false;
     return true;
 }
+
+/**
+ * Recursively cleans an object or array for Firestore writes, removing any `undefined` values.
+ * Firestore rejects documents containing `undefined` with:
+ * "Unsupported field value: undefined"
+ * Preserves Firestore FieldValue instances (serverTimestamp, increment), Timestamps, Dates, and primitives.
+ */
+export function cleanFirestoreData<T = any>(data: T): T {
+    if (data === null || data === undefined) {
+        return null as unknown as T;
+    }
+
+    if (typeof data !== 'object') {
+        return data;
+    }
+
+    // Preserve Firestore Timestamp & FieldValue objects
+    if (
+        data instanceof Timestamp ||
+        (data as any)._methodName ||
+        typeof (data as any).isEqual === 'function' ||
+        (data as any).seconds !== undefined ||
+        (data as any).nanoseconds !== undefined ||
+        (data as any).toDate !== undefined
+    ) {
+        return data;
+    }
+
+    if (data instanceof Date) {
+        return data;
+    }
+
+    if (Array.isArray(data)) {
+        return data.map(item => (item === undefined ? null : cleanFirestoreData(item))) as unknown as T;
+    }
+
+    const cleaned: Record<string, any> = {};
+    for (const [key, value] of Object.entries(data as Record<string, any>)) {
+        if (value !== undefined) {
+            cleaned[key] = cleanFirestoreData(value);
+        }
+    }
+    return cleaned as T;
+}
+

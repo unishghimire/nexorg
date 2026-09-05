@@ -13,6 +13,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth } from '../config/firebase';
 import { normalizeScrimSlots, countFilledScrimSlots } from '../utils/scrimSlots';
+import { cleanFirestoreData } from '../utils/utils';
 import { NotificationService } from './NotificationService';
 
 export interface ReleaseSlotRefundParams {
@@ -329,12 +330,13 @@ export async function releaseSlotWithRefund(
     currentPlayers: filled,
     updatedAt: serverTimestamp(),
   };
+  const cleanedPayload = cleanFirestoreData(updatePayload);
 
   await Promise.all([
-    updateDoc(doc(db, 'scrims', scrimId), updatePayload).catch(() => {}),
-    updateDoc(doc(db, 'tournaments', scrimId), updatePayload).catch(() => {}),
-    setDoc(doc(db, 'scrims', scrimId), updatePayload, { merge: true }).catch(() => {}),
-    setDoc(doc(db, 'tournaments', scrimId), updatePayload, { merge: true }).catch(() => {}),
+    updateDoc(doc(db, 'scrims', scrimId), cleanedPayload).catch(() => {}),
+    updateDoc(doc(db, 'tournaments', scrimId), cleanedPayload).catch(() => {}),
+    setDoc(doc(db, 'scrims', scrimId), cleanedPayload, { merge: true }).catch(() => {}),
+    setDoc(doc(db, 'tournaments', scrimId), cleanedPayload, { merge: true }).catch(() => {}),
   ]);
 
   // Remove participant documents

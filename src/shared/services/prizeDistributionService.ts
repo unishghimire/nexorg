@@ -12,6 +12,7 @@ import { db, auth } from '../config/firebase';
 import { NotificationService } from './NotificationService';
 import { countFilledScrimSlots, getFilledSlotCount, getSlotCount } from '../utils/scrimSlots';
 import { resolveAllScrimResults } from '../utils/scrimResults';
+import { cleanFirestoreData } from '../utils/utils';
 
 export interface WinnerPayoutEntry {
   rank: number;
@@ -396,24 +397,42 @@ export async function executePrizeDistribution(
   );
 
   const formattedManualResults = allResolvedResults.map((r) => ({
-    id: r.id,
+    id: r.id || '',
     rank: r.rank,
-    team: r.teamName,
-    score: r.score,
-    kills: r.kills,
-    prize: r.prize,
-    status: r.status,
-    slotNumber: r.slotNumber,
-    leader: r.leader,
-    userId: r.userId,
-    teamId: r.teamId,
-    inGameName: r.inGameName,
-    inGameId: r.inGameId,
+    team: r.teamName || 'Team',
+    score: Number(r.score) || 0,
+    kills: Number(r.kills) || 0,
+    prize: Number(r.prize) || 0,
+    status: r.status || '',
+    slotNumber: typeof r.slotNumber === 'number' ? r.slotNumber : null,
+    leader: r.leader || null,
+    userId: r.userId || null,
+    teamId: r.teamId || null,
+    inGameName: r.inGameName || null,
+    inGameId: r.inGameId || null,
   }));
 
   let docUpdatePayload: Record<string, any> = {
-    winners: validWinners,
-    podium: validWinners,
+    winners: validWinners.map(w => ({
+      rank: w.rank,
+      teamName: w.teamName || 'Winner',
+      teamId: w.teamId || null,
+      userId: w.userId || null,
+      username: w.username || w.teamName || 'Winner',
+      prize: Number(w.prize) || 0,
+      kills: Number(w.kills) || 0,
+      points: Number(w.points) || 0,
+    })),
+    podium: validWinners.map(w => ({
+      rank: w.rank,
+      teamName: w.teamName || 'Winner',
+      teamId: w.teamId || null,
+      userId: w.userId || null,
+      username: w.username || w.teamName || 'Winner',
+      prize: Number(w.prize) || 0,
+      kills: Number(w.kills) || 0,
+      points: Number(w.points) || 0,
+    })),
     manualResults: formattedManualResults,
     finalRoster: Array.isArray(existingData?.slots)
       ? existingData.slots.filter((s: any) => s.status === 'filled' || s.teamName)
@@ -431,12 +450,15 @@ export async function executePrizeDistribution(
     docUpdatePayload.resultTemplate = scoringData;
   }
 
+  // Clean all undefined values before Firestore updateDoc / setDoc serialization
+  const cleanedPayload = cleanFirestoreData(docUpdatePayload);
+
   // Update both collections for consistency
   await Promise.all([
-    updateDoc(doc(db, 'tournaments', eventId), docUpdatePayload).catch(() => {}),
-    updateDoc(doc(db, 'scrims', eventId), docUpdatePayload).catch(() => {}),
-    setDoc(doc(db, 'tournaments', eventId), docUpdatePayload, { merge: true }).catch(() => {}),
-    setDoc(doc(db, 'scrims', eventId), docUpdatePayload, { merge: true }).catch(() => {}),
+    updateDoc(doc(db, 'tournaments', eventId), cleanedPayload).catch(() => {}),
+    updateDoc(doc(db, 'scrims', eventId), cleanedPayload).catch(() => {}),
+    setDoc(doc(db, 'tournaments', eventId), cleanedPayload, { merge: true }).catch(() => {}),
+    setDoc(doc(db, 'scrims', eventId), cleanedPayload, { merge: true }).catch(() => {}),
   ]);
 
   // Step 4: Broadcast completion notification to all registered participants

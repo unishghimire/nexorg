@@ -12,7 +12,7 @@ import { NotificationService } from '../../../shared/services/NotificationServic
 import { checkFinancialReadiness } from '../../../shared/services/prizeDistributionService';
 import { FinancialLockBanner } from '../../../shared/components/FinancialLockBanner';
 import { PrizeDistributionModal } from '../../../shared/components/PrizeDistributionModal';
-import { toDateSafe } from '../../../shared/utils/utils';
+import { toDateSafe, cleanFirestoreData } from '../../../shared/utils/utils';
 import { resolveAllScrimResults } from '../../../shared/utils/scrimResults';
 import { DEFAULT_BANNER } from '../../../shared/constants/constants';
 import {
@@ -234,13 +234,14 @@ export default function ScrimDetailPage() {
         map: editForm.map || 'Bermuda',
         updatedAt: serverTimestamp(),
       };
+      const cleanedUpdatePayload = cleanFirestoreData(updatePayload);
       await Promise.all([
-        updateDoc(doc(db, 'scrims', id), updatePayload).catch(() => {}),
-        updateDoc(doc(db, 'tournaments', id), updatePayload).catch(() => {}),
-        setDoc(doc(db, 'scrims', id), updatePayload, { merge: true }).catch(() => {}),
-        setDoc(doc(db, 'tournaments', id), updatePayload, { merge: true }).catch(() => {}),
+        updateDoc(doc(db, 'scrims', id), cleanedUpdatePayload).catch(() => {}),
+        updateDoc(doc(db, 'tournaments', id), cleanedUpdatePayload).catch(() => {}),
+        setDoc(doc(db, 'scrims', id), cleanedUpdatePayload, { merge: true }).catch(() => {}),
+        setDoc(doc(db, 'tournaments', id), cleanedUpdatePayload, { merge: true }).catch(() => {}),
       ]);
-      setScrim((prev: any) => prev ? { ...prev, ...updatePayload } : prev);
+      setScrim((prev: any) => prev ? { ...prev, ...cleanedUpdatePayload } : prev);
       showToast('Scrim updated', 'success');
       setIsEditing(false);
     } catch {
@@ -321,13 +322,16 @@ export default function ScrimDetailPage() {
         currentPlayers: filled,
         updatedAt: serverTimestamp(),
       };
+      const cleanedPayload = cleanFirestoreData(updatePayload);
 
       await Promise.all([
-        updateDoc(doc(db, 'scrims', id), updatePayload).catch(() => {}),
-        updateDoc(doc(db, 'tournaments', id), updatePayload).catch(() => {}),
+        updateDoc(doc(db, 'scrims', id), cleanedPayload).catch(() => {}),
+        updateDoc(doc(db, 'tournaments', id), cleanedPayload).catch(() => {}),
+        setDoc(doc(db, 'scrims', id), cleanedPayload, { merge: true }).catch(() => {}),
+        setDoc(doc(db, 'tournaments', id), cleanedPayload, { merge: true }).catch(() => {}),
       ]);
 
-      setScrim((prev: any) => prev ? { ...prev, ...updatePayload } : prev);
+      setScrim((prev: any) => prev ? { ...prev, ...cleanedPayload } : prev);
       setIsAssignModalOpen(false);
       setManualTeamName('');
       setManualLeader('');
@@ -357,10 +361,13 @@ export default function ScrimDetailPage() {
         slots: newSlots,
         updatedAt: serverTimestamp(),
       };
+      const cleanedPayload = cleanFirestoreData(updatePayload);
 
       await Promise.all([
-        updateDoc(doc(db, 'scrims', id), updatePayload).catch(() => {}),
-        updateDoc(doc(db, 'tournaments', id), updatePayload).catch(() => {}),
+        updateDoc(doc(db, 'scrims', id), cleanedPayload).catch(() => {}),
+        updateDoc(doc(db, 'tournaments', id), cleanedPayload).catch(() => {}),
+        setDoc(doc(db, 'scrims', id), cleanedPayload, { merge: true }).catch(() => {}),
+        setDoc(doc(db, 'tournaments', id), cleanedPayload, { merge: true }).catch(() => {}),
       ]);
 
       setScrim((prev: any) => prev ? { ...prev, slots: newSlots } : prev);
@@ -390,12 +397,15 @@ export default function ScrimDetailPage() {
       });
       const filled = countFilledScrimSlots(newSlots);
       const updatePayload = { slots: newSlots, filledSlots: filled, currentPlayers: filled, updatedAt: serverTimestamp() };
+      const cleanedPayload = cleanFirestoreData(updatePayload);
 
       await Promise.all([
-        updateDoc(doc(db, 'scrims', id), updatePayload).catch(() => {}),
-        updateDoc(doc(db, 'tournaments', id), updatePayload).catch(() => {}),
+        updateDoc(doc(db, 'scrims', id), cleanedPayload).catch(() => {}),
+        updateDoc(doc(db, 'tournaments', id), cleanedPayload).catch(() => {}),
+        setDoc(doc(db, 'scrims', id), cleanedPayload, { merge: true }).catch(() => {}),
+        setDoc(doc(db, 'tournaments', id), cleanedPayload, { merge: true }).catch(() => {}),
       ]);
-      setScrim((prev: any) => prev ? { ...prev, ...updatePayload } : prev);
+      setScrim((prev: any) => prev ? { ...prev, ...cleanedPayload } : prev);
       showToast(`Slot ${slotNumber} reserved`, 'info');
     } catch {
       showToast('Failed to toggle slot', 'error');
@@ -454,23 +464,27 @@ export default function ScrimDetailPage() {
             kills: r.kills,
             prize: r.prize,
             status: r.status,
-            slotNumber: r.slotNumber,
-            leader: r.leader,
-            userId: r.userId,
-            teamId: r.teamId,
+            slotNumber: r.slotNumber ?? null,
+            leader: r.leader ?? null,
+            userId: r.userId ?? null,
+            teamId: r.teamId ?? null,
+            inGameName: r.inGameName ?? null,
+            inGameId: r.inGameId ?? null,
           })),
           finalRoster: Array.isArray(scrim?.slots) ? scrim.slots.filter((s: any) => s.status === 'filled' || s.teamName) : [],
           completedAt: serverTimestamp(),
         };
       }
 
+      const cleanedPayload = cleanFirestoreData(updatePayload);
+
       await Promise.all([
-        updateDoc(doc(db, 'scrims', id), updatePayload).catch(() => {}),
-        updateDoc(doc(db, 'tournaments', id), updatePayload).catch(() => {}),
-        setDoc(doc(db, 'scrims', id), updatePayload, { merge: true }).catch(() => {}),
-        setDoc(doc(db, 'tournaments', id), updatePayload, { merge: true }).catch(() => {}),
+        updateDoc(doc(db, 'scrims', id), cleanedPayload).catch(() => {}),
+        updateDoc(doc(db, 'tournaments', id), cleanedPayload).catch(() => {}),
+        setDoc(doc(db, 'scrims', id), cleanedPayload, { merge: true }).catch(() => {}),
+        setDoc(doc(db, 'tournaments', id), cleanedPayload, { merge: true }).catch(() => {}),
       ]);
-      setScrim((prev: any) => prev ? { ...prev, ...updatePayload } : prev);
+      setScrim((prev: any) => prev ? { ...prev, ...cleanedPayload } : prev);
       showToast(
         newStatus === 'completed'
           ? 'Match finalized & all lobby slots released!'
@@ -670,23 +684,39 @@ export default function ScrimDetailPage() {
         participants
       );
 
-      const winnerPayload = {
-        winners: validTiers,
-        podium: validTiers,
+      const cleanedWinnerPayload = cleanFirestoreData({
+        winners: validTiers.map(t => ({
+          rank: t.rank,
+          teamName: t.teamName || 'Winner',
+          teamId: t.teamId || null,
+          userId: t.userId || null,
+          prize: Number(t.prize) || 0,
+          kills: Number(t.kills) || 0,
+          points: Number(t.points) || 0,
+        })),
+        podium: validTiers.map(t => ({
+          rank: t.rank,
+          teamName: t.teamName || 'Winner',
+          teamId: t.teamId || null,
+          userId: t.userId || null,
+          prize: Number(t.prize) || 0,
+          kills: Number(t.kills) || 0,
+          points: Number(t.points) || 0,
+        })),
         manualResults: compiledResults.map(r => ({
-          id: r.id,
+          id: r.id || '',
           rank: r.rank,
-          team: r.teamName,
-          score: r.score,
-          kills: r.kills,
-          prize: r.prize,
-          status: r.status,
-          slotNumber: r.slotNumber,
-          leader: r.leader,
-          userId: r.userId,
-          teamId: r.teamId,
-          inGameName: r.inGameName,
-          inGameId: r.inGameId,
+          team: r.teamName || 'Team',
+          score: Number(r.score) || 0,
+          kills: Number(r.kills) || 0,
+          prize: Number(r.prize) || 0,
+          status: r.status || '',
+          slotNumber: typeof r.slotNumber === 'number' ? r.slotNumber : null,
+          leader: r.leader || null,
+          userId: r.userId || null,
+          teamId: r.teamId || null,
+          inGameName: r.inGameName || null,
+          inGameId: r.inGameId || null,
         })),
         finalRoster: Array.isArray(scrim?.slots) ? scrim.slots.filter((s: any) => s.status === 'filled' || s.teamName) : [],
         payoutCompleted: true,
@@ -695,16 +725,16 @@ export default function ScrimDetailPage() {
         stage: 'completed',
         completedAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-      };
+      });
 
       await Promise.all([
-        updateDoc(doc(db, 'scrims', id!), winnerPayload).catch(() => {}),
-        updateDoc(doc(db, 'tournaments', id!), winnerPayload).catch(() => {}),
-        setDoc(doc(db, 'scrims', id!), winnerPayload, { merge: true }).catch(() => {}),
-        setDoc(doc(db, 'tournaments', id!), winnerPayload, { merge: true }).catch(() => {}),
+        updateDoc(doc(db, 'scrims', id!), cleanedWinnerPayload).catch(() => {}),
+        updateDoc(doc(db, 'tournaments', id!), cleanedWinnerPayload).catch(() => {}),
+        setDoc(doc(db, 'scrims', id!), cleanedWinnerPayload, { merge: true }).catch(() => {}),
+        setDoc(doc(db, 'tournaments', id!), cleanedWinnerPayload, { merge: true }).catch(() => {}),
       ]);
 
-      setScrim((prev: any) => prev ? { ...prev, ...winnerPayload } : prev);
+      setScrim((prev: any) => prev ? { ...prev, ...cleanedWinnerPayload } : prev);
       showToast(
         payoutViaApi
           ? `Multi-tier prizes successfully distributed (${formatRupees(totalAllocated)})!`

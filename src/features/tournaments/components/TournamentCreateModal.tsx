@@ -33,7 +33,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import PrizeDistributionInput from './PrizeDistributionInput';
-import { formatCurrency, formatGameModeLabel, formatGameName, toDateSafe } from '../../../shared/utils/utils';
+import { formatCurrency, formatGameModeLabel, formatGameName, toDateSafe, cleanFirestoreData } from '../../../shared/utils/utils';
 import { commitFirestoreBatches } from '../../../shared/utils/firestoreBatches';
 import { fetchRoomCredentials, broadcastRoomCredentials } from '../../../shared/services/roomCredentials';
 
@@ -277,10 +277,12 @@ const TournamentCreateModal: React.FC<TournamentCreateModalProps> = ({ isOpen, o
         isFeatured: editTournament ? editTournament.isFeatured : false,
       };
 
+      const cleanedTournamentData = cleanFirestoreData(tournamentData);
+
       if (editTournament) {
         await Promise.all([
-          setDoc(doc(db, 'tournaments', editTournament.id), tournamentData, { merge: true }).catch(() => {}),
-          setDoc(doc(db, 'scrims', editTournament.id), tournamentData, { merge: true }).catch(() => {}),
+          setDoc(doc(db, 'tournaments', editTournament.id), cleanedTournamentData, { merge: true }).catch(() => {}),
+          setDoc(doc(db, 'scrims', editTournament.id), cleanedTournamentData, { merge: true }).catch(() => {}),
         ]);
         if (roomId || roomPass) {
           await broadcastRoomCredentials(editTournament.id, roomId, roomPass, formData.bannerUrl, isScrim ? 'scrims' : 'tournaments');
@@ -316,14 +318,18 @@ const TournamentCreateModal: React.FC<TournamentCreateModalProps> = ({ isOpen, o
         // Generate default roadmap based on slots + type
         const defaultRoadmap = generateDefaultRoadmap(formData.slots, formData.type);
 
-        const docRef = await addDoc(collection(db, 'tournaments'), {
+        const newTournamentPayload = cleanFirestoreData({
           ...tournamentData,
           tournamentMode: formData.tournamentMode,
           ...(scoringSnapshot ? { scoringSnapshot } : {}),
           ...(rewardSnapshot ? { rewardSnapshot } : {}),
           roadmap: defaultRoadmap,
           currentRound: 1,
-          createdAt: serverTimestamp()
+        });
+
+        const docRef = await addDoc(collection(db, 'tournaments'), {
+          ...newTournamentPayload,
+          createdAt: serverTimestamp(),
         });
         if (roomId || roomPass) {
           await setDoc(doc(db, 'tournaments', docRef.id, 'credentials', 'main'), { roomId, roomPass });

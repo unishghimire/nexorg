@@ -14,6 +14,7 @@ import { doc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { db, auth } from '../../../shared/config/firebase';
 import { validateKills, calculatePlayerReward, createKillRewardEntry } from '../../../shared/services/perKillEngine';
 import { PlayerKillReward, RewardSnapshot } from '../../../shared/types/per-kill';
+import { cleanFirestoreData } from '../../../shared/utils/utils';
 
 interface PerKillResultUploaderProps {
     isOpen: boolean;
@@ -164,10 +165,10 @@ export const PerKillResultUploader: React.FC<PerKillResultUploaderProps> = ({
 
             // Save to tournament document — append to killRewards array
             const tournamentRef = doc(db, 'tournaments', tournament.id);
-            await updateDoc(tournamentRef, {
+            await updateDoc(tournamentRef, cleanFirestoreData({
                 killRewards: arrayUnion(...killRewards),
                 updatedAt: new Date() as any,
-            });
+            }));
 
             // Also update the match with results
             const matchResults = killRewards.map(r => ({
@@ -190,7 +191,7 @@ export const PerKillResultUploader: React.FC<PerKillResultUploaderProps> = ({
                 };
             });
 
-            await updateDoc(tournamentRef, { groups: updatedGroups });
+            await updateDoc(tournamentRef, cleanFirestoreData({ groups: updatedGroups }));
 
             showToast('Kill results submitted for verification', 'success');
             onSuccess();

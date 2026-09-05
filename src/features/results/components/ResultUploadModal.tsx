@@ -12,6 +12,7 @@ import { MediaCategory } from '../../../shared/services/mediaService';
 import ManualResultManager from './ManualResultManager';
 import { useAuth } from '../../../shared/context/AuthContext';
 import { executePrizeDistribution } from '../../../shared/services/prizeDistributionService';
+import { cleanFirestoreData } from '../../../shared/utils/utils';
 
 interface ResultUploadModalProps {
     isOpen: boolean;
@@ -206,10 +207,14 @@ const ResultUploadModal: React.FC<ResultUploadModalProps> = ({ isOpen, onClose, 
                 });
 
                 if (resultUrl) {
-                    await updateDoc(doc(db, 'tournaments', tournament.id), {
+                    const resultPayload = cleanFirestoreData({
                         resultUrl,
                         updatedAt: new Date().toISOString()
                     });
+                    await Promise.all([
+                        updateDoc(doc(db, 'tournaments', tournament.id), resultPayload).catch(() => {}),
+                        updateDoc(doc(db, 'scrims', tournament.id), resultPayload).catch(() => {}),
+                    ]);
                 }
 
                 showToast(`Results finalized and ${distResult.creditedCount} winner(s) credited!`, 'success');
@@ -222,7 +227,11 @@ const ResultUploadModal: React.FC<ResultUploadModalProps> = ({ isOpen, onClose, 
                 if (manualResults && manualResults.length > 0) updatePayload.manualResults = manualResults;
                 if (templateConfig) updatePayload.resultTemplate = templateConfig;
                 
-                await updateDoc(doc(db, 'tournaments', tournament.id), updatePayload);
+                const cleanedPayload = cleanFirestoreData(updatePayload);
+                await Promise.all([
+                    updateDoc(doc(db, 'tournaments', tournament.id), cleanedPayload).catch(() => {}),
+                    updateDoc(doc(db, 'scrims', tournament.id), cleanedPayload).catch(() => {}),
+                ]);
 
                 await NotificationService.notifyParticipants(
                     tournament.id,
