@@ -420,6 +420,9 @@ const OrganizerPanel: React.FC = () => {
               kpis={org.kpis}
               activityFeed={org.activityFeed}
               hostedTournaments={org.hostedTournaments}
+              onNavigateTab={(tabId) => handleTabChange(tabId as TabId)}
+              onCreateTournament={() => handleCreateTournament('tournament')}
+              onCreateScrim={() => { setEditScrim(null); setShowScrimCreateModal(true); }}
             />
           </TabErrorBoundary>
         );
@@ -545,39 +548,55 @@ const OrganizerPanel: React.FC = () => {
   }
 
   return (
-    <DashboardLayout title="Organizer Panel">
+    <DashboardLayout title="Organizer Panel" badge={activeTab !== 'overview' ? NAV_ITEMS.find(n => n.id === activeTab)?.label : undefined}>
       <Seo title="Organizer Panel | NexPlay" description="Tournament organizer dashboard" noindex />
+
       {/* Mobile nav toggle */}
       <button
         onClick={() => setMobileNavOpen(!mobileNavOpen)}
-        className="lg:hidden flex items-center justify-between bg-card p-4 rounded-2xl border border-gray-800 w-full mb-4"
+        className="lg:hidden flex items-center justify-between bg-card/80 backdrop-blur-sm px-4 py-3 rounded-xl border border-gray-800 w-full mb-3 transition-colors hover:border-gray-700"
       >
-        <span className="font-bold text-white text-sm uppercase tracking-widest">Organizer Menu</span>
-        {mobileNavOpen ? <X className="w-5 h-5 text-gray-400" /> : <Menu className="w-5 h-5 text-gray-400" />}
+        <div className="flex items-center gap-2.5">
+          <Menu className="w-4 h-4 text-brand-400" />
+          <span className="font-black text-white text-xs uppercase tracking-widest">Navigation</span>
+          <span className="text-[10px] font-bold text-gray-400 bg-surface px-2 py-0.5 rounded-full border border-gray-800">
+            {NAV_ITEMS.find(n => n.id === activeTab)?.label}
+          </span>
+        </div>
+        {mobileNavOpen ? <X className="w-4 h-4 text-gray-400" /> : <Menu className="w-4 h-4 text-gray-400" />}
       </button>
 
-      <div className="flex flex-col lg:flex-row gap-4 sm:gap-6">
+      <div className="flex flex-col lg:flex-row gap-4">
         {/* Sidebar Navigation */}
-        <aside className={`w-full lg:w-60 flex-shrink-0 ${mobileNavOpen ? 'block' : 'hidden lg:block'}`}>
-          <nav aria-label="Organizer panel navigation" className="space-y-2 bg-card p-4 rounded-2xl border border-gray-800 h-fit lg:sticky lg:top-24">
+        <aside className={`w-full lg:w-56 flex-shrink-0 ${mobileNavOpen ? 'block' : 'hidden lg:block'}`}>
+          <nav
+            aria-label="Organizer panel navigation"
+            className="space-y-1 bg-card/60 backdrop-blur-sm p-3 rounded-2xl border border-gray-800/80 h-fit lg:sticky lg:top-20"
+          >
+            <div className="px-3 pb-2 mb-1 border-b border-gray-800/60">
+              <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">Workspace</span>
+            </div>
             {NAV_ITEMS.map((item) => {
               const pendingCount = item.id === 'disputes' ? org.disputes.filter(d => (d.status || 'pending') === 'pending').length : 0;
+              const isActive = activeTab === item.id;
               return (
                 <button
                   key={item.id}
                   onClick={() => handleTabChange(item.id)}
-                  className={`w-full flex items-center justify-between px-4 py-3 rounded-full text-xs font-black uppercase tracking-widest transition-colors shrink-0 min-h-[44px] ${
-                    activeTab === item.id
-                      ? 'bg-brand-500 text-white shadow-xl shadow-brand-500/20'
-                      : 'text-gray-400 hover:bg-surface/50 hover:text-white'
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all duration-150 min-h-[40px] group ${
+                    isActive
+                      ? 'bg-brand-600/15 text-brand-400 border border-brand-500/30 shadow-sm'
+                      : 'text-gray-400 hover:bg-surface/60 hover:text-white border border-transparent'
                   }`}
                 >
-                  <div className="flex items-center gap-3">
-                    <item.icon className={`w-4 h-4 flex-shrink-0 ${activeTab === item.id ? 'text-white' : 'text-gray-500'}`} />
+                  <div className="flex items-center gap-2.5">
+                    <item.icon className={`w-4 h-4 flex-shrink-0 transition-colors ${
+                      isActive ? 'text-brand-400' : 'text-gray-500 group-hover:text-gray-300'
+                    }`} />
                     <span className="whitespace-nowrap">{item.label}</span>
                   </div>
                   {pendingCount > 0 && (
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-red-600 text-white animate-pulse">
+                    <span className="px-1.5 py-0.5 rounded-full text-[9px] font-black bg-red-600 text-white animate-pulse min-w-[20px] text-center">
                       {pendingCount}
                     </span>
                   )}

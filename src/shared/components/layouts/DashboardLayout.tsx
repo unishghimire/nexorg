@@ -8,13 +8,11 @@ interface DashboardLayoutProps {
     title: string;
     description?: string;
     backUrl?: string;
+    badge?: string;
+    actions?: React.ReactNode;
 }
 
-// ponytail: this shell used to also render its own sidebar nav, but the only
-// consumer (OrganizerPanel) has its own 7-tab sidebar — that produced two
-// competing sidebars. Kept this component to just page chrome (title/back +
-// scroll container) since that's all any consumer actually needs.
-export default function DashboardLayout({ children, title, description, backUrl }: DashboardLayoutProps) {
+export default function DashboardLayout({ children, title, description, backUrl, badge, actions }: DashboardLayoutProps) {
     const { user, profile } = useAuth();
     const navigate = useNavigate();
 
@@ -36,19 +34,42 @@ export default function DashboardLayout({ children, title, description, backUrl 
     }
 
     return (
-        <div className="flex flex-col min-h-[70vh] lg:min-h-[90vh] bg-black rounded-2xl sm:rounded-[2rem] border border-gray-800 overflow-hidden shadow-2xl relative">
-            <main className="flex-1 flex flex-col min-w-0 bg-black overflow-y-auto custom-scrollbar">
-                <header className="px-4 sm:px-6 py-5 md:px-10 md:py-8 border-b border-gray-800 bg-black/80 sticky top-0 backdrop-blur-md z-10">
-                    {backUrl && (
-                        <button type="button" onClick={() => navigate(backUrl)} className="text-brand-500 text-xs font-black uppercase tracking-widest flex items-center gap-2 hover:text-brand-400 mb-4 transition-colors touch-target">
-                            <ChevronLeft className="w-4 h-4" /> Back
-                        </button>
-                    )}
-                    <h1 className="text-xl sm:text-2xl md:text-3xl font-black text-white tracking-tighter uppercase">{title}</h1>
-                    {description && <p className="text-xs sm:text-sm text-gray-500 font-bold mt-2 tracking-widest uppercase">{description}</p>}
+        <div className="flex flex-col min-h-[75vh] lg:min-h-[88vh] bg-dark/95 rounded-2xl sm:rounded-3xl border border-gray-800/80 overflow-hidden shadow-2xl relative">
+            <main className="flex-1 flex flex-col min-w-0 bg-dark overflow-y-auto custom-scrollbar">
+                <header className="px-4 sm:px-6 py-3.5 md:py-4 border-b border-gray-800/80 bg-dark/90 sticky top-0 backdrop-blur-xl z-20">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="min-w-0">
+                            {backUrl && (
+                                <button
+                                    type="button"
+                                    onClick={() => navigate(backUrl)}
+                                    className="text-brand-400 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 hover:text-brand-300 mb-1.5 transition-colors"
+                                >
+                                    <ChevronLeft className="w-3.5 h-3.5" /> Back
+                                </button>
+                            )}
+                            <div className="flex items-center gap-2.5 flex-wrap">
+                                <h1 className="text-lg sm:text-xl font-black text-white tracking-tight uppercase">{title}</h1>
+                                {badge && (
+                                    <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-brand-500/15 text-brand-400 border border-brand-500/30">
+                                        {badge}
+                                    </span>
+                                )}
+                            </div>
+                            {description && (
+                                <p className="text-xs text-gray-400 font-medium mt-0.5 truncate max-w-2xl">{description}</p>
+                            )}
+                        </div>
+
+                        {actions && (
+                            <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto">
+                                {actions}
+                            </div>
+                        )}
+                    </div>
                 </header>
 
-                <div className="p-4 sm:p-6 md:p-10 flex-1 min-w-0">
+                <div className="p-3 sm:p-5 lg:p-6 flex-1 min-w-0">
                     {children}
                 </div>
             </main>
