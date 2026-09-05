@@ -40,22 +40,28 @@ export function useOrgData() {
   // Cache of tournament map for fast merge across real-time streams
   const tourMapRef = useRef<Map<string, Tournament>>(new Map());
   const scrimMapRef = useRef<Map<string, Tournament>>(new Map());
+  const recomputeTimerRef = useRef<any>(null);
 
-  // Merge and sort tournaments in sub-milliseconds
-  const recomputeTournaments = useCallback(async () => {
-    const combinedMap = new Map<string, Tournament>();
-    tourMapRef.current.forEach((val, key) => combinedMap.set(key, val));
-    scrimMapRef.current.forEach((val, key) => combinedMap.set(key, val));
+  // Merge and sort tournaments in sub-milliseconds with debounce to prevent multi-render stutter
+  const recomputeTournaments = useCallback(() => {
+    if (recomputeTimerRef.current) {
+      clearTimeout(recomputeTimerRef.current);
+    }
+    recomputeTimerRef.current = setTimeout(() => {
+      const combinedMap = new Map<string, Tournament>();
+      tourMapRef.current.forEach((val, key) => combinedMap.set(key, val));
+      scrimMapRef.current.forEach((val, key) => combinedMap.set(key, val));
 
-    const list = Array.from(combinedMap.values());
-    list.sort((a, b) => {
-      const aTime = toDateSafe(a.createdAt)?.getTime() || 0;
-      const bTime = toDateSafe(b.createdAt)?.getTime() || 0;
-      return bTime - aTime;
-    });
+      const list = Array.from(combinedMap.values());
+      list.sort((a, b) => {
+        const aTime = toDateSafe(a.createdAt)?.getTime() || 0;
+        const bTime = toDateSafe(b.createdAt)?.getTime() || 0;
+        return bTime - aTime;
+      });
 
-    setHostedTournaments(list);
-    setLoading(false);
+      setHostedTournaments(list);
+      setLoading(false);
+    }, 20);
   }, []);
 
   // 1. Real-time Subscriptions for Hosted Tournaments & Scrims (sub-50ms live sync)
@@ -172,14 +178,20 @@ export function useOrgData() {
     };
   }, [user]);
 
-  // 3. Real-time Subscriptions for Participants across hosted events
+  // Stable key of tournament IDs so changing individual tournament fields never destroys & recreates listeners
+  const tournamentIdsKey = useMemo(
+    () => hostedTournaments.map(t => t.id).filter(Boolean).sort().join(','),
+    [hostedTournaments]
+  );
+
+  // 3. Real-time Subscriptions for Participants across hosted events (stabilized listener)
   useEffect(() => {
-    if (!user || hostedTournaments.length === 0) {
+    if (!user || !tournamentIdsKey) {
       setParticipants([]);
       return;
     }
 
-    const tournamentIds = Array.from(new Set(hostedTournaments.map(t => t.id).filter(Boolean)));
+    const tournamentIds = tournamentIdsKey.split(',').filter(Boolean);
     if (tournamentIds.length === 0) return;
 
     // Split tournament IDs into chunks of 10 for Firestore 'in' query safety
@@ -189,6 +201,20 @@ export function useOrgData() {
 
     const unsubs: Unsubscribe[] = [];
     const batchDataMap = new Map<number, Participant[]>();
+    let debounceTimer: any = null;
+
+    const scheduleParticipantsUpdate = () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        const allParts = Array.from(batchDataMap.values()).flat();
+        allParts.sort((a, b) => {
+          const aTime = toDateSafe(a.timestamp)?.getTime() || 0;
+          const bTime = toDateSafe(b.timestamp)?.getTime() || 0;
+          return bTime - aTime;
+        });
+        setParticipants(allParts);
+      }, 50);
+    };
 
     batches.forEach((ids, bIdx) => {
       try {
@@ -196,23 +222,17 @@ export function useOrgData() {
         const unsub = onSnapshot(pQuery, (snap) => {
           const parts = snap.docs.map(d => ({ id: d.id, ...d.data() } as Participant));
           batchDataMap.set(bIdx, parts);
-
-          const allParts = Array.from(batchDataMap.values()).flat();
-          allParts.sort((a, b) => {
-            const aTime = toDateSafe(a.timestamp)?.getTime() || 0;
-            const bTime = toDateSafe(b.timestamp)?.getTime() || 0;
-            return bTime - aTime;
-          });
-          setParticipants(allParts);
+          scheduleParticipantsUpdate();
         }, () => {});
         unsubs.push(unsub);
       } catch {}
     });
 
     return () => {
+      clearTimeout(debounceTimer);
       unsubs.forEach(u => u());
     };
-  }, [user, hostedTournaments]);
+  }, [user, tournamentIdsKey]);
 
   // Pure Tournaments (strictly excluding all scrims)
   const tournamentsOnly = useMemo(() =>
@@ -385,6 +405,15 @@ export function useOrgData() {
 
   const assertTournamentHost = useCallback(async (tournamentId: string) => {
     if (!user) throw new Error('Not authenticated');
+    // Fast path: check in-memory tournaments first (0ms latency, zero network call)
+    const inMemory = tourMapRef.current.get(tournamentId) || scrimMapRef.current.get(tournamentId);
+    if (inMemory) {
+      const ownerId = inMemory.hostUid || (inMemory as any).orgId || (inMemory as any).hostId || (inMemory as any).userId || (inMemory as any).organizerId || (inMemory as any).createdBy;
+      if (ownerId && ownerId !== user.uid && profile?.role !== 'admin' && profile?.role !== 'organizer') {
+        throw new Error('Not authorized — you do not own this tournament or scrim');
+      }
+      return;
+    }
     let tDoc = await getDoc(doc(db, 'tournaments', tournamentId)).catch(() => null);
     if (!tDoc || !tDoc.exists()) {
       tDoc = await getDoc(doc(db, 'scrims', tournamentId)).catch(() => null);

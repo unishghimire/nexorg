@@ -7,9 +7,16 @@ export interface DedicatedTeamsLookup {
   teamByUserId: Map<string, Team>;
 }
 
+// In-memory lookup cache to eliminate redundant Firestore queries and eliminate UI lag
+const globalTeamCacheById = new Map<string, Team>();
+const globalTeamCacheByUserId = new Map<string, Team>();
+const cacheTimestamps = new Map<string, number>();
+const CACHE_TTL_MS = 60 * 1000; // 60 seconds
+
 /**
  * Batched lookup for dedicated teams based on teamIds and userIds.
  * Resolves teams created via the dedicated Teams feature (teams collection, team_members, ownerId, captainId).
+ * Uses in-memory caching to avoid Firestore query storming.
  */
 export async function fetchDedicatedTeams(identifiers: {
   teamIds?: (string | null | undefined)[];
@@ -33,31 +40,79 @@ export async function fetchDedicatedTeams(identifiers: {
       )
     );
 
+    const now = Date.now();
+
+    // 0. Populate from in-memory cache if fresh
+    validTeamIds.forEach(id => {
+      const cached = globalTeamCacheById.get(id);
+      const ts = cacheTimestamps.get(`t_${id}`) || 0;
+      if (cached && now - ts < CACHE_TTL_MS) {
+        teamById.set(id, cached);
+      }
+    });
+
+    validUserIds.forEach(uid => {
+      const cached = globalTeamCacheByUserId.get(uid);
+      const ts = cacheTimestamps.get(`u_${uid}`) || 0;
+      if (cached && now - ts < CACHE_TTL_MS) {
+        teamByUserId.set(uid, cached);
+      }
+    });
+
+    // Determine missing IDs that need Firestore fetching
+    const uncachedTeamIds = validTeamIds.filter(id => !teamById.has(id));
+    const uncachedUserIds = validUserIds.filter(uid => !teamByUserId.has(uid));
+
+    if (uncachedTeamIds.length === 0 && uncachedUserIds.length === 0) {
+      return { teamById, teamByUserId };
+    }
+
     // 1. Fetch teams by team document ID (chunks of up to 30)
-    for (let i = 0; i < validTeamIds.length; i += 30) {
-      const chunk = validTeamIds.slice(i, i + 30);
+    for (let i = 0; i < uncachedTeamIds.length; i += 30) {
+      const chunk = uncachedTeamIds.slice(i, i + 30);
       try {
         const snap = await getDocs(query(collection(db, 'teams'), where('__name__', 'in', chunk)));
         snap.docs.forEach(d => {
           const team = { id: d.id, ...d.data() } as Team;
           teamById.set(d.id, team);
-          if (team.ownerId) teamByUserId.set(team.ownerId, team);
-          if (team.captainId) teamByUserId.set(team.captainId, team);
+          globalTeamCacheById.set(d.id, team);
+          cacheTimestamps.set(`t_${d.id}`, now);
+          if (team.ownerId) {
+            teamByUserId.set(team.ownerId, team);
+            globalTeamCacheByUserId.set(team.ownerId, team);
+            cacheTimestamps.set(`u_${team.ownerId}`, now);
+          }
+          if (team.captainId) {
+            teamByUserId.set(team.captainId, team);
+            globalTeamCacheByUserId.set(team.captainId, team);
+            cacheTimestamps.set(`u_${team.captainId}`, now);
+          }
         });
       } catch (err) {
         console.warn('Error fetching teams by __name__ chunk:', err);
       }
     }
 
-    // 2. For users who might own/captain a team, fetch where ownerId in userIds
-    for (let i = 0; i < validUserIds.length; i += 30) {
-      const chunk = validUserIds.slice(i, i + 30);
+    // 2. For users who might own/captain a team, fetch where ownerId in uncachedUserIds
+    for (let i = 0; i < uncachedUserIds.length; i += 30) {
+      const chunk = uncachedUserIds.slice(i, i + 30);
       try {
         const ownerSnap = await getDocs(query(collection(db, 'teams'), where('ownerId', 'in', chunk)));
         ownerSnap.docs.forEach(d => {
           const team = { id: d.id, ...d.data() } as Team;
           teamById.set(d.id, team);
-          if (team.ownerId) teamByUserId.set(team.ownerId, team);
+          globalTeamCacheById.set(d.id, team);
+          cacheTimestamps.set(`t_${d.id}`, now);
+          if (team.ownerId) {
+            teamByUserId.set(team.ownerId, team);
+            globalTeamCacheByUserId.set(team.ownerId, team);
+            cacheTimestamps.set(`u_${team.ownerId}`, now);
+          }
+          if (team.captainId) {
+            teamByUserId.set(team.captainId, team);
+            globalTeamCacheByUserId.set(team.captainId, team);
+            cacheTimestamps.set(`u_${team.captainId}`, now);
+          }
         });
       } catch (err) {
         console.warn('Error fetching teams by ownerId chunk:', err);
@@ -65,7 +120,7 @@ export async function fetchDedicatedTeams(identifiers: {
     }
 
     // 3. For users who are members of dedicated teams (via team_members collection)
-    const missingUserIds = validUserIds.filter(uid => !teamByUserId.has(uid));
+    const missingUserIds = uncachedUserIds.filter(uid => !teamByUserId.has(uid));
     const newlyDiscoveredTeamIds: string[] = [];
 
     for (let i = 0; i < missingUserIds.length; i += 30) {
@@ -94,8 +149,18 @@ export async function fetchDedicatedTeams(identifiers: {
         snap.docs.forEach(d => {
           const team = { id: d.id, ...d.data() } as Team;
           teamById.set(d.id, team);
-          if (team.ownerId) teamByUserId.set(team.ownerId, team);
-          if (team.captainId) teamByUserId.set(team.captainId, team);
+          globalTeamCacheById.set(d.id, team);
+          cacheTimestamps.set(`t_${d.id}`, now);
+          if (team.ownerId) {
+            teamByUserId.set(team.ownerId, team);
+            globalTeamCacheByUserId.set(team.ownerId, team);
+            cacheTimestamps.set(`u_${team.ownerId}`, now);
+          }
+          if (team.captainId) {
+            teamByUserId.set(team.captainId, team);
+            globalTeamCacheByUserId.set(team.captainId, team);
+            cacheTimestamps.set(`u_${team.captainId}`, now);
+          }
         });
       } catch (err) {
         console.warn('Error fetching newly discovered teams chunk:', err);
@@ -113,6 +178,8 @@ export async function fetchDedicatedTeams(identifiers: {
             (Array.isArray(team.players) && team.players.includes(uid))
           ) {
             teamByUserId.set(uid, team);
+            globalTeamCacheByUserId.set(uid, team);
+            cacheTimestamps.set(`u_${uid}`, now);
             break;
           }
         }

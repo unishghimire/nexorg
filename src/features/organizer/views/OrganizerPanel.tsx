@@ -18,15 +18,15 @@ import { fetchRoomCredentials } from '../../../shared/services/roomCredentials';
 import { normalizeScrimSlots, countFilledScrimSlots } from '../../../shared/utils/scrimSlots';
 import { resolveSlotTeam, fetchDedicatedTeams } from '../../../shared/utils/teamUtils';
 
-// Lazy-load tab components
-const OverviewTab = React.lazy(() => import('../components/OverviewTab'));
-const TournamentsTab = React.lazy(() => import('../components/TournamentsTab'));
-const ScrimsHubTab = React.lazy(() => import('../components/ScrimsHubTab'));
-const MatchRoomsTab = React.lazy(() => import('../components/MatchRoomsTab'));
-const DisputesTab = React.lazy(() => import('../components/DisputesTab'));
-const TeamsRostersTab = React.lazy(() => import('../components/TeamsRostersTab'));
-const WalletPayoutsTab = React.lazy(() => import('../components/WalletPayoutsTab'));
-const SettingsStreamTab = React.lazy(() => import('../components/SettingsStreamTab'));
+// Direct tab component imports for 0ms instant tab switching and zero chunk loading failures
+import OverviewTab from '../components/OverviewTab';
+import TournamentsTab from '../components/TournamentsTab';
+import { ScrimsHubTab } from '../components/ScrimsHubTab';
+import MatchRoomsTab from '../components/MatchRoomsTab';
+import { DisputesTab } from '../components/DisputesTab';
+import { TeamsRostersTab } from '../components/TeamsRostersTab';
+import { WalletPayoutsTab } from '../components/WalletPayoutsTab';
+import { SettingsStreamTab } from '../components/SettingsStreamTab';
 
 const NAV_ITEMS = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },

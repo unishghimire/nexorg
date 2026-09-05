@@ -69,22 +69,30 @@ export const ScrimsHubTab: React.FC<ScrimsHubTabProps> = ({
     teamByUserId: new Map(),
   });
 
-  React.useEffect(() => {
-    let isMounted = true;
+  const lookupKey = React.useMemo(() => {
     const teamIds: string[] = [];
     const userIds: string[] = [];
 
-    scrims.forEach((scrim) => {
+    (scrims || []).forEach((scrim) => {
       (scrim.slots || []).forEach((s: any) => {
         if (s?.teamId) teamIds.push(s.teamId);
         if (s?.userId) userIds.push(s.userId);
       });
     });
 
-    participants.forEach((p: any) => {
+    (participants || []).forEach((p: any) => {
       if (p?.teamId) teamIds.push(p.teamId);
       if (p?.userId) userIds.push(p.userId);
     });
+
+    return `${teamIds.sort().join(',')}|${userIds.sort().join(',')}`;
+  }, [scrims, participants]);
+
+  React.useEffect(() => {
+    let isMounted = true;
+    const [tPart, uPart] = lookupKey.split('|');
+    const teamIds = tPart ? tPart.split(',').filter(Boolean) : [];
+    const userIds = uPart ? uPart.split(',').filter(Boolean) : [];
 
     if (teamIds.length === 0 && userIds.length === 0) return;
 
@@ -97,7 +105,7 @@ export const ScrimsHubTab: React.FC<ScrimsHubTabProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [scrims, participants]);
+  }, [lookupKey]);
 
   const handleSlotClick = (scrimId: string, slotNumber: number) => {
     if (typeof onToggleSlot === 'function') {
