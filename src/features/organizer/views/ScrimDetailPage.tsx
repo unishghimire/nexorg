@@ -1670,6 +1670,33 @@ export default function ScrimDetailPage() {
                 </div>
               </div>
 
+              {/* Captain's Webapp UID */}
+              {selectedSlot.captainUid && (
+                <div className="p-3 rounded-xl bg-card border border-gray-800 flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-gray-500 tracking-wider block">Captain's Webapp UID</span>
+                    <span className="font-mono font-bold text-white text-xs">{selectedSlot.captainUid}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard(selectedSlot.captainUid, `modal_captain_${selectedSlot.slotNumber}`)}
+                    className="px-2.5 py-1.5 rounded-lg bg-surface hover:bg-card border border-gray-700 text-gray-300 hover:text-white flex items-center gap-1 text-[11px] transition-colors cursor-pointer"
+                  >
+                    {copied === `modal_captain_${selectedSlot.slotNumber}` ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-green-400" />
+                        <span>Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>Copy</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+
               {/* Free Fire In-Game UID */}
               {selectedSlot.inGameId && (
                 <div className="p-3 rounded-xl bg-card border border-gray-800 flex items-center justify-between">

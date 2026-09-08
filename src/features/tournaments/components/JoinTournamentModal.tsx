@@ -43,6 +43,14 @@ const JoinTournamentModal: React.FC<JoinTournamentModalProps> = ({
     const [teammate3, setTeammate3] = useState('');
     const [loading, setLoading] = useState(false);
 
+    // SCRIM ENGINE: captain's webapp UID is required to reserve a slot
+    const isScrim = tournament.matchType === 'scrims' || (tournament as any).isScrim === true || (tournament as any).type === 'scrim';
+    const [captainUid, setCaptainUid] = useState('');
+
+    useEffect(() => {
+        if (isOpen && user) setCaptainUid(user.uid);
+    }, [isOpen, user]);
+
     useEffect(() => {
         if (isOpen && user) {
             fetchUserPermanentTeams();
@@ -180,6 +188,26 @@ const JoinTournamentModal: React.FC<JoinTournamentModalProps> = ({
             }
         }
 
+        // SCRIM ENGINE: the captain's webapp UID must be entered before a slot can be reserved
+        const trimmedCaptainUid = captainUid.trim();
+        if (isScrim && !trimmedCaptainUid) {
+            showToast("Captain's Webapp UID is required to reserve a slot.", "warning");
+            return;
+        }
+        if (isScrim) {
+            try {
+                const captainDoc = await getDoc(doc(db, 'users', trimmedCaptainUid));
+                if (!captainDoc.exists()) {
+                    showToast("Captain UID not found. Please enter a valid webapp account UID.", "error");
+                    return;
+                }
+            } catch (err) {
+                console.warn('Could not verify captain UID:', err);
+                showToast('Could not verify Captain UID. Please check your connection and try again.', 'error');
+                return;
+            }
+        }
+
         const teammates = tournament.teamType === 'duo'
             ? [teammate1]
             : tournament.teamType === 'squad'
@@ -218,6 +246,7 @@ const JoinTournamentModal: React.FC<JoinTournamentModalProps> = ({
                         teamId,
                         teamName,
                         selectedPlayers,
+                        ...(isScrim ? { captainUid: trimmedCaptainUid } : {}),
                     }),
                 });
                 const data = await res.json().catch(() => ({}));
@@ -243,6 +272,7 @@ const JoinTournamentModal: React.FC<JoinTournamentModalProps> = ({
                     teamName,
                     teammates,
                     selectedPlayers,
+                    captainUid: isScrim ? trimmedCaptainUid : null,
                     timestamp: serverTimestamp(),
                     status: 'confirmed',
                 });
@@ -259,6 +289,7 @@ const JoinTournamentModal: React.FC<JoinTournamentModalProps> = ({
                                 teamName: teamName || null,
                                 teamId: teamId || null,
                                 userId: user.uid,
+                                captainUid: isScrim ? trimmedCaptainUid : null,
                                 leader: profile.username || profile.inGameName || null,
                                 inGameId: profile.inGameId || null,
                             };
@@ -378,6 +409,24 @@ const JoinTournamentModal: React.FC<JoinTournamentModalProps> = ({
                                 </p>
                             </div>
                         )}
+                    </div>
+                )}
+
+                {isScrim && (
+                    <div>
+                        <label className="text-[10px] text-gray-400 uppercase font-black tracking-wider mb-2 block">
+                            Captain's Webapp UID <span className="text-brand-400">*</span>
+                        </label>
+                        <input
+                            type="text"
+                            value={captainUid}
+                            onChange={(e) => setCaptainUid(e.target.value)}
+                            placeholder="Enter the captain's webapp account UID"
+                            className="w-full bg-dark border border-gray-700 rounded-xl p-3 text-white focus:border-brand-500 focus-visible:outline-none font-mono text-xs"
+                        />
+                        <p className="text-[10px] text-gray-500 mt-1">
+                            Required to reserve a slot. This is the captain's UID on this webapp (found in Profile), not an in-game ID. Defaults to your account — change it only if you are reserving on behalf of another captain.
+                        </p>
                     </div>
                 )}
 
