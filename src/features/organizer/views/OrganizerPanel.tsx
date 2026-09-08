@@ -148,8 +148,8 @@ const OrganizerPanel: React.FC = () => {
     try {
       await org.updateTournamentStatus(id, status as any);
       showToast(status === 'completed' ? 'Match finalized & all lobby slots released!' : `Tournament status: ${status.toUpperCase()}`, 'success');
-    } catch {
-      showToast('Failed to update status — you may not own this tournament', 'error');
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to update status — you may not own this tournament', 'error');
     } finally {
       setIsUpdatingStatus(false);
     }

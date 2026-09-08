@@ -27,6 +27,7 @@ import { toDateSafe, cleanFirestoreData } from '../../../shared/utils/utils';
 import { countFilledScrimSlots, normalizeScrimSlots, getSlotCount, getFilledSlotCount } from '../../../shared/utils/scrimSlots';
 import { releaseSlotWithRefund } from '../../../shared/services/slotRefundService';
 import { checkFinancialReadiness } from '../../../shared/services/prizeDistributionService';
+import { checkScrimResultsReadiness, checkTournamentResultsReadiness, isScrimEvent } from '../../../shared/utils/finalizationReadiness';
 
 export function useOrgData() {
   const { user, profile } = useAuth();
@@ -506,6 +507,16 @@ export function useOrgData() {
       const readiness = checkFinancialReadiness(target);
       if (readiness.isLocked) {
         throw new Error(readiness.statusText);
+      }
+    }
+
+    // GUARD: points & kills must be updated before finalizing (engine-specific)
+    if (status === 'completed' && target) {
+      const resultsReadiness = isScrimEvent(target)
+        ? checkScrimResultsReadiness(target)
+        : checkTournamentResultsReadiness(target);
+      if (!resultsReadiness.ready) {
+        throw new Error(resultsReadiness.statusText);
       }
     }
 

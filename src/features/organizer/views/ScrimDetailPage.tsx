@@ -14,6 +14,7 @@ import { FinancialLockBanner } from '../../../shared/components/FinancialLockBan
 import { PrizeDistributionModal } from '../../../shared/components/PrizeDistributionModal';
 import { toDateSafe, cleanFirestoreData } from '../../../shared/utils/utils';
 import { resolveAllScrimResults } from '../../../shared/utils/scrimResults';
+import { checkScrimResultsReadiness } from '../../../shared/utils/finalizationReadiness';
 import { DEFAULT_BANNER } from '../../../shared/constants/constants';
 import {
   ChevronLeft, Save, Radio, Users, DollarSign, Calendar,
@@ -440,6 +441,13 @@ export default function ScrimDetailPage() {
     }
 
     if (newStatus === 'completed') {
+      // GUARD: scrim engine — points & kills must be updated for all registered teams before finalizing
+      const resultsReadiness = checkScrimResultsReadiness(scrim, participants);
+      if (!resultsReadiness.ready) {
+        showToast(resultsReadiness.statusText, 'warning');
+        return;
+      }
+
       const hasPrizePool = Number(scrim?.prizePool) > 0;
       const isPayoutDone = Boolean(scrim?.payoutCompleted || scrim?.payoutStatus === 'paid' || (Array.isArray(scrim?.winners) && scrim.winners.length > 0));
       if (hasPrizePool && !isPayoutDone) {

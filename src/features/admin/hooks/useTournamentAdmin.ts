@@ -4,6 +4,7 @@ import { db, auth } from '../../../shared/config/firebase';
 import { useAuth } from '../../../shared/context/AuthContext';
 import { Tournament, TournamentGroup, Match, Team, TournamentEarning } from '../../../shared/types/types';
 import { checkFinancialReadiness } from '../../../shared/services/prizeDistributionService';
+import { checkScrimResultsReadiness, checkTournamentResultsReadiness, isScrimEvent } from '../../../shared/utils/finalizationReadiness';
 import { formatDate, cleanFirestoreData } from '../../../shared/utils/utils';
 import { getMapsForGame } from '../../../shared/constants/constants';
 import {
@@ -151,6 +152,17 @@ export function useTournamentAdmin(
             }
         }
 
+        // GUARD: points & kills must be updated before finalizing (engine-specific)
+        if (status === 'completed') {
+            const resultsReadiness = isScrim
+                ? checkScrimResultsReadiness(tournament, participants)
+                : checkTournamentResultsReadiness(tournament, participants);
+            if (!resultsReadiness.ready) {
+                showToast(resultsReadiness.statusText, 'warning');
+                return;
+            }
+        }
+
         try {
             let updatePayload: Record<string, any> = { status, updatedAt: serverTimestamp() };
             if (status === 'completed' && isScrim) {
@@ -199,6 +211,16 @@ export function useTournamentAdmin(
 
     const handleUpdateStage = async (stage: string) => {
         if (!tournament) return;
+        // GUARD: points & kills must be updated before the completed stage finalizes the event
+        if (stage === 'completed') {
+            const resultsReadiness = isScrimEvent(tournament)
+                ? checkScrimResultsReadiness(tournament, participants)
+                : checkTournamentResultsReadiness(tournament, participants);
+            if (!resultsReadiness.ready) {
+                showToast(resultsReadiness.statusText, 'warning');
+                return;
+            }
+        }
         try {
             await updateDoc(doc(db, 'tournaments', tournament.id), cleanFirestoreData({ 
                 stage,

@@ -20,6 +20,7 @@ import {
   WinnerPayoutEntry,
   executePrizeDistribution,
 } from '../services/prizeDistributionService';
+import { findTierMissingScores } from '../utils/finalizationReadiness';
 
 interface PrizeDistributionModalProps {
   isOpen: boolean;
@@ -267,6 +268,16 @@ export const PrizeDistributionModal: React.FC<PrizeDistributionModalProps> = ({
       return;
     }
 
+    // GUARD: finalization is blocked until points & kills are entered for every declared winner
+    const tierMissingScores = findTierMissingScores(validTiers);
+    if (tierMissingScores) {
+      showToast(
+        `Cannot finalize: points & kills are not updated for Rank #${tierMissingScores.rank} (${tierMissingScores.teamName || 'winner'}). Please enter kills & points for all winners before distributing.`,
+        'error'
+      );
+      return;
+    }
+
     // Strict validation: Ensure no user or team is selected more than once
     const seenUsers = new Set<string>();
     const seenTeams = new Set<string>();
@@ -505,6 +516,15 @@ export const PrizeDistributionModal: React.FC<PrizeDistributionModalProps> = ({
                     onChange={(e) => handleUpdateTier(idx, 'kills', Number(e.target.value) || 0)}
                     placeholder="Kills"
                     title="Kills"
+                    className="w-16 bg-surface border border-gray-700 rounded-lg px-2 py-2 text-xs text-center text-gray-300 focus:border-brand-500 focus-visible:outline-none"
+                  />
+                  <input
+                    type="number"
+                    min="0"
+                    value={tier.points || ''}
+                    onChange={(e) => handleUpdateTier(idx, 'points', Number(e.target.value) || 0)}
+                    placeholder="Points"
+                    title="Points"
                     className="w-16 bg-surface border border-gray-700 rounded-lg px-2 py-2 text-xs text-center text-gray-300 focus:border-brand-500 focus-visible:outline-none"
                   />
                   {tiers.length > 1 && (
