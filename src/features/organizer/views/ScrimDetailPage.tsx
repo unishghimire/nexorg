@@ -71,6 +71,8 @@ export default function ScrimDetailPage() {
   const [manualTeamName, setManualTeamName] = useState('');
   const [manualLeader, setManualLeader] = useState('');
   const [manualUid, setManualUid] = useState('');
+  const [manualCaptainUid, setManualCaptainUid] = useState('');
+  const [captainCheck, setCaptainCheck] = useState<{ username: string; uid: string } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [dedicatedTeamsData, setDedicatedTeamsData] = useState<DedicatedTeamsLookup | null>(null);
 
@@ -296,10 +298,26 @@ export default function ScrimDetailPage() {
     }
   }, [scrim, id, participants, showToast]);
 
-  const handleManualAssignSlot = useCallback(async (slotNumber: number, teamName: string, leader?: string, inGameId?: string) => {
+  const handleManualAssignSlot = useCallback(async (slotNumber: number, teamName: string, leader?: string, inGameId?: string, captainUid?: string) => {
     if (!scrim || !id || !teamName.trim()) {
       showToast('Please enter a team name', 'error');
       return;
+    }
+    const isQuickHostReserve = teamName === 'Reserved' && (leader || '') === 'Host Reserved';
+    const trimmedCaptainUid = (captainUid || '').trim();
+    if (!isQuickHostReserve && !trimmedCaptainUid) {
+      showToast("Please enter the captain's webapp UID", 'error');
+      return;
+    }
+    let captainUsername = 'Host';
+    if (!isQuickHostReserve) {
+      // Validate the captain's webapp UID against the users collection
+      const captainSnap = await getDoc(doc(db, 'users', trimmedCaptainUid));
+      if (!captainSnap.exists()) {
+        showToast('Captain UID not found — the captain must have a Nexplay webapp account', 'error');
+        return;
+      }
+      captainUsername = (captainSnap.data() as any)?.username || 'Captain';
     }
     try {
       const currentSlots = normalizeScrimSlots(scrim.slots, scrim.totalSlots, scrim.filledSlots ?? scrim.currentPlayers);
@@ -310,7 +328,9 @@ export default function ScrimDetailPage() {
           status: 'filled' as const,
           teamName: teamName.trim(),
           teamId: `manual_${Date.now()}`,
-          userId: null,
+          userId: isQuickHostReserve ? null : trimmedCaptainUid,
+          captainUid: isQuickHostReserve ? null : trimmedCaptainUid,
+          captainName: isQuickHostReserve ? null : captainUsername,
           leader: leader?.trim() || teamName.trim(),
           inGameId: inGameId?.trim() || null,
         };
@@ -337,7 +357,9 @@ export default function ScrimDetailPage() {
       setManualTeamName('');
       setManualLeader('');
       setManualUid('');
-      showToast(`Slot #${slotNumber} reserved for "${teamName.trim()}"!`, 'success');
+      setManualCaptainUid('');
+      setCaptainCheck(null);
+      showToast(`Slot #${slotNumber} reserved for "${teamName.trim()}" (Captain: ${captainUsername})!`, 'success');
     } catch (err: any) {
       showToast(err?.message || 'Failed to reserve slot', 'error');
     }
@@ -758,6 +780,16 @@ export default function ScrimDetailPage() {
   };
 
   // --- Render ---
+  const allResolvedResults = useMemo(() => {
+    return resolveAllScrimResults(scrim, participants);
+  }, [scrim, participants]);
+
+  const resultsList = useMemo(() => {
+    if (Array.isArray(scrim?.winners) && scrim.winners.length > 0) return scrim.winners;
+    if (Array.isArray(scrim?.podium) && scrim.podium.length > 0) return scrim.podium;
+    return allResolvedResults.filter(r => r.isWinner || r.prize > 0 || r.rank <= 3);
+  }, [scrim?.winners, scrim?.podium, allResolvedResults]);
+
   if (loading) {
     return (
       <div className="min-h-[100dvh] pt-24 pb-16 flex flex-col items-center justify-center">
@@ -843,16 +875,6 @@ export default function ScrimDetailPage() {
   const totalAllocatedPrize = winnerTiers.reduce((acc, t) => acc + (Number(t.prize) || 0), 0);
   const scrimPrizePool = Number(scrim.prizePool) || 0;
   const isPrizeBalanced = Math.abs(totalAllocatedPrize - scrimPrizePool) < 0.01;
-
-  const allResolvedResults = useMemo(() => {
-    return resolveAllScrimResults(scrim, participants);
-  }, [scrim, participants]);
-
-  const resultsList = useMemo(() => {
-    if (Array.isArray(scrim?.winners) && scrim.winners.length > 0) return scrim.winners;
-    if (Array.isArray(scrim?.podium) && scrim.podium.length > 0) return scrim.podium;
-    return allResolvedResults.filter(r => r.isWinner || r.prize > 0 || r.rank <= 3);
-  }, [scrim?.winners, scrim?.podium, allResolvedResults]);
 
   return (
     <div className="min-h-[100dvh] pt-20 sm:pt-24 pb-16 px-4 sm:px-6 lg:px-8 max-w-5xl mx-auto space-y-6">
@@ -1392,6 +1414,8 @@ export default function ScrimDetailPage() {
                     setManualTeamName('');
                     setManualLeader('');
                     setManualUid('');
+                    setManualCaptainUid('');
+                    setCaptainCheck(null);
                     setIsAssignModalOpen(true);
                   }
                 }}
@@ -1839,6 +1863,36 @@ export default function ScrimDetailPage() {
               </div>
               <div>
                 <label className="block text-xs text-gray-400 uppercase font-semibold mb-1.5">
+                  Captain's Webapp UID <span className="text-red-400">*</span>
+                </label>
+                <input
+                  value={manualCaptainUid}
+                  onChange={(e) => { setManualCaptainUid(e.target.value); setCaptainCheck(null); }}
+                  onBlur={async () => {
+                    const uid = manualCaptainUid.trim();
+                    if (!uid) { setCaptainCheck(null); return; }
+                    try {
+                      const snap = await getDoc(doc(db, 'users', uid));
+                      if (snap.exists()) {
+                        setCaptainCheck({ uid, username: (snap.data() as any)?.username || 'Unknown' });
+                      } else {
+                        setCaptainCheck(null);
+                        showToast('Captain UID not found in Nexplay accounts', 'error');
+                      }
+                    } catch { setCaptainCheck(null); }
+                  }}
+                  placeholder="Captain's Nexorg webapp account UID"
+                  className="w-full bg-black border border-gray-800 rounded-xl p-3 text-sm text-white font-mono focus:outline-none focus:border-brand-500"
+                />
+                {captainCheck && (
+                  <p className="mt-1.5 text-[11px] text-emerald-400 font-semibold">
+                    ✓ Verified: {captainCheck.username}
+                  </p>
+                )}
+                <p className="mt-1 text-[10px] text-gray-500">The captain's Nexorg webapp account UID (required to reserve this slot).</p>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 uppercase font-semibold mb-1.5">
                   Leader Name / IGN (Optional)
                 </label>
                 <input
@@ -1889,7 +1943,11 @@ export default function ScrimDetailPage() {
                       showToast('Please enter a team name', 'error');
                       return;
                     }
-                    handleManualAssignSlot(assignSlotNumber, manualTeamName, manualLeader, manualUid);
+                    if (!manualCaptainUid.trim()) {
+                      showToast("Please enter the captain's webapp UID", 'error');
+                      return;
+                    }
+                    handleManualAssignSlot(assignSlotNumber, manualTeamName, manualLeader, manualUid, manualCaptainUid);
                   }}
                   className="px-4 py-2 rounded-xl bg-brand-500 hover:bg-brand-400 text-white text-xs font-bold transition-colors shadow-md shadow-brand-500/20 cursor-pointer"
                 >
