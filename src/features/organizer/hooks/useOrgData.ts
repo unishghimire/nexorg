@@ -27,7 +27,7 @@ import { toDateSafe, cleanFirestoreData } from '../../../shared/utils/utils';
 import { countFilledScrimSlots, normalizeScrimSlots, getSlotCount, getFilledSlotCount } from '../../../shared/utils/scrimSlots';
 import { releaseSlotWithRefund } from '../../../shared/services/slotRefundService';
 import { checkFinancialReadiness } from '../../../shared/services/prizeDistributionService';
-import { checkScrimResultsReadiness, checkTournamentResultsReadiness, isScrimEvent } from '../../../shared/utils/finalizationReadiness';
+import { checkScrimPayoutConfirmation, checkScrimResultsReadiness, checkTournamentResultsReadiness, isScrimEvent } from '../../../shared/utils/finalizationReadiness';
 
 export function useOrgData() {
   const { user, profile } = useAuth();
@@ -517,6 +517,14 @@ export function useOrgData() {
         : checkTournamentResultsReadiness(target);
       if (!resultsReadiness.ready) {
         throw new Error(resultsReadiness.statusText);
+      }
+      // GUARD (scrim engine): the winning payout must be confirmed before
+      // finalizing — declaring winners alone does not count as payout done.
+      if (isScrimEvent(target)) {
+        const payoutCheck = checkScrimPayoutConfirmation(target);
+        if (!payoutCheck.confirmed) {
+          throw new Error(payoutCheck.statusText);
+        }
       }
     }
 

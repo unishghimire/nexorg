@@ -14,7 +14,7 @@ import { FinancialLockBanner } from '../../../shared/components/FinancialLockBan
 import { PrizeDistributionModal } from '../../../shared/components/PrizeDistributionModal';
 import { toDateSafe, cleanFirestoreData } from '../../../shared/utils/utils';
 import { resolveAllScrimResults } from '../../../shared/utils/scrimResults';
-import { checkScrimResultsReadiness } from '../../../shared/utils/finalizationReadiness';
+import { checkScrimPayoutConfirmation, checkScrimResultsReadiness } from '../../../shared/utils/finalizationReadiness';
 import { DEFAULT_BANNER } from '../../../shared/constants/constants';
 import {
   ChevronLeft, Save, Radio, Users, DollarSign, Calendar,
@@ -470,10 +470,11 @@ export default function ScrimDetailPage() {
         return;
       }
 
-      const hasPrizePool = Number(scrim?.prizePool) > 0;
-      const isPayoutDone = Boolean(scrim?.payoutCompleted || scrim?.payoutStatus === 'paid' || (Array.isArray(scrim?.winners) && scrim.winners.length > 0));
-      if (hasPrizePool && !isPayoutDone) {
-        showToast('Cannot finalize match until prize payment is distributed to winners! Please declare winners & distribute prizes first.', 'warning');
+      // GUARD: scrim engine — the winning payout must be CONFIRMED (distributed
+      // & paid) before finalizing. Declaring winners alone is not enough.
+      const payoutCheck = checkScrimPayoutConfirmation(scrim);
+      if (!payoutCheck.confirmed) {
+        showToast(payoutCheck.statusText, 'warning');
         setShowWinnerModal(true);
         return;
       }

@@ -147,6 +147,39 @@ export function checkScrimResultsReadiness(
 }
 
 // ═══════════════════════════════════════════════════════════════
+// SCRIM ENGINE — winning payout confirmation
+// A scrim with a cash prize pool can only be finalized AFTER the winning
+// payout has been distributed and CONFIRMED (payoutCompleted /
+// payoutStatus 'paid'). Merely declaring winners is NOT enough.
+// ═══════════════════════════════════════════════════════════════
+export interface PayoutConfirmation {
+  /** A payout is only required when the scrim has a cash prize pool. */
+  required: boolean;
+  /** True only when the payout has actually been distributed & confirmed. */
+  confirmed: boolean;
+  statusText: string;
+}
+
+export function checkScrimPayoutConfirmation(scrim: any): PayoutConfirmation {
+  const hasCashPrize = Number(scrim?.prizePool) > 0;
+  if (!hasCashPrize) {
+    return { required: false, confirmed: true, statusText: '' };
+  }
+  const confirmed =
+    scrim?.payoutCompleted === true ||
+    scrim?.payoutStatus === 'paid' ||
+    scrim?.payoutStatus === 'confirmed';
+  return {
+    required: true,
+    confirmed,
+    statusText:
+      confirmed
+        ? ''
+        : "Cannot finalize this match: the winning payout has not been confirmed yet. Declare the winners and distribute the prize payout first — finalizing stays blocked until the payout is marked as paid.",
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Shared coverage internals (used by both engine checks)
 // ═══════════════════════════════════════════════════════════════
 function checkCompetitorCoverage(
