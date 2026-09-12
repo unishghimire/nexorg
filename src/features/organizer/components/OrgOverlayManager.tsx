@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
-import { Trash2, Radio, ShieldAlert, Sparkles, Send, User, Gamepad2, AlertOctagon, Image as ImageIcon, ZoomIn, ExternalLink } from 'lucide-react';
+import { Trash2, Radio, ShieldAlert, Sparkles, Send, User, Gamepad2, AlertOctagon, Image as ImageIcon, ZoomIn, ExternalLink, Check, X, Shield, UserCheck } from 'lucide-react';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../../../shared/config/firebase';
 import Modal from '../../../shared/components/Modal';
 
 export type OverlayType =
@@ -38,8 +40,9 @@ interface OrgOverlayManagerProps {
   onResolveDispute?: (action: 'solve' | 'warn' | 'ban' | 'dismiss', resolutionNote?: string) => void;
   // Scrim slots
   scrimTitle?: string;
-  slotGrid?: { slotNumber: number; teamName: string | null; status: string }[];
+  slotGrid?: { slotNumber: number; teamName: string | null; status: string; teamTag?: string; isDedicatedTeam?: boolean; leader?: string }[];
   onToggleSlot?: (slotNumber: number) => void;
+  onAssignSlot?: (slotNumber: number, teamName: string, captainUid: string, leader?: string, inGameId?: string) => Promise<void> | void;
 }
 
 export const OrgOverlayManager: React.FC<OrgOverlayManagerProps> = ({
@@ -66,9 +69,86 @@ export const OrgOverlayManager: React.FC<OrgOverlayManagerProps> = ({
   scrimTitle,
   slotGrid,
   onToggleSlot,
+  onAssignSlot,
 }) => {
   const [internalDisputeNote, setInternalDisputeNote] = useState('');
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+
+  // Scrim Slot Assignment Modal State
+  const [assigningSlot, setAssigningSlot] = useState<number | null>(null);
+  const [assignTeamName, setAssignTeamName] = useState('');
+  const [assignCaptainUid, setAssignCaptainUid] = useState('');
+  const [assignLeader, setAssignLeader] = useState('');
+  const [assignInGameId, setAssignInGameId] = useState('');
+  const [assignCaptainCheck, setAssignCaptainCheck] = useState<{ uid: string; username: string } | null>(null);
+  const [assignChecking, setAssignChecking] = useState(false);
+  const [assignError, setAssignError] = useState<string | null>(null);
+  const [isSubmittingAssign, setIsSubmittingAssign] = useState(false);
+
+  const handleVerifyCaptain = async (uid: string) => {
+    const trimmed = uid.trim();
+    if (!trimmed) {
+      setAssignCaptainCheck(null);
+      setAssignError(null);
+      return;
+    }
+    setAssignChecking(true);
+    setAssignError(null);
+    try {
+      const snap = await getDoc(doc(db, 'users', trimmed));
+      if (snap.exists()) {
+        const username = (snap.data() as any)?.username || 'Captain';
+        setAssignCaptainCheck({ uid: trimmed, username });
+        setAssignError(null);
+      } else {
+        setAssignCaptainCheck(null);
+        setAssignError('Captain UID not found — captain must have a Nexplay webapp account');
+      }
+    } catch {
+      setAssignCaptainCheck(null);
+      setAssignError('Could not verify Captain UID');
+    } finally {
+      setAssignChecking(false);
+    }
+  };
+
+  const handleConfirmAssign = async () => {
+    if (!assigningSlot) return;
+    const team = assignTeamName.trim();
+    const uid = assignCaptainUid.trim();
+    if (!team) {
+      setAssignError('Please enter a team name');
+      return;
+    }
+    if (!uid) {
+      setAssignError("Please enter the captain's webapp UID");
+      return;
+    }
+    setIsSubmittingAssign(true);
+    setAssignError(null);
+    try {
+      if (!assignCaptainCheck || assignCaptainCheck.uid !== uid) {
+        const snap = await getDoc(doc(db, 'users', uid));
+        if (!snap.exists()) {
+          setAssignError('Captain UID not found — captain must have a Nexplay webapp account');
+          setIsSubmittingAssign(false);
+          return;
+        }
+      }
+      await onAssignSlot?.(assigningSlot, team, uid, assignLeader.trim() || undefined, assignInGameId.trim() || undefined);
+      setAssigningSlot(null);
+      setAssignTeamName('');
+      setAssignCaptainUid('');
+      setAssignLeader('');
+      setAssignInGameId('');
+      setAssignCaptainCheck(null);
+      setAssignError(null);
+    } catch (err: any) {
+      setAssignError(err?.message || 'Failed to assign slot');
+    } finally {
+      setIsSubmittingAssign(false);
+    }
+  };
 
   const generateRandomPassword = () => {
     const prefixes = ['ff', 'nex', 'pro', 'war'];
@@ -367,7 +447,19 @@ export const OrgOverlayManager: React.FC<OrgOverlayManagerProps> = ({
                   <button
                     key={slot.slotNumber}
                     type="button"
-                    onClick={() => onToggleSlot?.(slot.slotNumber)}
+                    onClick={() => {
+                      if (isFilled) {
+                        onToggleSlot?.(slot.slotNumber);
+                      } else {
+                        setAssigningSlot(slot.slotNumber);
+                        setAssignTeamName('');
+                        setAssignCaptainUid('');
+                        setAssignLeader('');
+                        setAssignInGameId('');
+                        setAssignCaptainCheck(null);
+                        setAssignError(null);
+                      }
+                    }}
                     className={`p-3 rounded-xl border text-left transition-all min-h-[68px] flex flex-col justify-between cursor-pointer ${
                       isFilled
                         ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-300 hover:bg-emerald-950/50 hover:border-emerald-400 shadow-sm'
@@ -410,6 +502,134 @@ export const OrgOverlayManager: React.FC<OrgOverlayManagerProps> = ({
                   </button>
                 );
               })}
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Assign Scrim Slot Modal */}
+      {assigningSlot !== null && (
+        <Modal
+          isOpen
+          onClose={() => {
+            if (!isSubmittingAssign) {
+              setAssigningSlot(null);
+              setAssignError(null);
+            }
+          }}
+          title={`Assign Scrim Slot #${assigningSlot}`}
+          maxWidth="sm:max-w-md"
+        >
+          <div className="p-6 space-y-4 text-xs">
+            <p className="text-gray-400 text-xs">
+              Directly assign this slot to a team. Both the <span className="text-white font-bold">Team Name</span> and the <span className="text-white font-bold">Captain's Webapp Account UID</span> are strictly required.
+            </p>
+
+            {assignError && (
+              <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center gap-2">
+                <AlertOctagon className="w-4 h-4 shrink-0" />
+                <span>{assignError}</span>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">
+                Team Name <span className="text-red-400">*</span>
+              </label>
+              <input
+                type="text"
+                value={assignTeamName}
+                onChange={(e) => { setAssignTeamName(e.target.value); setAssignError(null); }}
+                placeholder="e.g. Total Gaming"
+                className="w-full bg-dark border border-gray-800 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-brand-500"
+                autoFocus
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">
+                Captain's Webapp UID <span className="text-red-400">*</span>
+              </label>
+              <input
+                type="text"
+                value={assignCaptainUid}
+                onChange={(e) => {
+                  setAssignCaptainUid(e.target.value);
+                  setAssignCaptainCheck(null);
+                  setAssignError(null);
+                }}
+                onBlur={() => handleVerifyCaptain(assignCaptainUid)}
+                placeholder="Captain's Nexplay Webapp Account UID"
+                className="w-full bg-dark border border-gray-800 rounded-xl p-3 text-sm font-mono text-white focus:outline-none focus:border-brand-500"
+              />
+              {assignChecking && (
+                <p className="mt-1 text-[11px] text-gray-400 animate-pulse flex items-center gap-1">
+                  Verifying captain UID...
+                </p>
+              )}
+              {assignCaptainCheck && (
+                <p className="mt-1.5 text-[11px] text-emerald-400 font-semibold flex items-center gap-1">
+                  <Check className="w-3.5 h-3.5" /> Verified Captain: {assignCaptainCheck.username}
+                </p>
+              )}
+              <p className="mt-1 text-[10px] text-gray-500">
+                This is the captain's account UID from their profile in the webapp (required to assign this slot).
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">
+                Leader Name / IGN (Optional)
+              </label>
+              <input
+                type="text"
+                value={assignLeader}
+                onChange={(e) => setAssignLeader(e.target.value)}
+                placeholder="e.g. Ajay"
+                className="w-full bg-dark border border-gray-800 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-brand-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">
+                Free Fire In-Game UID (Optional)
+              </label>
+              <input
+                type="text"
+                value={assignInGameId}
+                onChange={(e) => setAssignInGameId(e.target.value)}
+                placeholder="e.g. 192837465"
+                className="w-full bg-dark border border-gray-800 rounded-xl p-3 text-sm font-mono text-white focus:outline-none focus:border-brand-500"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-800">
+              <button
+                type="button"
+                onClick={() => {
+                  setAssigningSlot(null);
+                  setAssignError(null);
+                }}
+                disabled={isSubmittingAssign}
+                className="px-4 py-2.5 rounded-xl text-gray-400 hover:text-white text-xs font-semibold cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmAssign}
+                disabled={isSubmittingAssign || !assignTeamName.trim() || !assignCaptainUid.trim()}
+                className="px-5 py-2.5 rounded-xl bg-brand-500 hover:bg-brand-400 text-white text-xs font-black uppercase tracking-wider transition-colors shadow-lg shadow-brand-500/20 cursor-pointer disabled:opacity-50 flex items-center gap-2"
+              >
+                {isSubmittingAssign ? (
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <>
+                    <UserCheck className="w-3.5 h-3.5" />
+                    <span>Assign & Reserve</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </Modal>

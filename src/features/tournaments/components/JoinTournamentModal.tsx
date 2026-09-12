@@ -224,9 +224,9 @@ const JoinTournamentModal: React.FC<JoinTournamentModalProps> = ({
             const isTeamFormat = tournament.teamType === 'duo' || tournament.teamType === 'squad';
             const rawResolvedTeamName = selectedTeam?.name || customTeamName.trim() || profile.teamName?.trim();
 
-            if (isTeamFormat) {
+            if (isScrim || isTeamFormat) {
                 if (!rawResolvedTeamName || (profile.username && rawResolvedTeamName.toLowerCase() === profile.username.toLowerCase())) {
-                    showToast("Please enter or select your Dedicated Team Name for Duo/Squad.", "warning");
+                    showToast(isScrim ? "Please enter or select your Team Name to reserve a slot." : "Please enter or select your Dedicated Team Name for Duo/Squad.", "warning");
                     setLoading(false);
                     return;
                 }
@@ -351,7 +351,7 @@ const JoinTournamentModal: React.FC<JoinTournamentModalProps> = ({
                     </div>
                 </div>
 
-                {tournament.teamType !== 'solo' && (
+                {(isScrim || tournament.teamType !== 'solo') && (
                     <div>
                         {userTeams.length > 0 ? (
                             <div>

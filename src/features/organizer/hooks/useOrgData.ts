@@ -764,17 +764,85 @@ export function useOrgData() {
     }
   }, [user]);
 
+  const assignScrimSlot = useCallback(async (
+    scrimId: string,
+    slotNumber: number,
+    teamName: string,
+    captainUid: string,
+    leader?: string,
+    inGameId?: string
+  ) => {
+    if (!user) throw new Error('Not authenticated');
+    const trimmedTeam = (teamName || '').trim();
+    const trimmedUid = (captainUid || '').trim();
+    if (!trimmedTeam) throw new Error('Please enter a team name');
+    if (!trimmedUid) throw new Error("Please enter the captain's webapp UID");
+
+    // Validate the captain's webapp UID against Firestore users
+    const userDoc = await getDoc(doc(db, 'users', trimmedUid));
+    if (!userDoc.exists()) {
+      throw new Error('Captain UID not found — the captain must have a Nexplay webapp account');
+    }
+    const captainUsername = (userDoc.data() as any)?.username || 'Captain';
+
+    const targetDocRef = doc(db, 'scrims', scrimId);
+    let snap = await getDoc(targetDocRef);
+    if (!snap.exists()) {
+      const legacyRef = doc(db, 'tournaments', scrimId);
+      const legacySnap = await getDoc(legacyRef);
+      if (legacySnap.exists()) {
+        snap = legacySnap;
+      } else {
+        throw new Error('Scrim not found');
+      }
+    }
+    const data = snap.data() as any;
+    const ownerId = data.hostUid || data.orgId || data.hostId || data.userId || data.organizerId || data.createdBy;
+    if (ownerId && ownerId !== user.uid && profile?.role !== 'admin' && profile?.role !== 'organizer') {
+      throw new Error('Not authorized');
+    }
+
+    const currentSlots = normalizeScrimSlots(data.slots, data.totalSlots, data.filledSlots ?? data.currentPlayers);
+    const newSlots = currentSlots.map((s: any) => {
+      if (s.slotNumber !== slotNumber) return s;
+      return {
+        slotNumber: s.slotNumber,
+        status: 'filled' as const,
+        teamName: trimmedTeam,
+        teamId: `manual_${Date.now()}`,
+        userId: trimmedUid,
+        captainUid: trimmedUid,
+        captainName: captainUsername,
+        leader: leader?.trim() || trimmedTeam,
+        inGameId: inGameId?.trim() || null,
+      };
+    });
+    const filled = countFilledScrimSlots(newSlots);
+    const updatePayload = { slots: newSlots, filledSlots: filled, currentPlayers: filled, updatedAt: serverTimestamp() };
+    const cleanedPayload = cleanFirestoreData(updatePayload);
+
+    await updateDoc(snap.ref, cleanedPayload);
+
+    // Optimistic update in hostedScrims
+    setHostedScrims(prev => prev.map(s => {
+      if (s.id !== scrimId) return s;
+      return { ...s, slots: newSlots as any, filledSlots: filled, currentPlayers: filled };
+    }));
+
+    return { success: true, captainUsername, teamName: trimmedTeam };
+  }, [user, profile?.role]);
+
   const toggleScrimSlot = useCallback(async (scrimId: string, slotNumber: number) => {
     if (!user) throw new Error('Not authenticated');
 
-    // 0ms Optimistic Slot Toggle in local scrims state
+    // 0ms Optimistic Slot Release in local scrims state
     setHostedScrims(prev => prev.map(s => {
       if (s.id !== scrimId) return s;
       const currentSlots = normalizeScrimSlots(s.slots, getSlotCount(s), (s as any).filledSlots ?? s.currentPlayers);
       const newSlots = currentSlots.map((slot: any) => {
         if (slot.slotNumber !== slotNumber) return slot;
-        if (slot.status === 'filled') return { ...slot, status: 'open', teamName: null, teamId: null };
-        return { ...slot, status: 'filled', teamName: 'Reserved', teamId: null };
+        if (slot.status === 'filled') return { ...slot, status: 'open', teamName: null, teamId: null, userId: null, captainUid: null, captainName: null, leader: null };
+        return slot;
       });
       const filled = countFilledScrimSlots(newSlots);
       return { ...s, slots: newSlots as any, filledSlots: filled, currentPlayers: filled };
@@ -823,15 +891,7 @@ export function useOrgData() {
       setParticipants(prev => prev.filter(p => (p.tournamentId !== scrimId && (p as any).scrimId !== scrimId) || ((p as any).slotNumber !== slotNumber && p.userId !== targetSlot?.userId)));
       return res;
     } else {
-      const newSlots = currentSlots.map((s: any) => {
-        if (s.slotNumber !== slotNumber) return s;
-        return { ...s, status: 'filled', teamName: 'Reserved', teamId: null, userId: null, leader: 'Host Reserved' };
-      });
-      const filled = countFilledScrimSlots(newSlots);
-      const updatePayload = { slots: newSlots, filledSlots: filled, currentPlayers: filled, updatedAt: serverTimestamp() };
-      const cleanedPayload = cleanFirestoreData(updatePayload);
-
-      await updateDoc(snap.ref, cleanedPayload);
+      throw new Error('To reserve an open slot, please enter Team Name and Captain UID');
     }
   }, [user, profile?.role, participants]);
 
@@ -1088,6 +1148,7 @@ export function useOrgData() {
     requestWithdrawal,
     broadcastAnnouncement,
     saveOrgSettings,
+    assignScrimSlot,
     toggleScrimSlot,
     toggleRosterLock,
     issueWarning,

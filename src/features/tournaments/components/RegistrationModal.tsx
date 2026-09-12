@@ -31,12 +31,23 @@ const RegistrationModal: React.FC<RegistrationModalProps> = ({
     const navigate = useNavigate();
     const [loading, setLoading] = useState(false);
 
-    // SCRIM ENGINE: captain's webapp UID is required to reserve a slot
+    // SCRIM ENGINE: team name and captain's webapp UID are required to reserve a slot
     const isScrim = tournament.matchType === 'scrims' || (tournament as any).isScrim === true || (tournament as any).type === 'scrim';
+    const isTeamFormat = tournament.teamType === 'duo' || tournament.teamType === 'squad' ||
+        Boolean((tournament as any).format?.toLowerCase?.().includes('duo') || (tournament as any).format?.toLowerCase?.().includes('squad'));
+    const isTeamRequired = isScrim || isTeamFormat;
+
+    const [teamName, setTeamName] = useState(profile?.teamName || '');
     const [captainUid, setCaptainUid] = useState(user?.uid || '');
 
     const handleSubmit = async () => {
         if (!user || !tournament || !profile) return;
+
+        const trimmedTeamName = teamName.trim();
+        if (isTeamRequired && !trimmedTeamName) {
+            showToast("Team Name is required to reserve a slot.", "warning");
+            return;
+        }
 
         // SCRIM ENGINE: the captain's webapp UID must be entered before a slot can be reserved
         const trimmedCaptainUid = captainUid.trim();
@@ -84,7 +95,7 @@ const RegistrationModal: React.FC<RegistrationModalProps> = ({
                 const isTeamFormat = tournament.teamType === 'duo' || tournament.teamType === 'squad' ||
                     Boolean((tournament as any).format?.toLowerCase?.().includes('duo') || (tournament as any).format?.toLowerCase?.().includes('squad'));
                 
-                let finalTeamName = profile.teamName || '';
+                let finalTeamName = trimmedTeamName || profile.teamName || '';
                 let finalTeamId = profile.teamId || '';
 
                 if (isTeamFormat && (!finalTeamName || finalTeamName.toLowerCase() === profile.username?.toLowerCase())) {
@@ -219,6 +230,23 @@ const RegistrationModal: React.FC<RegistrationModalProps> = ({
                             <span className="text-xs text-gray-500 font-bold">In-Game ID</span>
                             <span className="text-sm text-white font-mono">{profile.inGameId}</span>
                         </div>
+                        {isTeamRequired && (
+                            <div className="pt-2 border-t border-gray-800">
+                                <label className="text-[10px] text-gray-400 uppercase font-black tracking-wider mb-2 block">
+                                    Team Name <span className="text-brand-400">*</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    value={teamName}
+                                    onChange={(e) => setTeamName(e.target.value)}
+                                    placeholder="Enter your team name"
+                                    className="w-full bg-dark border border-gray-700 rounded-xl p-3 text-white focus:border-brand-500 focus-visible:outline-none font-bold text-xs"
+                                />
+                                <p className="text-[10px] text-gray-500 mt-1">
+                                    This Team Name will be displayed on your reserved slot in the scrim lobby.
+                                </p>
+                            </div>
+                        )}
                         {isScrim && (
                             <div className="pt-2 border-t border-gray-800">
                                 <label className="text-[10px] text-gray-400 uppercase font-black tracking-wider mb-2 block">

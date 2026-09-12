@@ -285,6 +285,44 @@ const OrganizerPanel: React.FC = () => {
     setActiveOverlay('SCRIM_SLOTS');
   }, [org.participants]);
 
+  const handleAssignSlot = useCallback(async (
+    slotNumber: number,
+    teamName: string,
+    captainUid: string,
+    leader?: string,
+    inGameId?: string
+  ) => {
+    const scrimId = scrimSlotTarget?.id;
+    if (!scrimId) return;
+    try {
+      const res = await org.assignScrimSlot(scrimId, slotNumber, teamName, captainUid, leader, inGameId);
+      showToast(`Slot #${slotNumber} reserved for "${res.teamName}" (Captain: ${res.captainUsername})!`, 'success');
+      setScrimSlotTarget((prev: any) => {
+        if (!prev || prev.id !== scrimId) return prev;
+        const currentSlots = normalizeScrimSlots(prev.slots, prev.totalSlots, prev.filledSlots ?? prev.currentPlayers);
+        const newSlots = currentSlots.map((s: any) => {
+          if (s.slotNumber !== slotNumber) return s;
+          return {
+            ...s,
+            status: 'filled' as const,
+            teamName: res.teamName,
+            teamId: `manual_${Date.now()}`,
+            userId: captainUid.trim(),
+            captainUid: captainUid.trim(),
+            captainName: res.captainUsername,
+            leader: leader?.trim() || res.teamName,
+            inGameId: inGameId?.trim() || null,
+          };
+        });
+        const filled = countFilledScrimSlots(newSlots);
+        return { ...prev, slots: newSlots, filledSlots: filled, currentPlayers: filled };
+      });
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to assign slot', 'error');
+      throw err;
+    }
+  }, [scrimSlotTarget, org, showToast]);
+
   const handleToggleSlot = useCallback(async (scrimIdOrSlotNumber: string | number, requestedSlotNumber?: number) => {
     const scrimId = requestedSlotNumber === undefined ? scrimSlotTarget?.id : String(scrimIdOrSlotNumber);
     const slotNumber = requestedSlotNumber ?? Number(scrimIdOrSlotNumber);
@@ -302,8 +340,8 @@ const OrganizerPanel: React.FC = () => {
         const currentSlots = normalizeScrimSlots(prev.slots, prev.totalSlots, prev.filledSlots ?? prev.currentPlayers);
         const newSlots = currentSlots.map((s: any) => {
           if (s.slotNumber !== slotNumber) return s;
-          if (s.status === 'filled') return { ...s, status: 'open', teamName: null, teamId: null };
-          return { ...s, status: 'filled', teamName: 'Reserved', teamId: null };
+          if (s.status === 'filled') return { ...s, status: 'open', teamName: null, teamId: null, userId: null, captainUid: null, captainName: null, leader: null };
+          return s;
         });
         const filled = countFilledScrimSlots(newSlots);
         return { ...prev, slots: newSlots, filledSlots: filled, currentPlayers: filled };
@@ -658,6 +696,7 @@ const OrganizerPanel: React.FC = () => {
         scrimTitle={scrimSlotTarget?.title}
         slotGrid={scrimSlotTarget?.slots}
         onToggleSlot={handleToggleSlot}
+        onAssignSlot={handleAssignSlot}
       />
 
       {/* Tournament Create Modal */}

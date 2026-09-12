@@ -303,26 +303,24 @@ export default function ScrimDetailPage() {
   }, [scrim, id, participants, showToast]);
 
   const handleManualAssignSlot = useCallback(async (slotNumber: number, teamName: string, leader?: string, inGameId?: string, captainUid?: string) => {
-    if (!scrim || !id || !teamName.trim()) {
+    const trimmedTeam = (teamName || '').trim();
+    if (!scrim || !id || !trimmedTeam) {
       showToast('Please enter a team name', 'error');
       return;
     }
-    const isQuickHostReserve = teamName === 'Reserved' && (leader || '') === 'Host Reserved';
     const trimmedCaptainUid = (captainUid || '').trim();
-    if (!isQuickHostReserve && !trimmedCaptainUid) {
+    if (!trimmedCaptainUid) {
       showToast("Please enter the captain's webapp UID", 'error');
       return;
     }
-    let captainUsername = 'Host';
-    if (!isQuickHostReserve) {
-      // Validate the captain's webapp UID against the users collection
-      const captainSnap = await getDoc(doc(db, 'users', trimmedCaptainUid));
-      if (!captainSnap.exists()) {
-        showToast('Captain UID not found — the captain must have a Nexplay webapp account', 'error');
-        return;
-      }
-      captainUsername = (captainSnap.data() as any)?.username || 'Captain';
+    // Validate the captain's webapp UID against the users collection
+    const captainSnap = await getDoc(doc(db, 'users', trimmedCaptainUid));
+    if (!captainSnap.exists()) {
+      showToast('Captain UID not found — the captain must have a Nexplay webapp account', 'error');
+      return;
     }
+    const captainUsername = (captainSnap.data() as any)?.username || 'Captain';
+
     try {
       const currentSlots = normalizeScrimSlots(scrim.slots, scrim.totalSlots, scrim.filledSlots ?? scrim.currentPlayers);
       const newSlots = currentSlots.map((s: any) => {
@@ -330,12 +328,12 @@ export default function ScrimDetailPage() {
         return {
           slotNumber: s.slotNumber,
           status: 'filled' as const,
-          teamName: teamName.trim(),
+          teamName: trimmedTeam,
           teamId: `manual_${Date.now()}`,
-          userId: isQuickHostReserve ? null : trimmedCaptainUid,
-          captainUid: isQuickHostReserve ? null : trimmedCaptainUid,
-          captainName: isQuickHostReserve ? null : captainUsername,
-          leader: leader?.trim() || teamName.trim(),
+          userId: trimmedCaptainUid,
+          captainUid: trimmedCaptainUid,
+          captainName: captainUsername,
+          leader: leader?.trim() || trimmedTeam,
           inGameId: inGameId?.trim() || null,
         };
       });
@@ -358,7 +356,7 @@ export default function ScrimDetailPage() {
       setManualUid('');
       setManualCaptainUid('');
       setCaptainCheck(null);
-      showToast(`Slot #${slotNumber} reserved for "${teamName.trim()}" (Captain: ${captainUsername})!`, 'success');
+      showToast(`Slot #${slotNumber} reserved for "${trimmedTeam}" (Captain: ${captainUsername})!`, 'success');
     } catch (err: any) {
       showToast(err?.message || 'Failed to reserve slot', 'error');
     }
@@ -407,20 +405,16 @@ export default function ScrimDetailPage() {
         return;
       }
 
-      // If open, reserve it
-      const newSlots = slotsArray.map((s: any) => {
-        if (s.slotNumber !== slotNumber) return s;
-        return { ...s, status: 'filled' as const, teamName: 'Reserved', teamId: null, userId: null, leader: 'Host Reserved' };
-      });
-      const filled = countFilledScrimSlots(newSlots);
-      const updatePayload = { slots: newSlots, filledSlots: filled, currentPlayers: filled, updatedAt: serverTimestamp() };
-      const cleanedPayload = cleanFirestoreData(updatePayload);
-
-      await updateDoc(doc(db, 'scrims', id), cleanedPayload);
-      setScrim((prev: any) => prev ? { ...prev, ...cleanedPayload } : prev);
-      showToast(`Slot ${slotNumber} reserved`, 'info');
+      // If open or locked, open assign modal requiring team name & captain UID
+      setAssignSlotNumber(slotNumber);
+      setManualTeamName('');
+      setManualLeader('');
+      setManualUid('');
+      setManualCaptainUid('');
+      setCaptainCheck(null);
+      setIsAssignModalOpen(true);
     } catch {
-      showToast('Failed to toggle slot', 'error');
+      showToast('Failed to open slot', 'error');
     }
   }, [scrim, id, handleReleaseSlot, showToast]);
 
@@ -1425,8 +1419,6 @@ export default function ScrimDetailPage() {
                 onClick={() => {
                   if (slot.status === 'filled') {
                     setSelectedSlot(slot);
-                  } else if (slot.status === 'locked') {
-                    handleToggleSlot(slot.slotNumber);
                   } else {
                     setAssignSlotNumber(slot.slotNumber);
                     setManualTeamName('');
@@ -1933,16 +1925,7 @@ export default function ScrimDetailPage() {
               </div>
             </div>
 
-            <div className="flex items-center justify-between gap-2 pt-2 border-t border-gray-800">
-              <button
-                type="button"
-                onClick={() => {
-                  handleManualAssignSlot(assignSlotNumber, 'Reserved', 'Host Reserved');
-                }}
-                className="px-3 py-2 rounded-xl bg-card border border-gray-800 hover:bg-surface text-gray-300 text-xs font-semibold transition-colors cursor-pointer"
-              >
-                Quick Reserve (Host)
-              </button>
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-800">
               <div className="flex items-center gap-2">
                 <button
                   type="button"
