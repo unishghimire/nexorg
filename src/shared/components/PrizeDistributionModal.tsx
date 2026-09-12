@@ -21,6 +21,7 @@ import {
   executePrizeDistribution,
 } from '../services/prizeDistributionService';
 import { findTierMissingScores } from '../utils/finalizationReadiness';
+import { calculatePlayerReward } from '../services/perKillEngine';
 
 interface PrizeDistributionModalProps {
   isOpen: boolean;
@@ -58,6 +59,15 @@ export const PrizeDistributionModal: React.FC<PrizeDistributionModalProps> = ({
     { rank: 2, teamName: '', teamId: '', userId: '', prize: Math.round(totalPrizePool * 0.3), kills: 0, points: 12 },
     { rank: 3, teamName: '', teamId: '', userId: '', prize: Math.round(totalPrizePool * 0.2), kills: 0, points: 10 },
   ]);
+
+  const isPerKillMode = Boolean(
+    eventType === 'scrim' && (
+      event?.scrimMode === 'PER_KILL' ||
+      (event?.rewardPerKill && Number(event.rewardPerKill) > 0)
+    )
+  );
+
+  const perKillRate = isPerKillMode ? Number(event?.rewardPerKill || 0) : 0;
 
   // Extract candidate teams/players from all possible sources
   const candidateOptions = useMemo(() => {
@@ -168,8 +178,26 @@ export const PrizeDistributionModal: React.FC<PrizeDistributionModalProps> = ({
   const remainingToAllocate = totalPrizePool - allocatedTotal;
 
   // Preset split logic
-  const applyPreset = (preset: 'top3' | 'top2' | 'all' | 'top5' | 'equal') => {
+  const applyPreset = (preset: 'top3' | 'top2' | 'all' | 'top5' | 'equal' | 'perkill') => {
     const pool = totalPrizePool;
+    if (preset === 'perkill' && perKillRate > 0) {
+      setTiers((prev) =>
+        prev.map((t) => {
+          const calc = calculatePlayerReward({
+            verifiedKills: Number(t.kills) || 0,
+            rewardPerKill: perKillRate,
+            minimumKillsForReward: Number(event?.minimumKillsForReward || event?.rewardSnapshot?.minimumKillsForReward || 0),
+            maximumRewardPerPlayer: Number(event?.maximumRewardPerPlayer || event?.rewardSnapshot?.maximumRewardPerPlayer || 0) || undefined,
+          });
+          return {
+            ...t,
+            prize: calc.rewardAmount,
+          };
+        })
+      );
+      showToast(`Prizes calculated: verified kills × Rs. ${perKillRate}/kill`, 'success');
+      return;
+    }
     if (preset === 'top3') {
       setTiers([
         { rank: 1, teamName: tiers[0]?.teamName || '', teamId: tiers[0]?.teamId || '', userId: tiers[0]?.userId || '', prize: Math.round(pool * 0.5), kills: tiers[0]?.kills || 0, points: 15 },
@@ -315,6 +343,22 @@ export const PrizeDistributionModal: React.FC<PrizeDistributionModalProps> = ({
       if (nameKey) seenNames.add(nameKey);
     }
 
+    // Strict validation: Until points and kills are updated, tournament or scrim cannot finalize!
+    const unenteredStatsTier = validTiers.find(
+      (t) => typeof t.kills !== 'number' || isNaN(t.kills) || t.kills < 0 ||
+             typeof t.points !== 'number' || isNaN(t.points) || t.points < 0
+    );
+    if (unenteredStatsTier) {
+      showToast(`Please enter valid points and kills for Rank #${unenteredStatsTier.rank} before finalizing!`, 'error');
+      return;
+    }
+
+    const allStatsZero = validTiers.every((t) => (Number(t.kills) || 0) === 0 && (Number(t.points) || 0) === 0);
+    if (allStatsZero) {
+      showToast('Cannot finalize: Match points and kills must be updated for competitors before finalization!', 'error');
+      return;
+    }
+
     if (totalPrizePool > 0 && Math.abs(allocatedTotal - totalPrizePool) > 0.01) {
       if (allocatedTotal > totalPrizePool) {
         showToast(`Total allocated (Rs. ${allocatedTotal.toLocaleString()}) exceeds prize pool (Rs. ${totalPrizePool.toLocaleString()})`, 'error');
@@ -382,7 +426,30 @@ export const PrizeDistributionModal: React.FC<PrizeDistributionModalProps> = ({
           <label className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-1.5">
             <Sparkles className="w-3.5 h-3.5 text-brand-400" /> Quick Split Presets
           </label>
+          {/* Per-Kill Mode Banner */}
+          {isPerKillMode && perKillRate > 0 && (
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Target className="w-4 h-4 text-amber-400 shrink-0" />
+                <span className="text-xs font-bold text-amber-300 uppercase tracking-wide">
+                  Per-Kill Mode: <span className="text-white font-mono">Rs. {perKillRate}/kill</span>
+                </span>
+              </div>
+              <span className="text-[11px] text-gray-400">Enter kills below and click Auto-Calculate</span>
+            </div>
+          )}
+
           <div className="flex flex-wrap gap-2">
+            {isPerKillMode && perKillRate > 0 && (
+              <button
+                type="button"
+                onClick={() => applyPreset('perkill')}
+                className="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/50 text-xs font-bold text-amber-300 transition-colors flex items-center gap-1.5 cursor-pointer shadow-lg shadow-amber-500/10"
+              >
+                <Target className="w-3.5 h-3.5 text-amber-400" />
+                <span>Auto-Calculate Kills (Rs. {perKillRate}/kill)</span>
+              </button>
+            )}
             {[
               { id: 'top3', label: 'Top 3 (50 / 30 / 20%)' },
               { id: 'top2', label: 'Top 2 (70 / 30%)' },
@@ -417,6 +484,15 @@ export const PrizeDistributionModal: React.FC<PrizeDistributionModalProps> = ({
             </button>
           </div>
 
+          {/* Desktop Table Headers */}
+          <div className="hidden sm:grid sm:grid-cols-12 gap-3 px-4 py-1.5 text-[10px] font-black uppercase tracking-wider text-gray-500">
+            <div className="sm:col-span-1">Rank</div>
+            <div className="sm:col-span-4">Winner Team / Player</div>
+            <div className="sm:col-span-3">Prize (Rs.)</div>
+            <div className="sm:col-span-2 text-center">Kills</div>
+            <div className="sm:col-span-2 text-center">Points</div>
+          </div>
+
           <div className="space-y-2.5">
             {tiers.map((tier, idx) => (
               <div
@@ -424,7 +500,7 @@ export const PrizeDistributionModal: React.FC<PrizeDistributionModalProps> = ({
                 className="bg-dark/80 border border-gray-800 rounded-xl p-3 sm:p-4 grid grid-cols-1 sm:grid-cols-12 gap-3 items-center hover:border-gray-700 transition-colors"
               >
                 {/* Rank Badge */}
-                <div className="sm:col-span-2 flex items-center gap-2">
+                <div className="sm:col-span-1 flex items-center gap-2">
                   <div
                     className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs shrink-0 ${
                       tier.rank === 1
@@ -442,7 +518,7 @@ export const PrizeDistributionModal: React.FC<PrizeDistributionModalProps> = ({
                 </div>
 
                 {/* Team / Player Selector */}
-                <div className="sm:col-span-5">
+                <div className="sm:col-span-4">
                   <label className="block text-[10px] text-gray-500 font-bold uppercase mb-1 sm:hidden">
                     Select Winner Team / Player
                   </label>
@@ -507,31 +583,43 @@ export const PrizeDistributionModal: React.FC<PrizeDistributionModalProps> = ({
                   </div>
                 </div>
 
-                {/* Score & Remove */}
-                <div className="sm:col-span-2 flex items-center justify-end gap-2">
+                {/* Kills */}
+                <div className="sm:col-span-2">
+                  <label className="block text-[10px] text-gray-500 font-bold uppercase mb-1 sm:hidden">
+                    Kills
+                  </label>
                   <input
                     type="number"
                     min="0"
-                    value={tier.kills || ''}
+                    value={tier.kills ?? ''}
                     onChange={(e) => handleUpdateTier(idx, 'kills', Number(e.target.value) || 0)}
-                    placeholder="Kills"
+                    placeholder="0"
                     title="Kills"
-                    className="w-16 bg-surface border border-gray-700 rounded-lg px-2 py-2 text-xs text-center text-gray-300 focus:border-brand-500 focus-visible:outline-none"
+                    className="w-full bg-surface border border-gray-700 rounded-lg px-2 py-2 text-xs text-center font-bold text-rose-400 focus:border-rose-500 focus-visible:outline-none"
                   />
-                  <input
-                    type="number"
-                    min="0"
-                    value={tier.points || ''}
-                    onChange={(e) => handleUpdateTier(idx, 'points', Number(e.target.value) || 0)}
-                    placeholder="Points"
-                    title="Points"
-                    className="w-16 bg-surface border border-gray-700 rounded-lg px-2 py-2 text-xs text-center text-gray-300 focus:border-brand-500 focus-visible:outline-none"
-                  />
+                </div>
+
+                {/* Points & Remove */}
+                <div className="sm:col-span-2 flex items-center gap-1.5">
+                  <div className="flex-1">
+                    <label className="block text-[10px] text-gray-500 font-bold uppercase mb-1 sm:hidden">
+                      Points
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={tier.points ?? ''}
+                      onChange={(e) => handleUpdateTier(idx, 'points', Number(e.target.value) || 0)}
+                      placeholder="0"
+                      title="Points"
+                      className="w-full bg-surface border border-gray-700 rounded-lg px-2 py-2 text-xs text-center font-bold text-brand-400 focus:border-brand-500 focus-visible:outline-none"
+                    />
+                  </div>
                   {tiers.length > 1 && (
                     <button
                       type="button"
                       onClick={() => handleRemoveTier(idx)}
-                      className="p-2 rounded-lg text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-colors"
+                      className="p-2 rounded-lg text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-colors shrink-0"
                       title="Remove tier"
                     >
                       <Trash2 className="w-3.5 h-3.5" />

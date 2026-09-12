@@ -32,6 +32,7 @@ import { checkScrimPayoutConfirmation, checkScrimResultsReadiness, checkTourname
 export function useOrgData() {
   const { user, profile } = useAuth();
   const [hostedTournaments, setHostedTournaments] = useState<Tournament[]>([]);
+  const [hostedScrims, setHostedScrims] = useState<Tournament[]>([]);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [orgEarnings, setOrgEarnings] = useState<any[]>([]);
@@ -39,37 +40,15 @@ export function useOrgData() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Cache of tournament map for fast merge across real-time streams
+  // Separate cache maps for zero-latency lookups
   const tourMapRef = useRef<Map<string, Tournament>>(new Map());
   const scrimMapRef = useRef<Map<string, Tournament>>(new Map());
-  const recomputeTimerRef = useRef<any>(null);
 
-  // Merge and sort tournaments in sub-milliseconds with debounce to prevent multi-render stutter
-  const recomputeTournaments = useCallback(() => {
-    if (recomputeTimerRef.current) {
-      clearTimeout(recomputeTimerRef.current);
-    }
-    recomputeTimerRef.current = setTimeout(() => {
-      const combinedMap = new Map<string, Tournament>();
-      tourMapRef.current.forEach((val, key) => combinedMap.set(key, val));
-      scrimMapRef.current.forEach((val, key) => combinedMap.set(key, val));
-
-      const list = Array.from(combinedMap.values());
-      list.sort((a, b) => {
-        const aTime = toDateSafe(a.createdAt)?.getTime() || 0;
-        const bTime = toDateSafe(b.createdAt)?.getTime() || 0;
-        return bTime - aTime;
-      });
-
-      setHostedTournaments(list);
-      setLoading(false);
-    }, 20);
-  }, []);
-
-  // 1. Real-time Subscriptions for Hosted Tournaments & Scrims (sub-50ms live sync)
+  // 1. Real-time Subscriptions for Hosted Tournaments & Scrims (strictly segregated)
   useEffect(() => {
     if (!user) {
       setHostedTournaments([]);
+      setHostedScrims([]);
       setParticipants([]);
       setTransactions([]);
       setOrgEarnings([]);
@@ -85,34 +64,56 @@ export function useOrgData() {
     let unsubScrims: Unsubscribe | null = null;
 
     try {
-      // Stream Tournaments
+      // Stream Pure Tournaments ONLY from 'tournaments' collection
       const tQuery = query(collection(db, 'tournaments'), where('hostUid', '==', user.uid));
       unsubTournaments = onSnapshot(tQuery, (snap) => {
         const nextMap = new Map<string, Tournament>();
+        const list: Tournament[] = [];
         snap.docs.forEach((d) => {
-          nextMap.set(d.id, { id: d.id, ...d.data() } as Tournament);
+          const t = { id: d.id, ...d.data() } as Tournament;
+          // Strictly exclude any scrims that may have lingered in tournaments collection
+          const isScrim = (t as any).matchType === 'scrims' || (t as any).isScrim === true || (t as any).type === 'scrim';
+          if (!isScrim) {
+            nextMap.set(d.id, t);
+            list.push(t);
+          }
+        });
+        list.sort((a, b) => {
+          const aTime = toDateSafe(a.createdAt)?.getTime() || 0;
+          const bTime = toDateSafe(b.createdAt)?.getTime() || 0;
+          return bTime - aTime;
         });
         tourMapRef.current = nextMap;
-        recomputeTournaments();
+        setHostedTournaments(list);
+        setLoading(false);
       }, (err) => {
         console.warn('Tournaments snapshot listener fallback:', err);
         setError('Real-time sync interrupted. Retrying...');
       });
 
-      // Stream Scrims
+      // Stream Pure Scrims ONLY from 'scrims' collection
       const sQuery = query(collection(db, 'scrims'), where('hostUid', '==', user.uid));
       unsubScrims = onSnapshot(sQuery, (snap) => {
         const nextMap = new Map<string, Tournament>();
+        const list: Tournament[] = [];
         snap.docs.forEach((d) => {
-          nextMap.set(d.id, { id: d.id, ...d.data() } as Tournament);
+          const s = { id: d.id, ...d.data() } as Tournament;
+          nextMap.set(d.id, s);
+          list.push(s);
+        });
+        list.sort((a, b) => {
+          const aTime = toDateSafe(a.createdAt)?.getTime() || 0;
+          const bTime = toDateSafe(b.createdAt)?.getTime() || 0;
+          return bTime - aTime;
         });
         scrimMapRef.current = nextMap;
-        recomputeTournaments();
-      }, () => {
-        // Scrims stream optional fallback
+        setHostedScrims(list);
+        setLoading(false);
+      }, (err) => {
+        console.warn('Scrims snapshot listener warning:', err);
       });
     } catch (err: any) {
-      console.error('Error establishing real-time tournament sync:', err);
+      console.error('Error establishing real-time sync:', err);
       setError('Failed to establish real-time connection');
       setLoading(false);
     }
@@ -121,7 +122,7 @@ export function useOrgData() {
       if (unsubTournaments) unsubTournaments();
       if (unsubScrims) unsubScrims();
     };
-  }, [user, recomputeTournaments]);
+  }, [user]);
 
   // 2. Real-time Subscriptions for Transactions & Disputes
   useEffect(() => {
@@ -196,10 +197,10 @@ export function useOrgData() {
     };
   }, [user]);
 
-  // Stable key of tournament IDs so changing individual tournament fields never destroys & recreates listeners
+  // Stable key of event IDs so changing individual tournament fields never destroys & recreates listeners
   const tournamentIdsKey = useMemo(
-    () => hostedTournaments.map(t => t.id).filter(Boolean).sort().join(','),
-    [hostedTournaments]
+    () => [...hostedTournaments.map(t => t.id), ...hostedScrims.map(s => s.id)].filter(Boolean).sort().join(','),
+    [hostedTournaments, hostedScrims]
   );
 
   // 3. Real-time Subscriptions for Participants across hosted events (stabilized listener)
@@ -252,42 +253,45 @@ export function useOrgData() {
     };
   }, [user, tournamentIdsKey]);
 
-  // Pure Tournaments (strictly excluding all scrims)
-  const tournamentsOnly = useMemo(() =>
-    hostedTournaments.filter(t => (t as any).matchType !== 'scrims' && (t as any).isScrim !== true && (t as any).type !== 'scrim' && (t as any).type !== 'scrims'),
-    [hostedTournaments]
-  );
+  // Pure Tournaments (strictly from tournaments collection)
+  const tournamentsOnly = useMemo(() => hostedTournaments, [hostedTournaments]);
 
-  // Pure Scrims (strictly excluding all standard tournaments)
-  const scrims = useMemo(() =>
-    hostedTournaments.filter(t => (t as any).matchType === 'scrims' || (t as any).isScrim === true || (t as any).type === 'scrim' || (t as any).type === 'scrims' || (t.title && t.title.toLowerCase().includes('scrim'))),
-    [hostedTournaments]
-  );
+  // Pure Scrims (strictly from scrims collection)
+  const scrims = useMemo(() => hostedScrims, [hostedScrims]);
 
   const matchRooms = useMemo(() => {
-    return hostedTournaments
+    const tRooms = hostedTournaments
       .filter(t => {
         const s = (t.status || '').toLowerCase();
         return s !== 'cancelled' && s !== 'draft';
       })
-      .map(t => {
-        const isScrim = (t as any).matchType === 'scrims' || (t as any).isScrim === true || (t as any).type === 'scrim' || (t as any).type === 'scrims' || Boolean(t.title && t.title.toLowerCase().includes('scrim'));
-        return {
-          ...t,
-          isScrim,
-          matchType: isScrim ? 'scrim' : 'tournament',
-        };
+      .map(t => ({
+        ...t,
+        isScrim: false,
+        matchType: 'tournament',
+      }));
+
+    const sRooms = hostedScrims
+      .filter(s => {
+        const st = (s.status || '').toLowerCase();
+        return st !== 'cancelled' && st !== 'draft';
       })
-      .sort((a, b) => {
-        const aStatus = (a.status || '').toLowerCase();
-        const bStatus = (b.status || '').toLowerCase();
-        if (aStatus === 'live' && bStatus !== 'live') return -1;
-        if (bStatus === 'live' && aStatus !== 'live') return 1;
-        const aTime = toDateSafe(a.startTime || a.startDate || a.createdAt)?.getTime() || 0;
-        const bTime = toDateSafe(b.startTime || b.startDate || b.createdAt)?.getTime() || 0;
-        return aTime - bTime;
-      });
-  }, [hostedTournaments]);
+      .map(s => ({
+        ...s,
+        isScrim: true,
+        matchType: 'scrims',
+      }));
+
+    return [...tRooms, ...sRooms].sort((a, b) => {
+      const aStatus = (a.status || '').toLowerCase();
+      const bStatus = (b.status || '').toLowerCase();
+      if (aStatus === 'live' && bStatus !== 'live') return -1;
+      if (bStatus === 'live' && aStatus !== 'live') return 1;
+      const aTime = toDateSafe(a.startTime || (a as any).startDate || a.createdAt)?.getTime() || 0;
+      const bTime = toDateSafe(b.startTime || (b as any).startDate || b.createdAt)?.getTime() || 0;
+      return aTime - bTime;
+    });
+  }, [hostedTournaments, hostedScrims]);
 
   const teams = useMemo(() => {
     const teamMap: Record<string, {
@@ -409,19 +413,43 @@ export function useOrgData() {
   const fetchHostedTournaments = useCallback(async () => {
     if (!user) return;
     try {
-      const [tSnap, sSnap] = await Promise.all([
-        getDocs(query(collection(db, 'tournaments'), where('hostUid', '==', user.uid))),
-        getDocs(query(collection(db, 'scrims'), where('hostUid', '==', user.uid))).catch(() => ({ docs: [] } as any)),
-      ]);
+      const tSnap = await getDocs(query(collection(db, 'tournaments'), where('hostUid', '==', user.uid)));
       const nextMap = new Map<string, Tournament>();
-      tSnap.docs.forEach(d => nextMap.set(d.id, { id: d.id, ...d.data() } as Tournament));
-      sSnap.docs.forEach(d => nextMap.set(d.id, { id: d.id, ...d.data() } as Tournament));
+      const list: Tournament[] = [];
+      tSnap.docs.forEach(d => {
+        const t = { id: d.id, ...d.data() } as Tournament;
+        const isScrim = (t as any).matchType === 'scrims' || (t as any).isScrim === true || (t as any).type === 'scrim';
+        if (!isScrim) {
+          nextMap.set(d.id, t);
+          list.push(t);
+        }
+      });
+      list.sort((a, b) => (toDateSafe(b.createdAt)?.getTime() || 0) - (toDateSafe(a.createdAt)?.getTime() || 0));
       tourMapRef.current = nextMap;
-      recomputeTournaments();
+      setHostedTournaments(list);
     } catch (e) {
-      console.warn('Manual refresh failed:', e);
+      console.warn('Manual tournament refresh failed:', e);
     }
-  }, [user, recomputeTournaments]);
+  }, [user]);
+
+  const fetchHostedScrims = useCallback(async () => {
+    if (!user) return;
+    try {
+      const sSnap = await getDocs(query(collection(db, 'scrims'), where('hostUid', '==', user.uid)));
+      const nextMap = new Map<string, Tournament>();
+      const list: Tournament[] = [];
+      sSnap.docs.forEach(d => {
+        const s = { id: d.id, ...d.data() } as Tournament;
+        nextMap.set(d.id, s);
+        list.push(s);
+      });
+      list.sort((a, b) => (toDateSafe(b.createdAt)?.getTime() || 0) - (toDateSafe(a.createdAt)?.getTime() || 0));
+      scrimMapRef.current = nextMap;
+      setHostedScrims(list);
+    } catch (e) {
+      console.warn('Manual scrim refresh failed:', e);
+    }
+  }, [user]);
 
   const fetchParticipants = useCallback(async () => {
     // Real-time subscription manages this automatically
@@ -444,23 +472,40 @@ export function useOrgData() {
   const assertTournamentHost = useCallback(async (tournamentId: string) => {
     if (!user) throw new Error('Not authenticated');
     // Fast path: check in-memory tournaments first (0ms latency, zero network call)
-    const inMemory = tourMapRef.current.get(tournamentId) || scrimMapRef.current.get(tournamentId);
+    const inMemory = tourMapRef.current.get(tournamentId);
     if (inMemory) {
       const ownerId = inMemory.hostUid || (inMemory as any).orgId || (inMemory as any).hostId || (inMemory as any).userId || (inMemory as any).organizerId || (inMemory as any).createdBy;
       if (ownerId && ownerId !== user.uid && profile?.role !== 'admin' && profile?.role !== 'organizer') {
-        throw new Error('Not authorized — you do not own this tournament or scrim');
+        throw new Error('Not authorized — you do not own this tournament');
       }
       return;
     }
-    let tDoc = await getDoc(doc(db, 'tournaments', tournamentId)).catch(() => null);
-    if (!tDoc || !tDoc.exists()) {
-      tDoc = await getDoc(doc(db, 'scrims', tournamentId)).catch(() => null);
-    }
+    const tDoc = await getDoc(doc(db, 'tournaments', tournamentId)).catch(() => null);
     if (tDoc && tDoc.exists()) {
       const data = tDoc.data();
       const ownerId = data.hostUid || data.orgId || data.hostId || data.userId || data.organizerId || data.createdBy;
       if (ownerId && ownerId !== user.uid && profile?.role !== 'admin' && profile?.role !== 'organizer') {
-        throw new Error('Not authorized — you do not own this tournament or scrim');
+        throw new Error('Not authorized — you do not own this tournament');
+      }
+    }
+  }, [user, profile?.role]);
+
+  const assertScrimHost = useCallback(async (scrimId: string) => {
+    if (!user) throw new Error('Not authenticated');
+    const inMemory = scrimMapRef.current.get(scrimId);
+    if (inMemory) {
+      const ownerId = inMemory.hostUid || (inMemory as any).orgId || (inMemory as any).hostId || (inMemory as any).userId || (inMemory as any).organizerId || (inMemory as any).createdBy;
+      if (ownerId && ownerId !== user.uid && profile?.role !== 'admin' && profile?.role !== 'organizer') {
+        throw new Error('Not authorized — you do not own this scrim');
+      }
+      return;
+    }
+    const sDoc = await getDoc(doc(db, 'scrims', scrimId)).catch(() => null);
+    if (sDoc && sDoc.exists()) {
+      const data = sDoc.data();
+      const ownerId = data.hostUid || data.orgId || data.hostId || data.userId || data.organizerId || data.createdBy;
+      if (ownerId && ownerId !== user.uid && profile?.role !== 'admin' && profile?.role !== 'organizer') {
+        throw new Error('Not authorized — you do not own this scrim');
       }
     }
   }, [user, profile?.role]);
@@ -470,6 +515,30 @@ export function useOrgData() {
     // Optimistic UI update
     setHostedTournaments(prev => prev.filter(t => t.id !== id));
     tourMapRef.current.delete(id);
+
+    const token = await auth.currentUser?.getIdToken();
+    let deleted = false;
+
+    if (token) {
+      try {
+        const res = await fetch(`/api/tournaments/${id}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (res.ok) deleted = true;
+      } catch {}
+    }
+
+    if (!deleted) {
+      await assertTournamentHost(id);
+      await deleteDoc(doc(db, 'tournaments', id)).catch(() => {});
+    }
+  }, [user, assertTournamentHost]);
+
+  const deleteScrim = useCallback(async (id: string) => {
+    if (!user) throw new Error('Not authenticated');
+    // Optimistic UI update
+    setHostedScrims(prev => prev.filter(s => s.id !== id));
     scrimMapRef.current.delete(id);
 
     const token = await auth.currentUser?.getIdToken();
@@ -477,28 +546,19 @@ export function useOrgData() {
 
     if (token) {
       try {
-        let res = await fetch(`/api/tournaments/${id}`, {
+        const res = await fetch(`/api/scrims/${id}`, {
           method: 'DELETE',
           headers: { 'Authorization': `Bearer ${token}` },
         });
-        if (!res.ok) {
-          res = await fetch(`/api/scrims/${id}`, {
-            method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${token}` },
-          });
-        }
         if (res.ok) deleted = true;
       } catch {}
     }
 
     if (!deleted) {
-      await assertTournamentHost(id);
-      await Promise.all([
-        deleteDoc(doc(db, 'tournaments', id)).catch(() => {}),
-        deleteDoc(doc(db, 'scrims', id)).catch(() => {}),
-      ]);
+      await assertScrimHost(id);
+      await deleteDoc(doc(db, 'scrims', id)).catch(() => {});
     }
-  }, [user, assertTournamentHost]);
+  }, [user, assertScrimHost]);
 
   const updateTournamentStatus = useCallback(async (id: string, status: Tournament['status']) => {
     const target = hostedTournaments.find(t => t.id === id);
@@ -530,9 +590,8 @@ export function useOrgData() {
 
     let updatePayload: Record<string, any> = { status, updatedAt: serverTimestamp() };
 
-    if (status === 'completed') {
-      const target = hostedTournaments.find(t => t.id === id);
-      const isScrim = target && (target.matchType === 'scrims' || (target as any).isScrim === true || (target as any).type === 'scrim');
+    if (status === 'completed' && target) {
+      const isScrim = target.matchType === 'scrims' || (target as any).isScrim === true || (target as any).type === 'scrim';
       if (isScrim && Array.isArray(target?.slots)) {
         updatePayload = {
           ...updatePayload,
@@ -547,11 +606,25 @@ export function useOrgData() {
 
     const cleanedPayload = cleanFirestoreData(updatePayload);
     await assertTournamentHost(id);
-    await Promise.all([
-      updateDoc(doc(db, 'tournaments', id), cleanedPayload).catch(() => {}),
-      updateDoc(doc(db, 'scrims', id), cleanedPayload).catch(() => {}),
-    ]);
+    await updateDoc(doc(db, 'tournaments', id), cleanedPayload).catch(() => {});
   }, [assertTournamentHost, hostedTournaments]);
+
+  const updateScrimStatus = useCallback(async (id: string, status: Tournament['status']) => {
+    const target = hostedScrims.find(s => s.id === id);
+
+    const updatePayload: Record<string, any> = { status, updatedAt: serverTimestamp() };
+    if (status === 'completed' && target && Array.isArray(target?.slots)) {
+      updatePayload.stage = 'completed';
+      updatePayload.completedAt = serverTimestamp();
+    }
+
+    // 0ms Optimistic local update
+    setHostedScrims(prev => prev.map(s => s.id === id ? { ...s, ...updatePayload } : s));
+
+    const cleanedPayload = cleanFirestoreData(updatePayload);
+    await assertScrimHost(id);
+    await updateDoc(doc(db, 'scrims', id), cleanedPayload).catch(() => {});
+  }, [assertScrimHost, hostedScrims]);
 
   const activateTournament = useCallback(async (id: string) => {
     if (!user) throw new Error('Not authenticated');
@@ -576,20 +649,12 @@ export function useOrgData() {
     }
 
     if (!activatedViaApi) {
-      await Promise.all([
-        updateDoc(doc(db, 'tournaments', id), {
-          status: 'upcoming',
-          fundingStatus: 'RESERVED',
-          stage: 'registration',
-          updatedAt: serverTimestamp(),
-        }).catch(() => {}),
-        updateDoc(doc(db, 'scrims', id), {
-          status: 'upcoming',
-          fundingStatus: 'RESERVED',
-          stage: 'registration',
-          updatedAt: serverTimestamp(),
-        }).catch(() => {}),
-      ]);
+      await updateDoc(doc(db, 'tournaments', id), {
+        status: 'upcoming',
+        fundingStatus: 'RESERVED',
+        stage: 'registration',
+        updatedAt: serverTimestamp(),
+      }).catch(() => {});
     }
   }, [user, assertTournamentHost]);
 
@@ -702,28 +767,31 @@ export function useOrgData() {
   const toggleScrimSlot = useCallback(async (scrimId: string, slotNumber: number) => {
     if (!user) throw new Error('Not authenticated');
 
-    // 0ms Optimistic Slot Toggle in local state
-    setHostedTournaments(prev => prev.map(t => {
-      if (t.id !== scrimId) return t;
-      const currentSlots = normalizeScrimSlots(t.slots, getSlotCount(t), (t as any).filledSlots ?? t.currentPlayers);
-      const newSlots = currentSlots.map((s: any) => {
-        if (s.slotNumber !== slotNumber) return s;
-        if (s.status === 'filled') return { ...s, status: 'open', teamName: null, teamId: null };
-        return { ...s, status: 'filled', teamName: 'Reserved', teamId: null };
+    // 0ms Optimistic Slot Toggle in local scrims state
+    setHostedScrims(prev => prev.map(s => {
+      if (s.id !== scrimId) return s;
+      const currentSlots = normalizeScrimSlots(s.slots, getSlotCount(s), (s as any).filledSlots ?? s.currentPlayers);
+      const newSlots = currentSlots.map((slot: any) => {
+        if (slot.slotNumber !== slotNumber) return slot;
+        if (slot.status === 'filled') return { ...slot, status: 'open', teamName: null, teamId: null };
+        return { ...slot, status: 'filled', teamName: 'Reserved', teamId: null };
       });
       const filled = countFilledScrimSlots(newSlots);
-      return { ...t, slots: newSlots as any, filledSlots: filled, currentPlayers: filled };
+      return { ...s, slots: newSlots as any, filledSlots: filled, currentPlayers: filled };
     }));
 
-    let targetDocRef = doc(db, 'tournaments', scrimId);
+    const targetDocRef = doc(db, 'scrims', scrimId);
     let snap = await getDoc(targetDocRef);
-    let targetCollection = 'tournaments';
     if (!snap.exists()) {
-      targetDocRef = doc(db, 'scrims', scrimId);
-      snap = await getDoc(targetDocRef);
-      targetCollection = 'scrims';
+      // Fallback check tournaments collection in case of legacy scrim document
+      const legacyRef = doc(db, 'tournaments', scrimId);
+      const legacySnap = await getDoc(legacyRef);
+      if (legacySnap.exists()) {
+        snap = legacySnap;
+      } else {
+        throw new Error('Scrim not found');
+      }
     }
-    if (!snap.exists()) throw new Error('Scrim not found');
     const data = snap.data() as any;
     const ownerId = data.hostUid || data.orgId || data.hostId || data.userId || data.organizerId || data.createdBy;
     if (ownerId && ownerId !== user.uid && profile?.role !== 'admin' && profile?.role !== 'organizer') throw new Error('Not authorized');
@@ -749,6 +817,7 @@ export function useOrgData() {
         entryFee: resolvedFee,
         targetSlot,
         participants: scrimParts,
+        collectionName: snap.ref.parent.id as 'tournaments' | 'scrims',
       });
 
       setParticipants(prev => prev.filter(p => (p.tournamentId !== scrimId && (p as any).scrimId !== scrimId) || ((p as any).slotNumber !== slotNumber && p.userId !== targetSlot?.userId)));
@@ -762,12 +831,7 @@ export function useOrgData() {
       const updatePayload = { slots: newSlots, filledSlots: filled, currentPlayers: filled, updatedAt: serverTimestamp() };
       const cleanedPayload = cleanFirestoreData(updatePayload);
 
-      await Promise.all([
-        updateDoc(targetDocRef, cleanedPayload).catch(() => {}),
-        updateDoc(doc(db, targetCollection === 'tournaments' ? 'scrims' : 'tournaments', scrimId), cleanedPayload).catch(() => {}),
-        setDoc(targetDocRef, cleanedPayload, { merge: true }).catch(() => {}),
-        setDoc(doc(db, targetCollection === 'tournaments' ? 'scrims' : 'tournaments', scrimId), cleanedPayload, { merge: true }).catch(() => {}),
-      ]);
+      await updateDoc(snap.ref, cleanedPayload);
     }
   }, [user, profile?.role, participants]);
 
@@ -995,6 +1059,7 @@ export function useOrgData() {
   return {
     hostedTournaments,
     tournamentsOnly,
+    hostedScrims,
     participants,
     transactions,
     disputes,
@@ -1006,14 +1071,18 @@ export function useOrgData() {
     teams,
     activityFeed,
     fetchHostedTournaments,
+    fetchHostedScrims,
     fetchParticipants,
     fetchTransactions,
     fetchOrgEarnings,
     fetchDisputes,
     deleteTournament,
+    deleteScrim,
     updateTournamentStatus,
+    updateScrimStatus,
     activateTournament,
     assertTournamentHost,
+    assertScrimHost,
     broadcastLobby,
     updateParticipantStatus,
     requestWithdrawal,

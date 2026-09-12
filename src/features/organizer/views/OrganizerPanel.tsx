@@ -78,7 +78,7 @@ const OrganizerPanel: React.FC = () => {
 
   // Overlay state
   const [activeOverlay, setActiveOverlay] = useState<OverlayType>(null);
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string; type?: 'tournament' | 'scrim' } | null>(null);
   const [warningTeam, setWarningTeam] = useState<string | null>(null);
   const [warningReason, setWarningReason] = useState('');
   const [roomDispatchTarget, setRoomDispatchTarget] = useState<any>(null);
@@ -93,7 +93,6 @@ const OrganizerPanel: React.FC = () => {
   // Tournament & Scrim create modals
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editTournament, setEditTournament] = useState<any>(null);
-  const [createMatchType, setCreateMatchType] = useState<'tournament' | 'scrims'>('tournament');
 
   const [showScrimCreateModal, setShowScrimCreateModal] = useState(false);
   const [editScrim, setEditScrim] = useState<any>(null);
@@ -111,8 +110,13 @@ const OrganizerPanel: React.FC = () => {
     setMobileNavOpen(false);
   };
 
-  const handleDelete = useCallback((id: string, title: string) => {
-    setDeleteTarget({ id, title });
+  const handleDeleteTournament = useCallback((id: string, title: string) => {
+    setDeleteTarget({ id, title, type: 'tournament' });
+    setActiveOverlay('DELETE_CONFIRM');
+  }, []);
+
+  const handleDeleteScrim = useCallback((id: string, title: string) => {
+    setDeleteTarget({ id, title, type: 'scrim' });
     setActiveOverlay('DELETE_CONFIRM');
   }, []);
 
@@ -120,8 +124,13 @@ const OrganizerPanel: React.FC = () => {
     if (!deleteTarget || isDeleting) return;
     setIsDeleting(true);
     try {
-      await org.deleteTournament(deleteTarget.id);
-      showToast(`"${deleteTarget.title || 'Event'}" deleted successfully`, 'success');
+      if (deleteTarget.type === 'scrim') {
+        await org.deleteScrim(deleteTarget.id);
+        showToast(`"${deleteTarget.title || 'Scrim'}" deleted successfully`, 'success');
+      } else {
+        await org.deleteTournament(deleteTarget.id);
+        showToast(`"${deleteTarget.title || 'Tournament'}" deleted successfully`, 'success');
+      }
       setActiveOverlay(null);
       setDeleteTarget(null);
     } catch (err: any) {
@@ -132,9 +141,22 @@ const OrganizerPanel: React.FC = () => {
     }
   }, [deleteTarget, isDeleting, org, showToast]);
 
-  const handleUpdateStatus = useCallback(async (id: string, status: string) => {
+  const handleUpdateTournamentStatus = useCallback(async (id: string, status: string) => {
     if (isUpdatingStatus) return;
-    const target = org.hostedTournaments.find(t => t.id === id);
+    setIsUpdatingStatus(true);
+    try {
+      await org.updateTournamentStatus(id, status as any);
+      showToast(`Tournament status: ${status.toUpperCase()}`, 'success');
+    } catch {
+      showToast('Failed to update tournament status — you may not own this tournament', 'error');
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  }, [org, showToast, isUpdatingStatus]);
+
+  const handleUpdateScrimStatus = useCallback(async (id: string, status: string) => {
+    if (isUpdatingStatus) return;
+    const target = (org.hostedScrims || []).find(s => s.id === id);
     if (status === 'completed' && target && Number(target.prizePool) > 0) {
       const isPayoutDone = Boolean((target as any).payoutCompleted || (target as any).payoutStatus === 'paid' || (Array.isArray(target.winners) && target.winners.length > 0));
       if (!isPayoutDone) {
@@ -146,27 +168,22 @@ const OrganizerPanel: React.FC = () => {
 
     setIsUpdatingStatus(true);
     try {
-      await org.updateTournamentStatus(id, status as any);
-      showToast(status === 'completed' ? 'Match finalized & all lobby slots released!' : `Tournament status: ${status.toUpperCase()}`, 'success');
+      await org.updateScrimStatus(id, status as any);
+      showToast(status === 'completed' ? 'Match finalized & all lobby slots released!' : `Scrim status: ${status.toUpperCase()}`, 'success');
     } catch (err: any) {
-      showToast(err?.message || 'Failed to update status — you may not own this tournament', 'error');
+      showToast(err?.message || 'Failed to update scrim status — you may not own this scrim', 'error');
     } finally {
       setIsUpdatingStatus(false);
     }
   }, [org, showToast, isUpdatingStatus, navigate]);
 
-  const handleCreateTournament = useCallback((matchType: 'tournament' | 'scrims' = 'tournament') => {
+  const handleCreateTournament = useCallback(() => {
     setEditTournament(null);
-    setCreateMatchType(matchType);
     setShowCreateModal(true);
   }, []);
 
-  const handleManageTournament = useCallback((id: string, matchType?: string) => {
-    if (matchType === 'scrims') {
-      navigate(`/organizer/scrim/${id}`);
-    } else {
-      navigate(`/tournament-admin/${id}`);
-    }
+  const handleManageTournament = useCallback((id: string) => {
+    navigate(`/tournament-admin/${id}`);
   }, [navigate]);
 
   const handleActivateTournament = useCallback(async (id: string) => {
@@ -419,9 +436,9 @@ const OrganizerPanel: React.FC = () => {
             <OverviewTab
               kpis={org.kpis}
               activityFeed={org.activityFeed}
-              hostedTournaments={org.hostedTournaments}
+              hostedTournaments={org.tournamentsOnly}
               onNavigateTab={(tabId) => handleTabChange(tabId as TabId)}
-              onCreateTournament={() => handleCreateTournament('tournament')}
+              onCreateTournament={handleCreateTournament}
               onCreateScrim={() => { setEditScrim(null); setShowScrimCreateModal(true); }}
             />
           </TabErrorBoundary>
@@ -431,9 +448,9 @@ const OrganizerPanel: React.FC = () => {
           <TabErrorBoundary tabName="Tournaments Tab" resetKey={activeTab}>
             <TournamentsTab
               hostedTournaments={org.tournamentsOnly}
-              onDelete={handleDelete}
-              onUpdateStatus={handleUpdateStatus}
-              onCreateTournament={() => handleCreateTournament('tournament')}
+              onDelete={handleDeleteTournament}
+              onUpdateStatus={handleUpdateTournamentStatus}
+              onCreateTournament={handleCreateTournament}
               onOpenRoomDispatch={handleOpenRoomDispatch}
               onManageTournament={handleManageTournament}
               onEditTournament={handleEditTournament}
@@ -452,8 +469,8 @@ const OrganizerPanel: React.FC = () => {
               onViewDetails={handleViewScrimDetails}
               onCreateScrim={() => { setEditScrim(null); setShowScrimCreateModal(true); }}
               onEditScrim={(scrim) => { setEditScrim(scrim); setShowScrimCreateModal(true); }}
-              onDeleteScrim={handleDelete}
-              onUpdateStatus={handleUpdateStatus}
+              onDeleteScrim={handleDeleteScrim}
+              onUpdateStatus={handleUpdateScrimStatus}
               onOpenRoomDispatch={handleOpenRoomDispatch}
             />
           </TabErrorBoundary>
@@ -650,7 +667,6 @@ const OrganizerPanel: React.FC = () => {
           onClose={() => { setShowCreateModal(false); setEditTournament(null); }}
           onSuccess={() => { setShowCreateModal(false); setEditTournament(null); org.fetchHostedTournaments(); }}
           editTournament={editTournament}
-          defaultMatchType={createMatchType}
         />
       )}
 
@@ -659,7 +675,7 @@ const OrganizerPanel: React.FC = () => {
         <ScrimCreateModal
           isOpen={showScrimCreateModal}
           onClose={() => { setShowScrimCreateModal(false); setEditScrim(null); }}
-          onSuccess={() => { setShowScrimCreateModal(false); setEditScrim(null); org.fetchHostedTournaments(); }}
+          onSuccess={() => { setShowScrimCreateModal(false); setEditScrim(null); org.fetchHostedScrims(); }}
           editScrim={editScrim}
         />
       )}

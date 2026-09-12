@@ -5,7 +5,7 @@ import { db, auth } from '../../../shared/config/firebase';
 import { useAuth } from '../../../shared/context/AuthContext';
 import { useNotification } from '../../../shared/context/NotificationContext';
 import { fetchRoomCredentials, broadcastRoomCredentials } from '../../../shared/services/roomCredentials';
-import { countFilledScrimSlots, normalizeScrimSlots, getScrimSlotCount } from '../../../shared/utils/scrimSlots';
+import { countFilledScrimSlots, normalizeScrimSlots, getScrimSlotCount, createResetScrimSlots, getSlotCount } from '../../../shared/utils/scrimSlots';
 import { fetchDedicatedTeams, resolveSlotTeam, DedicatedTeamsLookup } from '../../../shared/utils/teamUtils';
 import { releaseSlotWithRefund } from '../../../shared/services/slotRefundService';
 import { NotificationService } from '../../../shared/services/NotificationService';
@@ -16,13 +16,15 @@ import { toDateSafe, cleanFirestoreData } from '../../../shared/utils/utils';
 import { resolveAllScrimResults } from '../../../shared/utils/scrimResults';
 import { checkScrimPayoutConfirmation, checkScrimResultsReadiness } from '../../../shared/utils/finalizationReadiness';
 import { DEFAULT_BANNER } from '../../../shared/constants/constants';
+import { announceScrimGameStart, announceScrimLive, announceScrimCompleted } from '../../../shared/services/DiscordService';
 import {
   ChevronLeft, Save, Radio, Users, DollarSign, Calendar,
   Gamepad2, Edit2, Check, X, Lock, Unlock, Copy, Trophy,
   Clock, MapPin, Play, CheckCircle2, RotateCcw, Trash2, Share2,
   Award, Medal, Flame, Plus, Trash, AlertCircle, TrendingUp,
-  ShieldCheck, UserCheck, UserX, ExternalLink, Search
+  ShieldCheck, UserCheck, UserX, ExternalLink, Search, Target
 } from 'lucide-react';
+import { calculatePlayerReward } from '../../../shared/services/perKillEngine';
 
 const formatRupees = (n: number = 0) => `Rs. ${new Intl.NumberFormat('en-IN').format(n)}`;
 
@@ -126,6 +128,12 @@ export default function ScrimDetailPage() {
           unsubTournaments = onSnapshot(doc(db, 'tournaments', id), (tournSnap) => {
             if (tournSnap.exists()) {
               const data = { id: tournSnap.id, ...tournSnap.data() } as any;
+              const isScrim = data.matchType === 'scrims' || data.isScrim === true || data.type === 'scrim';
+              if (!isScrim) {
+                // Strict separation: This is a tournament, not a scrim. Redirect to Tournament Managing Portal
+                navigate(`/tournament-admin/${id}`, { replace: true });
+                return;
+              }
               const scrimHostId = data.hostUid || data.orgId || data.hostId || data.userId || data.organizerId || data.createdBy;
               const isAuthorized = Boolean(
                 user && (
@@ -238,12 +246,7 @@ export default function ScrimDetailPage() {
         updatedAt: serverTimestamp(),
       };
       const cleanedUpdatePayload = cleanFirestoreData(updatePayload);
-      await Promise.all([
-        updateDoc(doc(db, 'scrims', id), cleanedUpdatePayload).catch(() => {}),
-        updateDoc(doc(db, 'tournaments', id), cleanedUpdatePayload).catch(() => {}),
-        setDoc(doc(db, 'scrims', id), cleanedUpdatePayload, { merge: true }).catch(() => {}),
-        setDoc(doc(db, 'tournaments', id), cleanedUpdatePayload, { merge: true }).catch(() => {}),
-      ]);
+      await updateDoc(doc(db, 'scrims', id), cleanedUpdatePayload);
       setScrim((prev: any) => prev ? { ...prev, ...cleanedUpdatePayload } : prev);
       showToast('Scrim updated', 'success');
       setIsEditing(false);
@@ -274,6 +277,7 @@ export default function ScrimDetailPage() {
         entryFee: resolvedFee,
         targetSlot,
         participants,
+        collectionName: 'scrims',
       });
 
       const newSlots = res.updatedSlots || currentSlots.map((s: any) => {
@@ -345,12 +349,7 @@ export default function ScrimDetailPage() {
       };
       const cleanedPayload = cleanFirestoreData(updatePayload);
 
-      await Promise.all([
-        updateDoc(doc(db, 'scrims', id), cleanedPayload).catch(() => {}),
-        updateDoc(doc(db, 'tournaments', id), cleanedPayload).catch(() => {}),
-        setDoc(doc(db, 'scrims', id), cleanedPayload, { merge: true }).catch(() => {}),
-        setDoc(doc(db, 'tournaments', id), cleanedPayload, { merge: true }).catch(() => {}),
-      ]);
+      await updateDoc(doc(db, 'scrims', id), cleanedPayload);
 
       setScrim((prev: any) => prev ? { ...prev, ...cleanedPayload } : prev);
       setIsAssignModalOpen(false);
@@ -386,12 +385,7 @@ export default function ScrimDetailPage() {
       };
       const cleanedPayload = cleanFirestoreData(updatePayload);
 
-      await Promise.all([
-        updateDoc(doc(db, 'scrims', id), cleanedPayload).catch(() => {}),
-        updateDoc(doc(db, 'tournaments', id), cleanedPayload).catch(() => {}),
-        setDoc(doc(db, 'scrims', id), cleanedPayload, { merge: true }).catch(() => {}),
-        setDoc(doc(db, 'tournaments', id), cleanedPayload, { merge: true }).catch(() => {}),
-      ]);
+      await updateDoc(doc(db, 'scrims', id), cleanedPayload);
 
       setScrim((prev: any) => prev ? { ...prev, slots: newSlots } : prev);
       showToast(hasLocked ? 'All remaining slots unlocked!' : 'All remaining open slots locked!', 'info');
@@ -422,12 +416,7 @@ export default function ScrimDetailPage() {
       const updatePayload = { slots: newSlots, filledSlots: filled, currentPlayers: filled, updatedAt: serverTimestamp() };
       const cleanedPayload = cleanFirestoreData(updatePayload);
 
-      await Promise.all([
-        updateDoc(doc(db, 'scrims', id), cleanedPayload).catch(() => {}),
-        updateDoc(doc(db, 'tournaments', id), cleanedPayload).catch(() => {}),
-        setDoc(doc(db, 'scrims', id), cleanedPayload, { merge: true }).catch(() => {}),
-        setDoc(doc(db, 'tournaments', id), cleanedPayload, { merge: true }).catch(() => {}),
-      ]);
+      await updateDoc(doc(db, 'scrims', id), cleanedPayload);
       setScrim((prev: any) => prev ? { ...prev, ...cleanedPayload } : prev);
       showToast(`Slot ${slotNumber} reserved`, 'info');
     } catch {
@@ -445,6 +434,12 @@ export default function ScrimDetailPage() {
     try {
       await broadcastRoomCredentials(id, roomId, roomPass, streamUrl, 'scrims');
       setScrim((prev: any) => prev ? { ...prev, roomId, roomPass, ytLink: streamUrl } : prev);
+      announceScrimGameStart({
+        id,
+        title: scrim.title,
+        game: scrim.game,
+        map: scrim.map || 'Bermuda',
+      } as any, scrim.map || 'Bermuda', roomId, roomPass).catch(e => console.warn('Discord scrim start announcement error:', e));
       showToast('Room credentials broadcasted to all players!', 'success');
     } catch (err: any) {
       showToast(err?.message || 'Failed to broadcast', 'error');
@@ -509,13 +504,25 @@ export default function ScrimDetailPage() {
 
       const cleanedPayload = cleanFirestoreData(updatePayload);
 
-      await Promise.all([
-        updateDoc(doc(db, 'scrims', id), cleanedPayload).catch(() => {}),
-        updateDoc(doc(db, 'tournaments', id), cleanedPayload).catch(() => {}),
-        setDoc(doc(db, 'scrims', id), cleanedPayload, { merge: true }).catch(() => {}),
-        setDoc(doc(db, 'tournaments', id), cleanedPayload, { merge: true }).catch(() => {}),
-      ]);
+      await updateDoc(doc(db, 'scrims', id), cleanedPayload);
       setScrim((prev: any) => prev ? { ...prev, ...cleanedPayload } : prev);
+
+      if (newStatus === 'live') {
+        announceScrimLive({
+          id,
+          title: scrim.title,
+          currentPlayers: scrim.currentPlayers || 0,
+          slots: scrim.slots,
+        } as any).catch(e => console.warn('Discord scrim live announcement error:', e));
+      } else if (newStatus === 'completed') {
+        announceScrimCompleted({
+          id,
+          title: scrim.title,
+          prizePool: scrim.prizePool,
+          bannerUrl: scrim.bannerUrl,
+        } as any, scrim.winners?.[0]?.teamName || undefined).catch(e => console.warn('Discord scrim complete announcement error:', e));
+      }
+
       showToast(
         newStatus === 'completed'
           ? 'Match finalized & all lobby slots released!'
@@ -525,7 +532,7 @@ export default function ScrimDetailPage() {
     } catch {
       showToast('Failed to update status', 'error');
     }
-  }, [id, scrim, showToast]);
+  }, [id, scrim, participants, showToast]);
 
   const handleDeleteScrim = useCallback(async () => {
     if (!id || !window.confirm(`Are you sure you want to permanently delete "${scrim?.title || 'this scrim'}"?`)) return;
@@ -538,23 +545,12 @@ export default function ScrimDetailPage() {
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${token}` }
           });
-          if (res.ok) {
-            deletedViaApi = true;
-          } else {
-            const fallbackRes = await fetch(`/api/tournaments/${id}`, {
-              method: 'DELETE',
-              headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (fallbackRes.ok) deletedViaApi = true;
-          }
+          if (res.ok) deletedViaApi = true;
         } catch {}
       }
 
       if (!deletedViaApi) {
-        await Promise.all([
-          deleteDoc(doc(db, 'scrims', id)).catch(() => {}),
-          deleteDoc(doc(db, 'tournaments', id)).catch(() => {}),
-        ]);
+        await deleteDoc(doc(db, 'scrims', id));
       }
       showToast('Scrim deleted successfully', 'success');
       navigate('/organizer?tab=scrims');
@@ -574,8 +570,20 @@ export default function ScrimDetailPage() {
   };
 
   // --- Multi-Tier Presets & Actions ---
-  const applyPreset = (preset: 'top3' | 'top2' | 'all' | 'top5') => {
+  const applyPreset = (preset: 'top3' | 'top2' | 'all' | 'top5' | 'perkill') => {
     const pool = Number(scrim?.prizePool) || 0;
+    const rewardPerKill = Number(scrim?.rewardPerKill) || 0;
+    if (preset === 'perkill' && rewardPerKill > 0) {
+      setWinnerTiers(winnerTiers.map((t) => ({
+        ...t,
+        prize: calculatePlayerReward({
+          verifiedKills: Number(t.kills) || 0,
+          rewardPerKill,
+          minimumKillsForReward: Number(scrim?.minimumKillsForReward) || 0,
+        }).rewardAmount,
+      })));
+      return;
+    }
     if (preset === 'top3') {
       setWinnerTiers([
         { rank: 1, teamName: winnerTiers[0]?.teamName || '', teamId: winnerTiers[0]?.teamId || '', userId: winnerTiers[0]?.userId || '', prize: Math.round(pool * 0.5), kills: winnerTiers[0]?.kills || 0, points: 15 },
@@ -758,14 +766,18 @@ export default function ScrimDetailPage() {
         updatedAt: serverTimestamp(),
       });
 
-      await Promise.all([
-        updateDoc(doc(db, 'scrims', id!), cleanedWinnerPayload).catch(() => {}),
-        updateDoc(doc(db, 'tournaments', id!), cleanedWinnerPayload).catch(() => {}),
-        setDoc(doc(db, 'scrims', id!), cleanedWinnerPayload, { merge: true }).catch(() => {}),
-        setDoc(doc(db, 'tournaments', id!), cleanedWinnerPayload, { merge: true }).catch(() => {}),
-      ]);
+      await updateDoc(doc(db, 'scrims', id!), cleanedWinnerPayload);
 
       setScrim((prev: any) => prev ? { ...prev, ...cleanedWinnerPayload } : prev);
+
+      const firstPlaceWinner = validTiers.find(t => t.rank === 1)?.teamName || undefined;
+      announceScrimCompleted({
+        id: id!,
+        title: scrim.title,
+        prizePool: scrim.prizePool,
+        bannerUrl: scrim.bannerUrl,
+      } as any, firstPlaceWinner).catch(e => console.warn('Discord scrim complete announcement error:', e));
+
       showToast(
         payoutViaApi
           ? `Multi-tier prizes successfully distributed (${formatRupees(totalAllocated)})!`
@@ -915,6 +927,11 @@ export default function ScrimDetailPage() {
             {scrim.status === 'live' && <span className="inline-block w-1.5 h-1.5 rounded-full bg-white animate-pulse mr-1.5" />}
             {(scrim.status || 'open').toUpperCase()}
           </span>
+          {(scrim.scrimMode === 'PER_KILL' || (scrim.rewardPerKill && Number(scrim.rewardPerKill) > 0)) && (
+            <span className="backdrop-blur-md bg-amber-500/90 border border-amber-400/40 text-black text-xs font-black px-3 py-1.5 rounded-full uppercase tracking-wider shadow-lg flex items-center gap-1">
+              <Target className="w-3.5 h-3.5" /> Per-Kill (Rs. {scrim.rewardPerKill}/kill)
+            </span>
+          )}
         </div>
 
         {/* Top Right Quick Actions */}

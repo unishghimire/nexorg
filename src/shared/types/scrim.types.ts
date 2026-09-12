@@ -29,6 +29,9 @@ export interface Scrim {
   rules?: string;
   ytLink?: string;
   payoutStatus?: 'unpaid' | 'paid';
+  scrimMode?: 'STANDARD' | 'PER_KILL';
+  rewardPerKill?: number;
+  minimumKillsForReward?: number;
   createdAt?: string | any;
   updatedAt?: string | any;
 }

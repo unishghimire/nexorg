@@ -1,6 +1,7 @@
-import {useParams, useNavigate} from 'react-router-dom';
+import React, { useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useNotification } from '../../../shared/context/NotificationContext';
-import {Settings, Users, Calendar, Trophy, ArrowLeft, ArrowRight, ShieldCheck, Download} from 'lucide-react';
+import { Settings, Users, Calendar, Trophy, ArrowLeft, ArrowRight, ShieldCheck, Download } from 'lucide-react';
 import { AnimatePresence } from 'motion/react';
 
 import { OverviewTab, GroupsTab, MatchesTab, BracketsTab, SettingsTab, ParticipantsTab } from './tournament-admin-tabs';
@@ -14,6 +15,13 @@ export default function TournamentAdminPanel() {
     
     const { activeTab, discordSending, fetchingParticipants, gameStartGroupId, handleAdvanceRound, handleAssignTeam, handleAutoGenerateGroups, handleCreateGroup, handleDeleteGroup, handleSetGroupRoom, handleDiscord, handleRemoveTeam, handleUpdateStage, handleUpdateStatus, isAddMatchModalOpen, isCreateGroupModalOpen, isManageTeamsModalOpen, isResultUploaderOpen, isUpdateScoreModalOpen, loading, matchScore, newGroup, newMatchData, participants, selectedGroup, selectedMatch, setActiveTab, setGameStartGroupId, setIsAddMatchModalOpen, setIsCreateGroupModalOpen, setIsManageTeamsModalOpen, setIsResultUploaderOpen, setIsUpdateScoreModalOpen, setMatchScore, setNewGroup, setNewMatchData, setParticipants, setSelectedGroup, setSelectedMatch, tournamentEarning, tournament, setTournament, handleAddMatch, handleUpdateScore, handleGenerateBracket, handleGenerateGroupMatches, getTeamName } = useTournamentAdmin(id, navigate, showToast);
 
+    // Strict separation: If a scrim ID is opened here, redirect immediately to the dedicated Scrim Managing Portal
+    useEffect(() => {
+        if (tournament && (tournament.matchType === 'scrims' || (tournament as any).isScrim)) {
+            navigate(`/organizer/scrim/${tournament.id}`, { replace: true });
+        }
+    }, [tournament, navigate]);
+
     if (loading) {
         return (
             <div className="min-h-[100dvh] pt-24 pb-12 flex items-center justify-center">
@@ -23,8 +31,6 @@ export default function TournamentAdminPanel() {
     }
 
     if (!tournament) return null;
-
-    const isScrim = Boolean(tournament.matchType === 'scrims' || (tournament as any).isScrim);
 
     const tabProps = {
         tournament, setTournament, setParticipants, tournamentEarning, participants, fetchingParticipants, selectedGroup, selectedMatch, setSelectedMatch, matchScore, newGroup, newMatchData, gameStartGroupId, discordSending, isCreateGroupModalOpen, isManageTeamsModalOpen, isUpdateScoreModalOpen, isResultUploaderOpen, isAddMatchModalOpen, setNewGroup, setSelectedGroup, setGameStartGroupId, setMatchScore, setNewMatchData, setIsCreateGroupModalOpen, setIsManageTeamsModalOpen, setIsUpdateScoreModalOpen, setIsResultUploaderOpen, setIsAddMatchModalOpen, handleUpdateStatus, handleUpdateStage, handleAdvanceRound, handleAutoGenerateGroups, handleCreateGroup, handleDeleteGroup, handleSetGroupRoom, handleAssignTeam, handleRemoveTeam, handleDiscord, handleAddMatch, handleUpdateScore, handleGenerateBracket, handleGenerateGroupMatches, getTeamName, showToast
@@ -37,9 +43,10 @@ export default function TournamentAdminPanel() {
                 {/* Top row: back button + title */}
                 <div className="flex items-center gap-3 sm:gap-6">
                     <button type="button" 
-                        onClick={() => navigate(`/tournaments/${tournament.id}`)}
+                        onClick={() => navigate('/organizer?tab=tournaments')}
                         className="p-2.5 sm:p-3 bg-dark border border-gray-800 rounded-full text-gray-400 hover:text-white hover:border-brand-500 transition-colors hover:bg-card shrink-0 touch-target"
-                        aria-label="Back to tournament"
+                        aria-label="Back to Tournaments"
+                        title="Back to Tournaments"
                     >
                         <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
                     </button>
@@ -86,33 +93,19 @@ export default function TournamentAdminPanel() {
                     <span className="px-3 sm:px-5 py-2 rounded-full text-xs font-black uppercase tracking-widest bg-brand-500/10 text-brand-400 border border-brand-500/30">
                         {tournament.stage || 'registration'}
                     </span>
-                    {(tournament.matchType === 'scrims' || (tournament as any).isScrim) && (
-                        <button type="button"
-                            onClick={() => navigate(`/organizer/scrim/${tournament.id}`)}
-                            className="px-3 sm:px-4 py-2 rounded-full text-xs font-black uppercase tracking-widest bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/30 transition-colors flex items-center gap-1.5"
-                        >
-                            <span>Scrim Slot View</span>
-                            <ArrowRight className="w-3 h-3" />
-                        </button>
-                    )}
                 </div>
             </div>
 
             {/* Navigation Tabs — scrollable on mobile, wrap on desktop */}
             <div className="flex overflow-x-auto gap-2 sm:gap-3 mb-6 sm:mb-8 pb-2 custom-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0">
-                {(isScrim ? [
-                    { id: 'overview', label: 'Overview', icon: Settings },
-                    { id: 'matches', label: 'Match Schedule', icon: Calendar },
-                    { id: 'participants', label: 'Registrations', icon: ShieldCheck },
-                    { id: 'settings', label: 'Settings', icon: Settings },
-                ] : [
+                {[
                     { id: 'overview', label: 'Overview', icon: Settings },
                     { id: 'groups', label: 'Groups & Teams', icon: Users },
                     { id: 'matches', label: 'Match Schedule', icon: Calendar },
                     { id: 'brackets', label: 'Brackets', icon: Trophy },
-                    { id: 'settings', label: 'Settings', icon: Settings },
                     { id: 'participants', label: 'Registrations', icon: ShieldCheck },
-                ]).map(tab => (
+                    { id: 'settings', label: 'Settings', icon: Settings },
+                ].map(tab => (
                     <button type="button"
                         key={tab.id}
                         onClick={() => setActiveTab(tab.id as any)}
@@ -131,9 +124,9 @@ export default function TournamentAdminPanel() {
             <div className="bg-dark/50 rounded-2xl sm:rounded-[2rem] border border-gray-800 p-4 sm:p-6 lg:p-8">
                 <AnimatePresence mode="wait">
                     {activeTab === 'overview' && <TabErrorBoundary tabName="Overview Tab" resetKey={activeTab}><OverviewTab {...tabProps} /></TabErrorBoundary>}
-                    {!isScrim && activeTab === 'groups' && <TabErrorBoundary tabName="Groups Tab" resetKey={activeTab}><GroupsTab {...tabProps} /></TabErrorBoundary>}
+                    {activeTab === 'groups' && <TabErrorBoundary tabName="Groups Tab" resetKey={activeTab}><GroupsTab {...tabProps} /></TabErrorBoundary>}
                     {activeTab === 'matches' && <TabErrorBoundary tabName="Matches Tab" resetKey={activeTab}><MatchesTab {...tabProps} /></TabErrorBoundary>}
-                    {!isScrim && activeTab === 'brackets' && <TabErrorBoundary tabName="Brackets Tab" resetKey={activeTab}><BracketsTab {...tabProps} /></TabErrorBoundary>}
+                    {activeTab === 'brackets' && <TabErrorBoundary tabName="Brackets Tab" resetKey={activeTab}><BracketsTab {...tabProps} /></TabErrorBoundary>}
                     {activeTab === 'settings' && <TabErrorBoundary tabName="Settings Tab" resetKey={activeTab}><SettingsTab {...tabProps} /></TabErrorBoundary>}
                     {activeTab === 'participants' && <TabErrorBoundary tabName="Participants Tab" resetKey={activeTab}><ParticipantsTab {...tabProps} /></TabErrorBoundary>}
                 </AnimatePresence>

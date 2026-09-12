@@ -211,10 +211,8 @@ const ResultUploadModal: React.FC<ResultUploadModalProps> = ({ isOpen, onClose, 
                         resultUrl,
                         updatedAt: new Date().toISOString()
                     });
-                    await Promise.all([
-                        updateDoc(doc(db, 'tournaments', tournament.id), resultPayload).catch(() => {}),
-                        updateDoc(doc(db, 'scrims', tournament.id), resultPayload).catch(() => {}),
-                    ]);
+                    const targetCollection = (tournament.matchType === 'scrims' || (tournament as any).isScrim === true || (tournament as any).type === 'scrim') ? 'scrims' : 'tournaments';
+                    await updateDoc(doc(db, targetCollection, tournament.id), resultPayload).catch(() => {});
                 }
 
                 showToast(`Results finalized and ${distResult.creditedCount} winner(s) credited!`, 'success');
@@ -228,10 +226,8 @@ const ResultUploadModal: React.FC<ResultUploadModalProps> = ({ isOpen, onClose, 
                 if (templateConfig) updatePayload.resultTemplate = templateConfig;
                 
                 const cleanedPayload = cleanFirestoreData(updatePayload);
-                await Promise.all([
-                    updateDoc(doc(db, 'tournaments', tournament.id), cleanedPayload).catch(() => {}),
-                    updateDoc(doc(db, 'scrims', tournament.id), cleanedPayload).catch(() => {}),
-                ]);
+                const targetCollection = (tournament.matchType === 'scrims' || (tournament as any).isScrim === true || (tournament as any).type === 'scrim') ? 'scrims' : 'tournaments';
+                await updateDoc(doc(db, targetCollection, tournament.id), cleanedPayload).catch(() => {});
 
                 await NotificationService.notifyParticipants(
                     tournament.id,

@@ -1,4 +1,5 @@
-import { auth } from '../config/firebase';
+import { auth, db } from '../config/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 import { Tournament, TournamentGroup } from '../types/types';
 import { formatCurrency, formatDate } from '../utils/utils';
 
@@ -32,35 +33,168 @@ export type DiscordAnnouncementType =
   | 'scrim_completed'
   | 'scrim_champion';
 
+export function getCategoryForType(type: DiscordAnnouncementType): DiscordCategory {
+  switch (type) {
+    case 'tournament_published':
+    case 'scrim_published':
+      return 'announcement';
+    case 'tournament_registration':
+    case 'scrim_registration':
+      return 'registration';
+    case 'group_published':
+    case 'scrim_group':
+      return 'group';
+    case 'game_start':
+    case 'game_time':
+    case 'scrim_game_start':
+    case 'scrim_game_time':
+    case 'tournament_live':
+    case 'scrim_live':
+      return 'matchSchedule';
+    case 'tournament_result':
+    case 'scrim_result':
+      return 'result';
+    case 'tournament_completed':
+    case 'tournament_champion':
+    case 'scrim_completed':
+    case 'scrim_champion':
+      return 'champion';
+    default:
+      return 'announcement';
+  }
+}
+
+/**
+ * Builds fallback Discord embed if proxy is unreachable.
+ */
+function buildFallbackEmbed(type: DiscordAnnouncementType, data: Record<string, any>) {
+  const isScrim = type.startsWith('scrim_');
+  const title = data.title || (isScrim ? 'Practice Scrim' : 'Esports Tournament');
+  const appUrl = window.location.origin;
+  const link = isScrim
+    ? `${appUrl}/organizer/scrim/${data.tournamentId || ''}`
+    : `${appUrl}/tournaments/${data.tournamentId || ''}`;
+
+  switch (type) {
+    case 'tournament_published':
+      return {
+        title: `🏆 New Tournament Announced: ${title}`,
+        description: `**Game:** ${data.game || 'Esports'}\n**Prize Pool:** ${data.prizePool || 'Rs. 0'}\n**Entry Fee:** ${data.entryFee || 'FREE'}\n**Start Time:** ${data.startTime || 'TBD'}\n\n[Register Now on NexPlay](${link})`,
+        color: 0x6366f1,
+        footer: { text: 'NexPlay Esports • Official Tournament' },
+        timestamp: new Date().toISOString(),
+      };
+    case 'scrim_published':
+      return {
+        title: `🔥 New Practice Scrim Opened: ${title}`,
+        description: `**Game:** ${data.game || 'Esports'}\n**Format:** ${data.teamType || 'Squad'}\n**Entry Fee:** ${data.entryFee || 'FREE'}\n**Slots:** ${data.slots || 12}\n\n[Book Your Slot Now](${link})`,
+        color: 0x10b981,
+        footer: { text: 'NexPlay Scrims Hub • Instant Match Lobby' },
+        timestamp: new Date().toISOString(),
+      };
+    case 'scrim_game_start':
+    case 'game_start':
+      return {
+        title: `⚔️ Match Starting Now — ${title}`,
+        description: `**Map:** ${data.map || 'TBD'}\n**Room ID:** \`${data.roomId || 'Check app'}\`\n**Password:** \`${data.roomPass || 'Check app'}\`\n\n[Open Match Lobby](${link})`,
+        color: 0xef4444,
+        footer: { text: isScrim ? 'NexPlay Scrims • Room Dispatch' : 'NexPlay Esports • Room Dispatch' },
+        timestamp: new Date().toISOString(),
+      };
+    case 'scrim_live':
+    case 'tournament_live':
+      return {
+        title: `🔴 Match is LIVE — ${title}`,
+        description: `**Participants:** ${data.currentPlayers || 0}/${data.slots || 0}\n\n[Follow Live Scoring](${link})`,
+        color: 0x22c55e,
+        footer: { text: 'NexPlay Live Broadcast' },
+        timestamp: new Date().toISOString(),
+      };
+    case 'scrim_completed':
+    case 'tournament_completed':
+      return {
+        title: `👑 Match Finalized — ${title}`,
+        description: `🏆 **Winner:** **${data.winner || 'Champion'}**\n💰 **Prize Distributed:** ${data.prizeAmount || data.prizePool || 'Rs. 0'}\n\nGGs to all participants!`,
+        color: 0xf59e0b,
+        footer: { text: 'NexPlay Hall of Champions' },
+        timestamp: new Date().toISOString(),
+      };
+    default:
+      return {
+        title: `📢 ${title}`,
+        description: `Update broadcasted for **${title}**.\n\n[View Details](${link})`,
+        color: 0x5865f2,
+        timestamp: new Date().toISOString(),
+      };
+  }
+}
+
 /**
  * Sends a Discord announcement via the secure server-side proxy.
- * The webhook URL is never exposed to the browser.
+ * Falls back to direct webhook post if server-side proxy is unavailable.
  */
 async function sendAnnouncement(
     type: DiscordAnnouncementType,
     data: Record<string, any>,
     channel: 'tournaments' | 'scrims' = 'tournaments'
 ): Promise<{ success: boolean; message: string }> {
-    const token = await auth.currentUser?.getIdToken();
-    if (!token) {
-        return { success: false, message: 'Not authenticated.' };
+    const token = await auth.currentUser?.getIdToken().catch(() => null);
+
+    // 1. Try server-side proxy first
+    if (token) {
+        try {
+            const res = await fetch('/api/discord/announce', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
+                },
+                body: JSON.stringify({ type, data, channel }),
+            });
+
+            if (res.ok) {
+                const json = await res.json().catch(() => null);
+                if (json?.success) return json;
+            }
+        } catch {}
     }
 
+    // 2. Resilient Client-Side Fallback directly to Discord webhook configured in Firestore
     try {
-        const res = await fetch('/api/discord/announce', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`,
-            },
-            body: JSON.stringify({ type, data, channel }),
-        });
+        const category = getCategoryForType(type);
+        const settingsSnap = await getDoc(doc(db, 'settings', 'site')).catch(() => null);
+        if (settingsSnap && settingsSnap.exists()) {
+            const sData = settingsSnap.data();
+            const autoAnnounce = sData?.discordWebhooks?.autoAnnounce;
+            if (autoAnnounce?.[channel] === false || (channel === 'tournaments' && sData?.autoDiscordTournamentAnnouncements === false)) {
+                return { success: true, message: 'Discord announcements disabled in settings.' };
+            }
 
-        const json = await res.json();
-        return { success: json.success, message: json.message };
-    } catch (e: any) {
-        return { success: false, message: e.message || 'Failed to connect to Discord endpoint' };
+            const channelWebhooks = sData?.discordWebhooks?.[channel];
+            let webhookUrl = channelWebhooks?.[category]?.trim() || channelWebhooks?.announcement?.trim();
+            if (!webhookUrl) {
+                webhookUrl = channel === 'tournaments'
+                    ? sData?.discordWebhookTournaments?.trim()
+                    : sData?.discordWebhookScrims?.trim();
+            }
+
+            if (webhookUrl && (webhookUrl.startsWith('https://discord.com/api/webhooks/') || webhookUrl.startsWith('https://discordapp.com/api/webhooks/'))) {
+                const embed = buildFallbackEmbed(type, data);
+                const postRes = await fetch(webhookUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ embeds: [embed] }),
+                });
+                if (postRes.ok) {
+                    return { success: true, message: `Direct Discord broadcast dispatched to [${category}]` };
+                }
+            }
+        }
+    } catch (fallbackErr) {
+        console.warn('[DiscordService] Fallback broadcast failed:', fallbackErr);
     }
+
+    return { success: false, message: 'Discord announcement endpoint unreachable' };
 }
 
 // ═══════════════════════════════════════════════════════════════

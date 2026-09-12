@@ -102,3 +102,79 @@ export const getFilledSlotCount = (t: any): number => {
   const num = Number(t.currentPlayers ?? t.filledSlots);
   return !isNaN(num) && num >= 0 ? num : 0;
 };
+
+/**
+ * Creates a clean, empty array of open slots for a new or reset scrim lobby.
+ * Used when a scrim match is finalized to release all slots for the next scrim.
+ */
+export const createResetScrimSlots = (count: number): ScrimSlot[] => {
+  const safeCount = Math.max(1, toPositiveInteger(count, 12));
+  return Array.from({ length: safeCount }, (_, index) => ({
+    slotNumber: index + 1,
+    status: 'open' as const,
+    teamName: null,
+    teamId: null,
+    userId: null,
+    leader: null,
+    inGameId: null,
+    entryFee: null,
+  }));
+};
+
+/**
+ * Strict check to ensure match points and kills have been entered/updated
+ * before an event (tournament or scrim) can be finalized.
+ */
+export const hasEventUpdatedStats = (event: any): boolean => {
+  if (!event) return false;
+
+  // 1. Check winners or podium array
+  const winnersList = Array.isArray(event.winners) && event.winners.length > 0
+    ? event.winners
+    : Array.isArray(event.podium) && event.podium.length > 0
+    ? event.podium
+    : null;
+
+  if (winnersList && winnersList.length > 0) {
+    const hasValidStats = winnersList.some((w: any) => {
+      const kills = Number(w.kills);
+      const points = Number(w.points ?? w.score);
+      return (!isNaN(kills) && kills > 0) || (!isNaN(points) && points > 0);
+    });
+    if (hasValidStats) return true;
+  }
+
+  // 2. Check manualResults / leaderboard array
+  if (Array.isArray(event.manualResults) && event.manualResults.length > 0) {
+    const hasValidStats = event.manualResults.some((r: any) => {
+      const kills = Number(r.kills);
+      const score = Number(r.score ?? r.points);
+      return (!isNaN(kills) && kills > 0) || (!isNaN(score) && score > 0);
+    });
+    if (hasValidStats) return true;
+  }
+
+  // 3. Check completed matches in tournament groups
+  if (Array.isArray(event.groups) && event.groups.length > 0) {
+    const hasMatchScores = event.groups.some((g: any) =>
+      Array.isArray(g.matches) && g.matches.some((m: any) =>
+        m.status === 'completed' && (
+          (Number(m.score1) > 0 || Number(m.score2) > 0) ||
+          (Array.isArray(m.results) && m.results.some((res: any) => Number(res.score ?? res.points) > 0 || Number(res.kills) > 0))
+        )
+      )
+    );
+    if (hasMatchScores) return true;
+  }
+
+  // 4. Check bracket matches if knockout
+  if (Array.isArray(event.bracketMatches) && event.bracketMatches.length > 0) {
+    const hasBracketScores = event.bracketMatches.some((m: any) =>
+      m.status === 'completed' && (Number(m.score1) > 0 || Number(m.score2) > 0)
+    );
+    if (hasBracketScores) return true;
+  }
+
+  return false;
+};
+

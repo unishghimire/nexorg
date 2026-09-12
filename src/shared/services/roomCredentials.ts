@@ -138,28 +138,19 @@ export function subscribeRoomCredentials(
         }, () => {});
     } catch {}
 
-    // 3. Firestore subcollections for both tournaments and scrims
+    // 3. Firestore subcollections for the designated collection
     try {
-        const unsubTCred = onSnapshot(doc(db, 'tournaments', id, 'credentials', credId), (snap) => {
+        const unsubCred = onSnapshot(doc(db, collectionName, id, 'credentials', credId), (snap) => {
             if (snap.exists()) {
                 notifyIfValid(snap.data() as RoomCredentials);
             }
         }, () => {});
-        unsubs.push(unsubTCred);
+        unsubs.push(unsubCred);
     } catch {}
 
+    // 4. Firestore root documents for the designated collection
     try {
-        const unsubSCred = onSnapshot(doc(db, 'scrims', id, 'credentials', credId), (snap) => {
-            if (snap.exists()) {
-                notifyIfValid(snap.data() as RoomCredentials);
-            }
-        }, () => {});
-        unsubs.push(unsubSCred);
-    } catch {}
-
-    // 4. Firestore root documents (for direct updates on doc)
-    try {
-        const unsubTDoc = onSnapshot(doc(db, 'tournaments', id), (snap) => {
+        const unsubDoc = onSnapshot(doc(db, collectionName, id), (snap) => {
             if (snap.exists()) {
                 const data = snap.data();
                 if (data.roomId || data.roomPass) {
@@ -171,23 +162,7 @@ export function subscribeRoomCredentials(
                 }
             }
         }, () => {});
-        unsubs.push(unsubTDoc);
-    } catch {}
-
-    try {
-        const unsubSDoc = onSnapshot(doc(db, 'scrims', id), (snap) => {
-            if (snap.exists()) {
-                const data = snap.data();
-                if (data.roomId || data.roomPass) {
-                    notifyIfValid({
-                        roomId: data.roomId,
-                        roomPass: data.roomPass,
-                        streamUrl: data.ytLink || data.streamUrl,
-                    });
-                }
-            }
-        }, () => {});
-        unsubs.push(unsubSDoc);
+        unsubs.push(unsubDoc);
     } catch {}
 
     return () => {
@@ -202,6 +177,7 @@ export function subscribeRoomCredentials(
 
 /**
  * Broadcasts room credentials atomically to RTDB, Firestore subcollections, root docs, and dispatches in-app notifications.
+ * Strictly operates on the target collection (tournaments vs scrims) without cross-collection pollution.
  */
 export async function broadcastRoomCredentials(
     id: string,
@@ -219,8 +195,6 @@ export async function broadcastRoomCredentials(
 
     // Update memory cache instantly
     credentialsCache.set(`${collectionName}_${id}_main`, creds);
-    credentialsCache.set(`tournaments_${id}_main`, creds);
-    credentialsCache.set(`scrims_${id}_main`, creds);
 
     const docPayload = {
         roomId,
@@ -234,25 +208,24 @@ export async function broadcastRoomCredentials(
         // 1. RTDB instant websocket push
         rtdbSet(rtdbRef(rtdb, `rooms/${id}/credentials`), creds).catch(() => {}),
 
-        // 2. Firestore subcollections
-        setDoc(doc(db, 'tournaments', id, 'credentials', 'main'), { roomId, roomPass, streamUrl: streamUrl || '' }, { merge: true }).catch(() => {}),
-        setDoc(doc(db, 'scrims', id, 'credentials', 'main'), { roomId, roomPass, streamUrl: streamUrl || '' }, { merge: true }).catch(() => {}),
+        // 2. Firestore subcollections - strictly the designated collection
+        setDoc(doc(db, collectionName, id, 'credentials', 'main'), { roomId, roomPass, streamUrl: streamUrl || '' }, { merge: true }).catch(() => {}),
 
-        // 3. Root docs for stream url / room preview (using merge so it creates or updates without throwing)
-        setDoc(doc(db, 'tournaments', id), docPayload, { merge: true }).catch(() => {}),
-        setDoc(doc(db, 'scrims', id), docPayload, { merge: true }).catch(() => {}),
+        // 3. Root doc for stream url / room preview - strictly the designated collection
+        setDoc(doc(db, collectionName, id), docPayload, { merge: true }).catch(() => {}),
     ];
 
     await Promise.all(promises);
 
-    // 4. Instant push notification to all participants
+    // 4. Instant push notification to all participants with collection-specific route
+    const targetLink = collectionName === 'scrims' ? `/organizer/scrim/${id}` : `/tournaments/${id}`;
     try {
         NotificationService.notifyParticipants(
             id,
             'Match Room Credentials Released!',
             `Room ID: ${roomId} | Password: ${roomPass}. Join match room now!`,
             'alert',
-            `/tournaments/${id}`
+            targetLink
         ).catch(() => {});
     } catch {}
 }

@@ -155,10 +155,7 @@ const RegistrationModal: React.FC<RegistrationModalProps> = ({
                     });
                     const filledCount = countFilledScrimSlots(updated);
                     const updatePayload = cleanFirestoreData({ slots: updated, filledSlots: filledCount, currentPlayers: filledCount });
-                    await Promise.all([
-                        updateDoc(doc(db, 'tournaments', tournament.id), updatePayload).catch(() => {}),
-                        updateDoc(doc(db, 'scrims', tournament.id), updatePayload).catch(() => {}),
-                    ]);
+                    await updateDoc(doc(db, 'tournaments', tournament.id), updatePayload).catch(() => {});
                 }
             }
 

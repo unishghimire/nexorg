@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { doc, onSnapshot, updateDoc, collection, query, where, getDocs, writeBatch, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, updateDoc, collection, query, where, getDocs, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../../../shared/config/firebase';
 import { useAuth } from '../../../shared/context/AuthContext';
 import { Tournament, TournamentGroup, Match, Team, TournamentEarning } from '../../../shared/types/types';
@@ -66,11 +66,15 @@ export function useTournamentAdmin(
     useEffect(() => {
         if (!id || !user) return;
 
-        let unsubAlt: (() => void) | null = null;
-        // Tournament Listener with Scrims fallback
+        // Tournament Listener strictly on 'tournaments' collection
         const unsubTournament = onSnapshot(doc(db, 'tournaments', id), (docSnap) => {
             if (docSnap.exists()) {
                 const data = { id: docSnap.id, ...docSnap.data() } as Tournament;
+                const isScrim = data.matchType === 'scrims' || (data as any).isScrim === true || (data as any).type === 'scrim';
+                if (isScrim) {
+                    navigate(`/organizer/scrim/${id}`);
+                    return;
+                }
                 if (data.hostUid && data.hostUid !== user.uid && profile?.role !== 'admin' && profile?.role !== 'organizer') {
                     showToast('Unauthorized access', 'error');
                     navigate('/organizer');
@@ -89,23 +93,20 @@ export function useTournamentAdmin(
                 }
                 setLoading(false);
             } else {
-                // Fallback to scrims collection
-                if (!unsubAlt) {
-                    unsubAlt = onSnapshot(doc(db, 'scrims', id), (scrimSnap) => {
-                        if (scrimSnap.exists()) {
-                            const data = { id: scrimSnap.id, ...scrimSnap.data() } as Tournament;
-                            setTournament(data);
-                            setLoading(false);
-                        } else {
-                            showToast('Tournament or scrim not found', 'error');
-                            navigate('/organizer');
-                            setLoading(false);
-                        }
-                    }, () => {
-                        showToast('Failed to load event data', 'error');
+                // If it's a scrim in the scrims collection, redirect to dedicated scrim manager
+                getDoc(doc(db, 'scrims', id)).then(scrimSnap => {
+                    if (scrimSnap.exists()) {
+                        navigate(`/organizer/scrim/${id}`);
+                    } else {
+                        showToast('Tournament not found', 'error');
+                        navigate('/organizer');
                         setLoading(false);
-                    });
-                }
+                    }
+                }).catch(() => {
+                    showToast('Tournament not found', 'error');
+                    navigate('/organizer');
+                    setLoading(false);
+                });
             }
         }, (error) => {
             console.error('Tournament snapshot error:', error);
@@ -125,7 +126,6 @@ export function useTournamentAdmin(
 
         return () => {
             unsubTournament();
-            if (unsubAlt) unsubAlt();
             unsubParticipants();
         };
     }, [id, user, profile?.role, navigate, showToast]);
@@ -141,19 +141,9 @@ export function useTournamentAdmin(
             }
         }
 
-        const isScrim = tournament.matchType === 'scrims' || (tournament as any).isScrim === true || (tournament as any).type === 'scrim';
-
-        if (status === 'completed' && isScrim && Number(tournament.prizePool) > 0) {
-            const isPayoutDone = Boolean((tournament as any).payoutCompleted || (tournament as any).payoutStatus === 'paid' || (Array.isArray(tournament.winners) && tournament.winners.length > 0));
-            if (!isPayoutDone) {
-                showToast('Cannot finalize match until prize payment is distributed to winners! Please declare winners & distribute prizes first.', 'warning');
-                navigate(`/organizer/scrim/${tournament.id}`);
-                return;
-            }
-        }
-
         // GUARD: points & kills must be updated before finalizing (engine-specific)
         if (status === 'completed') {
+            const isScrim = tournament.matchType === 'scrims' || (tournament as any).isScrim === true || (tournament as any).type === 'scrim';
             const resultsReadiness = isScrim
                 ? checkScrimResultsReadiness(tournament, participants)
                 : checkTournamentResultsReadiness(tournament, participants);
@@ -162,25 +152,13 @@ export function useTournamentAdmin(
                 return;
             }
         }
-
         try {
-            let updatePayload: Record<string, any> = { status, updatedAt: serverTimestamp() };
-            if (status === 'completed' && isScrim) {
-                updatePayload = {
-                    ...updatePayload,
-                    stage: 'completed',
-                    completedAt: serverTimestamp(),
-                };
-            }
-
+            const updatePayload: Record<string, any> = { status, updatedAt: serverTimestamp() };
             const cleanedPayload = cleanFirestoreData(updatePayload);
-            await Promise.all([
-                updateDoc(doc(db, 'tournaments', tournament.id), cleanedPayload),
-                updateDoc(doc(db, 'scrims', tournament.id), cleanedPayload).catch(() => {}),
-            ]);
+            await updateDoc(doc(db, 'tournaments', tournament.id), cleanedPayload);
 
             if (status === 'completed') {
-                showToast(isScrim ? 'Scrim finalized & all lobby slots released!' : 'Tournament completed.', 'success');
+                showToast('Tournament completed.', 'success');
             } else {
                 showToast(`Tournament status updated to ${status}`, 'success');
             }
@@ -188,17 +166,9 @@ export function useTournamentAdmin(
             // Automatic Discord broadcast to main Discord server if configured
             try {
                 if (status === 'live') {
-                    if (isScrim) {
-                        announceScrimLive(tournament).catch(() => {});
-                    } else {
-                        announceTournamentLive(tournament).catch(() => {});
-                    }
+                    announceTournamentLive(tournament).catch(() => {});
                 } else if (status === 'completed') {
-                    if (isScrim) {
-                        announceScrimCompleted(tournament, (tournament as any).winners?.[0]?.teamName || (tournament as any).winners?.[0]?.username).catch(() => {});
-                    } else {
-                        announceTournamentCompleted(tournament, tournament.winners?.[0]?.username).catch(() => {});
-                    }
+                    announceTournamentCompleted(tournament, tournament.winners?.[0]?.username).catch(() => {});
                 }
             } catch (discordErr) {
                 // non-blocking

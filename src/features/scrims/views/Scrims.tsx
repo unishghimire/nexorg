@@ -2,7 +2,7 @@ import Seo from '../../../shared/components/Seo';
 import Faq from '../../../shared/components/Faq';
 import React, { useEffect, useState, useCallback } from 'react';
 import { Scrim } from '../../../shared/types/types';
-import { Trophy, Search, Filter, Calendar, Gamepad2, AlertCircle } from 'lucide-react';
+import { Trophy, Search, Filter, Calendar, Gamepad2, AlertCircle, Target } from 'lucide-react';
 import { motion } from 'motion/react';
 import { formatCurrency, formatDate, formatGameName } from '../../../shared/utils/utils';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -29,6 +29,8 @@ type ScrimRecord = Scrim & {
     currentPlayers?: number;
     isScrim?: boolean;
     totalSlots?: number;
+    scrimMode?: 'STANDARD' | 'PER_KILL';
+    rewardPerKill?: number;
 };
 
 const ACTIVE_SCRIM_STATUSES = new Set(['open', 'upcoming', 'published', 'live']);
@@ -69,32 +71,23 @@ const ScrimsContent: React.FC = () => {
         let successfulSources = 0;
         let list: ScrimRecord[] = [];
 
-        // Primary source: tournaments collection. Only reads the discriminating field.
+        // Primary authoritative source: dedicated 'scrims' collection
         try {
-            const primary = await getDocs(query(collection(db, 'tournaments'), where('matchType', '==', 'scrims')));
+            const primary = await getDocs(collection(db, 'scrims'));
             successfulSources += 1;
             list.push(...primary.docs.map(docSnap => toScrimRecord(docSnap.id, docSnap.data())));
         } catch (err) {
-            console.warn('Primary scrim source failed:', err);
+            console.warn('Primary scrims collection source query failed:', err);
         }
 
-        // Legacy/flagged records only when the primary source returned nothing.
+        // Fallback for legacy scrim records lingering in tournaments collection
         if (list.length === 0) {
             try {
-                const flagged = await getDocs(query(collection(db, 'tournaments'), where('isScrim', '==', true)));
+                const flagged = await getDocs(query(collection(db, 'tournaments'), where('matchType', '==', 'scrims')));
                 successfulSources += 1;
                 list.push(...flagged.docs.map(docSnap => toScrimRecord(docSnap.id, docSnap.data())));
             } catch (err) {
-                console.warn('Legacy flagged-scrim source failed:', err);
-            }
-        }
-        if (list.length === 0) {
-            try {
-                const legacy = await getDocs(query(collection(db, 'scrims'), where('status', 'in', ['open', 'live'])));
-                successfulSources += 1;
-                list.push(...legacy.docs.map(docSnap => toScrimRecord(docSnap.id, docSnap.data())));
-            } catch (err) {
-                console.warn('Legacy scrims source failed:', err);
+                console.warn('Legacy tournament scrim source failed:', err);
             }
         }
 
@@ -290,7 +283,7 @@ const ScrimsContent: React.FC = () => {
                                     whileInView={{ opacity: 1, y: 0 }}
                                     viewport={{ once: true }}
                                     onClick={() => {
-                                        navigate(`/tournaments/${scrim.tournamentId || scrim.id}`);
+                                        navigate(`/organizer/scrim/${scrim.id || scrim.tournamentId}`);
                                     }}
                                     className="bg-card/50 rounded-[2rem] border border-gray-800 overflow-hidden cursor-pointer group hover:border-brand-500/50 transition-colors hover:bg-card flex flex-col justify-between"
                                 >
@@ -308,6 +301,11 @@ const ScrimsContent: React.FC = () => {
                                             <span className="bg-black/60 backdrop-blur-md px-3 py-1 rounded-full text-xs font-black uppercase tracking-widest text-white border border-white/10">
                                                 {scrim.type || 'BR'}
                                             </span>
+                                            {(scrim.scrimMode === 'PER_KILL' || ((scrim as any).rewardPerKill && Number((scrim as any).rewardPerKill) > 0)) && (
+                                                <span className="bg-amber-500/20 backdrop-blur-md px-3 py-1 rounded-full text-xs font-black uppercase tracking-widest text-amber-300 border border-amber-500/30 flex items-center gap-1">
+                                                    <Target className="w-3 h-3 text-amber-400" /> Per-Kill
+                                                </span>
+                                            )}
                                         </div>
                                         <div className="absolute bottom-4 left-4 right-4 flex justify-between items-end">
                                             <div className="text-xs text-brand-400 font-black uppercase tracking-widest mb-1 flex items-center gap-1">
@@ -324,8 +322,14 @@ const ScrimsContent: React.FC = () => {
                                                 <div className="text-white font-black">{!scrim.entryFee || scrim.entryFee === 0 ? 'FREE' : formatCurrency(scrim.entryFee)}</div>
                                             </div>
                                             <div className="bg-black p-3 rounded-2xl border border-gray-800">
-                                                <div className="text-[10px] text-gray-500 uppercase font-black mb-1">Prize Pool</div>
-                                                <div className="text-brand-400 font-black">{formatCurrency(scrim.prizePool || 0)}</div>
+                                                <div className="text-[10px] text-gray-500 uppercase font-black mb-1">
+                                                    {(scrim.scrimMode === 'PER_KILL' || ((scrim as any).rewardPerKill && Number((scrim as any).rewardPerKill) > 0)) ? 'Bounty Rate' : 'Prize Pool'}
+                                                </div>
+                                                <div className="text-brand-400 font-black">
+                                                    {(scrim.scrimMode === 'PER_KILL' || ((scrim as any).rewardPerKill && Number((scrim as any).rewardPerKill) > 0))
+                                                        ? `Rs. ${(scrim as any).rewardPerKill}/kill`
+                                                        : formatCurrency(scrim.prizePool || 0)}
+                                                </div>
                                             </div>
                                         </div>
 

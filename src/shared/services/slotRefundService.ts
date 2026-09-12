@@ -23,6 +23,7 @@ export interface ReleaseSlotRefundParams {
   entryFee?: number;
   targetSlot?: any;
   participants?: any[];
+  collectionName?: 'tournaments' | 'scrims';
 }
 
 export interface ReleaseSlotRefundResult {
@@ -82,13 +83,18 @@ export async function releaseSlotWithRefund(
 
   // 2. Direct Firestore fallback
   // Fetch scrim document to get authoritative entryFee and slots
-  let scrimDocRef = doc(db, 'scrims', scrimId);
+  let resolvedCollection = params.collectionName || 'scrims';
+  let scrimDocRef = doc(db, resolvedCollection, scrimId);
   let scrimSnap = await getDoc(scrimDocRef).catch(() => null);
-  let resolvedCollection = 'scrims';
   if (!scrimSnap || !scrimSnap.exists()) {
-    scrimDocRef = doc(db, 'tournaments', scrimId);
-    scrimSnap = await getDoc(scrimDocRef).catch(() => null);
-    resolvedCollection = 'tournaments';
+    const altCollection = resolvedCollection === 'scrims' ? 'tournaments' : 'scrims';
+    const altDocRef = doc(db, altCollection, scrimId);
+    const altSnap = await getDoc(altDocRef).catch(() => null);
+    if (altSnap && altSnap.exists()) {
+      scrimDocRef = altDocRef;
+      scrimSnap = altSnap;
+      resolvedCollection = altCollection;
+    }
   }
   if (!scrimSnap || !scrimSnap.exists()) {
     throw new Error('Scrim or tournament not found');
@@ -332,12 +338,9 @@ export async function releaseSlotWithRefund(
   };
   const cleanedPayload = cleanFirestoreData(updatePayload);
 
-  await Promise.all([
-    updateDoc(doc(db, 'scrims', scrimId), cleanedPayload).catch(() => {}),
-    updateDoc(doc(db, 'tournaments', scrimId), cleanedPayload).catch(() => {}),
-    setDoc(doc(db, 'scrims', scrimId), cleanedPayload, { merge: true }).catch(() => {}),
-    setDoc(doc(db, 'tournaments', scrimId), cleanedPayload, { merge: true }).catch(() => {}),
-  ]);
+  await updateDoc(doc(db, resolvedCollection, scrimId), cleanedPayload).catch(() =>
+    setDoc(doc(db, resolvedCollection, scrimId), cleanedPayload, { merge: true })
+  );
 
   // Remove participant documents
   for (const p of matchParts) {

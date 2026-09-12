@@ -51,9 +51,34 @@ const AppContent = () => {
                 <OrganizerPanel />
               </ProtectedRoute>
             } />
+            {/* Tournament Management & Hub Routes */}
+            <Route path="/tournaments" element={<Navigate to="/organizer?tab=tournaments" replace />} />
+            <Route path="/tournaments/:id" element={
+              <ProtectedRoute allowedRoles={['organizer', 'admin']}>
+                <TournamentAdminPanel />
+              </ProtectedRoute>
+            } />
+            <Route path="/tournaments/manage/:id" element={
+              <ProtectedRoute allowedRoles={['organizer', 'admin']}>
+                <TournamentAdminPanel />
+              </ProtectedRoute>
+            } />
             <Route path="/tournament-admin/:id" element={
               <ProtectedRoute allowedRoles={['organizer', 'admin']}>
                 <TournamentAdminPanel />
+              </ProtectedRoute>
+            } />
+
+            {/* Scrim Management & Hub Routes */}
+            <Route path="/scrims" element={<Navigate to="/organizer?tab=scrims" replace />} />
+            <Route path="/scrims/:id" element={
+              <ProtectedRoute allowedRoles={['organizer', 'admin']}>
+                <ScrimDetailPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/scrims/manage/:id" element={
+              <ProtectedRoute allowedRoles={['organizer', 'admin']}>
+                <ScrimDetailPage />
               </ProtectedRoute>
             } />
             <Route path="/organizer/scrim/:id" element={

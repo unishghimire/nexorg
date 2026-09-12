@@ -4,7 +4,6 @@ import { Calendar, Clock, Users, MapPin, Layers, Loader2 } from 'lucide-react';
 import { TournamentAdminTabProps } from './types';
 import Modal from '../../../../shared/components/Modal';
 import ResultUploader from '../../../results/components/ResultUploader';
-import PerKillResultUploader from '../../../tournaments/components/PerKillResultUploader';
 import { isBRTournament } from '../../../../shared/services/tournamentEngine';
 import { getMapsForGame } from '../../../../shared/constants/constants';
 
@@ -244,25 +243,14 @@ export const MatchesTab: React.FC<TournamentAdminTabProps> = (props) => {
 
             {/* Result Uploader */}
             {selectedMatch && selectedGroup && isResultUploaderOpen && (
-                (tournament as any).tournamentMode === 'PER_KILL_REWARD' ? (
-                    <PerKillResultUploader
-                        isOpen={isResultUploaderOpen}
-                        onClose={() => setIsResultUploaderOpen(false)}
-                        tournament={tournament}
-                        group={selectedGroup}
-                        match={selectedMatch.match}
-                        onSuccess={() => setIsResultUploaderOpen(false)}
-                    />
-                ) : (
-                    <ResultUploader
-                        isOpen={isResultUploaderOpen}
-                        onClose={() => setIsResultUploaderOpen(false)}
-                        tournament={tournament}
-                        group={selectedGroup}
-                        match={selectedMatch.match}
-                        onSuccess={() => setIsResultUploaderOpen(false)}
-                    />
-                )
+                <ResultUploader
+                    isOpen={isResultUploaderOpen}
+                    onClose={() => setIsResultUploaderOpen(false)}
+                    tournament={tournament}
+                    group={selectedGroup}
+                    match={selectedMatch.match}
+                    onSuccess={() => setIsResultUploaderOpen(false)}
+                />
             )}
 
             {/* Add Match Modal */}

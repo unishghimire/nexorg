@@ -4,8 +4,6 @@ import { Tournament } from '../../../shared/types/types';
 import { createScoringSnapshot } from '../../../shared/services/scoringEngine';
 import { generateDefaultRoadmap } from '../../../shared/services/tournamentEngine';
 import { TournamentScoringSnapshot } from '../../../shared/types/scoring';
-import { TournamentMode, RewardConfig, RewardSnapshot, DEFAULT_REWARD_CONFIG } from '../../../shared/types/per-kill';
-import { createRewardSnapshot } from '../../../shared/services/perKillEngine';
 import { db, auth } from '../../../shared/config/firebase';
 import { useAuth } from '../../../shared/context/AuthContext';
 import { useNotification } from '../../../shared/context/NotificationContext';
@@ -42,7 +40,6 @@ interface TournamentCreateModalProps {
   onClose: () => void;
   onSuccess: () => void;
   editTournament?: Tournament | null;
-  defaultMatchType?: 'tournament' | 'scrims';
 }
 
 const STEPS = [
@@ -53,7 +50,7 @@ const STEPS = [
   { id: 5, title: 'Review', icon: CheckCircle2, description: 'Final check' },
 ];
 
-const TournamentCreateModal: React.FC<TournamentCreateModalProps> = ({ isOpen, onClose, onSuccess, editTournament, defaultMatchType = 'tournament' }) => {
+const TournamentCreateModal: React.FC<TournamentCreateModalProps> = ({ isOpen, onClose, onSuccess, editTournament }) => {
   const { user, profile } = useAuth();
   const { showToast } = useNotification();
   const [currentStep, setCurrentStep] = useState(1);
@@ -91,14 +88,9 @@ const TournamentCreateModal: React.FC<TournamentCreateModalProps> = ({ isOpen, o
     prizeDistribution: [
       { id: 'prize-initial-1', rank: 1, label: '1st', amount: 0 },
     ] as any[],
-    matchType: 'scrims' as 'scrims' | 'tournament',
+    matchType: 'tournament' as const,
     scheduleType: 'auto' as 'auto' | 'manual',
     registrationType: 'auto' as 'auto' | 'manual',
-    tournamentMode: 'POINTS' as TournamentMode,
-    rewardPerKill: 10,
-    rewardCurrency: 'NPR',
-    minimumKillsForReward: 0,
-    maximumRewardPerPlayer: 0,
   });
 
   const [selectedGame, setSelectedGame] = useState<any>(null);
@@ -136,14 +128,9 @@ const TournamentCreateModal: React.FC<TournamentCreateModalProps> = ({ isOpen, o
           return new Date(startDate.getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
         })(),
         rules: editTournament.rules || '',
-        matchType: editTournament.matchType || 'tournament',
+        matchType: 'tournament' as const,
         scheduleType: editTournament.scheduleType || 'auto',
         registrationType: editTournament.registrationType || 'auto',
-        tournamentMode: (editTournament as any).tournamentMode || 'POINTS',
-        rewardPerKill: (editTournament as any).rewardSnapshot?.rewardPerKill || (editTournament as any).rewardSnapshot?.rewardPerKill !== undefined ? (editTournament as any).rewardSnapshot?.rewardPerKill : 10,
-        rewardCurrency: (editTournament as any).rewardSnapshot?.currency || 'NPR',
-        minimumKillsForReward: (editTournament as any).rewardSnapshot?.minimumKillsForReward || 0,
-        maximumRewardPerPlayer: (editTournament as any).rewardSnapshot?.maximumRewardPerPlayer || 0,
         prizeDistribution: editTournament.prizeDistribution && editTournament.prizeDistribution.length > 0 
           ? editTournament.prizeDistribution.map(p => ({
               id: p.id || `prize-${Date.now()}-${Math.random()}`,
@@ -188,20 +175,15 @@ const TournamentCreateModal: React.FC<TournamentCreateModalProps> = ({ isOpen, o
         roomPass: '',
         startTime: '',
         rules: '',
-        matchType: defaultMatchType,
+        matchType: 'tournament' as const,
         scheduleType: 'auto',
         registrationType: 'auto',
-        tournamentMode: 'POINTS' as TournamentMode,
-        rewardPerKill: 10,
-        rewardCurrency: 'NPR',
-        minimumKillsForReward: 0,
-        maximumRewardPerPlayer: 0,
         prizeDistribution: [
           { id: 'prize-initial-1', rank: 1, label: '1st', amount: 0 },
         ]
       });
     }
-  }, [editTournament, isOpen, defaultMatchType]);
+  }, [editTournament, isOpen]);
 
   const validateStep = () => {
     switch (currentStep) {
@@ -244,27 +226,20 @@ const TournamentCreateModal: React.FC<TournamentCreateModalProps> = ({ isOpen, o
     setLoading(true);
     try {
       const { roomId, roomPass, ...publicFormData } = formData;
-      const isScrim = formData.matchType === 'scrims';
       const slotCount = Number(formData.slots) || 20;
-      const initialSlots = isScrim ? Array.from({ length: slotCount }, (_, idx) => ({
-        slotNumber: idx + 1,
-        status: 'open' as const,
-        teamName: null,
-        teamId: null,
-      })) : formData.slots;
 
-      const requiredFunding = isScrim ? 0 : Math.max(0, Math.round(Number(formData.prizePool || 0)));
-      const initialFundingStatus = isScrim || requiredFunding === 0 ? 'NOT_REQUIRED' : 'PENDING_FUNDING';
-      const initialStatus = isScrim || requiredFunding === 0 ? 'upcoming' : 'pending_funding';
+      const requiredFunding = Math.max(0, Math.round(Number(formData.prizePool || 0)));
+      const initialFundingStatus = requiredFunding === 0 ? 'NOT_REQUIRED' : 'PENDING_FUNDING';
+      const initialStatus = requiredFunding === 0 ? 'upcoming' : 'pending_funding';
 
       const tournamentData = {
         ...publicFormData,
-        matchType: formData.matchType || (isScrim ? 'scrims' : 'tournament'),
-        isScrim,
-        slots: initialSlots,
+        matchType: 'tournament' as const,
+        isScrim: false,
+        slots: slotCount,
         totalSlots: slotCount,
         filledSlots: editTournament ? ((editTournament as any).filledSlots ?? editTournament.currentPlayers) : 0,
-        tournamentMode: formData.tournamentMode,
+        tournamentMode: 'POINTS' as const,
         hostUid: editTournament ? editTournament.hostUid : user.uid,
         currentPlayers: editTournament ? editTournament.currentPlayers : 0,
         status: editTournament ? editTournament.status : initialStatus,
@@ -280,12 +255,9 @@ const TournamentCreateModal: React.FC<TournamentCreateModalProps> = ({ isOpen, o
       const cleanedTournamentData = cleanFirestoreData(tournamentData);
 
       if (editTournament) {
-        await Promise.all([
-          setDoc(doc(db, 'tournaments', editTournament.id), cleanedTournamentData, { merge: true }).catch(() => {}),
-          setDoc(doc(db, 'scrims', editTournament.id), cleanedTournamentData, { merge: true }).catch(() => {}),
-        ]);
+        await setDoc(doc(db, 'tournaments', editTournament.id), cleanedTournamentData, { merge: true });
         if (roomId || roomPass) {
-          await broadcastRoomCredentials(editTournament.id, roomId, roomPass, formData.bannerUrl, isScrim ? 'scrims' : 'tournaments');
+          await broadcastRoomCredentials(editTournament.id, roomId, roomPass, formData.bannerUrl, 'tournaments');
         }
         showToast('Tournament updated successfully!', 'success');
       } else {
@@ -299,30 +271,13 @@ const TournamentCreateModal: React.FC<TournamentCreateModalProps> = ({ isOpen, o
           });
         }
 
-        // Create reward snapshot for PER_KILL_REWARD tournaments
-        let rewardSnapshot: RewardSnapshot | undefined;
-        if (formData.tournamentMode === 'PER_KILL_REWARD') {
-          rewardSnapshot = createRewardSnapshot({
-            gameId: selectedGame?.id || '',
-            gameName: selectedGame?.name || formData.game,
-            rewardConfig: {
-              enabled: true,
-              rewardPerKill: formData.rewardPerKill,
-              currency: formData.rewardCurrency,
-              minimumKillsForReward: formData.minimumKillsForReward,
-              maximumRewardPerPlayer: formData.maximumRewardPerPlayer > 0 ? formData.maximumRewardPerPlayer : undefined,
-            },
-          });
-        }
-
         // Generate default roadmap based on slots + type
         const defaultRoadmap = generateDefaultRoadmap(formData.slots, formData.type);
 
         const newTournamentPayload = cleanFirestoreData({
           ...tournamentData,
-          tournamentMode: formData.tournamentMode,
+          tournamentMode: 'POINTS',
           ...(scoringSnapshot ? { scoringSnapshot } : {}),
-          ...(rewardSnapshot ? { rewardSnapshot } : {}),
           roadmap: defaultRoadmap,
           currentRound: 1,
         });
@@ -336,7 +291,7 @@ const TournamentCreateModal: React.FC<TournamentCreateModalProps> = ({ isOpen, o
         }
 
         // If funded tournament, attempt atomic activation/fund reservation immediately
-        if (!isScrim && requiredFunding > 0) {
+        if (requiredFunding > 0) {
           try {
             const token = await auth.currentUser?.getIdToken();
             if (token) {
@@ -425,11 +380,6 @@ const TournamentCreateModal: React.FC<TournamentCreateModalProps> = ({ isOpen, o
           matchType: 'tournament',
           scheduleType: 'auto',
           registrationType: 'auto',
-          tournamentMode: 'POINTS' as TournamentMode,
-          rewardPerKill: 10,
-          rewardCurrency: 'NPR',
-          minimumKillsForReward: 0,
-          maximumRewardPerPlayer: 0,
           prizeDistribution: [
             { id: 'prize-initial-1', rank: 1, label: '1st', amount: 0 },
           ] as any[]
@@ -611,49 +561,22 @@ const TournamentCreateModal: React.FC<TournamentCreateModalProps> = ({ isOpen, o
               </div>
             </div>
 
-            {formData.matchType === 'scrims' && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Single Lobby Room ID</label>
-                  <input 
-                    type="text" 
-                    value={(formData as any).roomId || ''}
-                    onChange={(e) => setFormData({...formData, roomId: e.target.value})}
-                    placeholder="e.g. 12345678"
-                    className="w-full bg-dark border border-gray-800 rounded-lg p-3 text-white focus:border-brand-500 focus-visible:outline-none transition"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Lobby Password</label>
-                  <input 
-                    type="text" 
-                    value={(formData as any).roomPass || ''}
-                    onChange={(e) => setFormData({...formData, roomPass: e.target.value})}
-                    placeholder="e.g. nexplay123"
-                    className="w-full bg-dark border border-gray-800 rounded-lg p-3 text-white focus:border-brand-500 focus-visible:outline-none transition"
-                  />
-                </div>
-              </div>
-            )}
-
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {formData.matchType !== 'scrims' && (
-                <div>
-                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Tournament Format</label>
-                  <select 
-                    value={formData.format}
-                    onChange={(e) => setFormData({...formData, format: e.target.value as any})}
-                    className="w-full bg-dark border border-gray-800 rounded-lg p-3 text-white focus:border-brand-500 focus-visible:outline-none transition"
-                  >
-                    <option value="single_elimination">Single Elimination</option>
-                    <option value="double_elimination">Double Elimination</option>
-                    <option value="round_robin">Round Robin</option>
-                    <option value="swiss">Swiss System</option>
-                    <option value="hybrid">Hybrid (Groups + Knockout)</option>
-                  </select>
-                </div>
-              )}
-              <div className={formData.matchType === 'scrims' ? 'col-span-2' : ''}>
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Tournament Format</label>
+                <select 
+                  value={formData.format}
+                  onChange={(e) => setFormData({...formData, format: e.target.value as any})}
+                  className="w-full bg-dark border border-gray-800 rounded-lg p-3 text-white focus:border-brand-500 focus-visible:outline-none transition"
+                >
+                  <option value="single_elimination">Single Elimination</option>
+                  <option value="double_elimination">Double Elimination</option>
+                  <option value="round_robin">Round Robin</option>
+                  <option value="swiss">Swiss System</option>
+                  <option value="hybrid">Hybrid (Groups + Knockout)</option>
+                </select>
+              </div>
+              <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Total Slots</label>
                 <input 
                   type="number" 
@@ -727,6 +650,8 @@ const TournamentCreateModal: React.FC<TournamentCreateModalProps> = ({ isOpen, o
             animate={{ opacity: 1, x: 0 }} 
             className="space-y-4"
           >
+            {/* Standard Tournament Prize & Finance Setup */}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Total Prize Pool</label>

@@ -21,12 +21,15 @@ import {
   Lock,
   Tv,
   Save,
+  Target,
+  Trophy,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatCurrency, formatGameName, toDateSafe, cleanFirestoreData } from '../../../shared/utils/utils';
 import { commitFirestoreBatches } from '../../../shared/utils/firestoreBatches';
 import { normalizeScrimSlots, countFilledScrimSlots, ScrimSlot } from '../../../shared/utils/scrimSlots';
 import { fetchRoomCredentials, broadcastRoomCredentials } from '../../../shared/services/roomCredentials';
+import { announceNewScrim } from '../../../shared/services/DiscordService';
 
 interface ScrimCreateModalProps {
   isOpen: boolean;
@@ -89,6 +92,9 @@ export default function ScrimCreateModal({
     teamType: 'squad', // solo | duo | squad | 5v5
     map: 'Bermuda',
     totalSlots: 12,
+    scrimMode: 'STANDARD' as 'STANDARD' | 'PER_KILL',
+    rewardPerKill: 0,
+    minimumKillsForReward: 0,
     entryFee: 0,
     prizePool: 0,
     startTime: '',
@@ -115,6 +121,9 @@ export default function ScrimCreateModal({
         teamType: editScrim.teamType || 'squad',
         map: editScrim.map || 'Bermuda',
         totalSlots: editScrim.totalSlots || (Array.isArray(editScrim.slots) ? editScrim.slots.length : Number(editScrim.slots) || 12),
+        scrimMode: (editScrim.scrimMode || (editScrim.rewardPerKill > 0 ? 'PER_KILL' : 'STANDARD')) as 'STANDARD' | 'PER_KILL',
+        rewardPerKill: editScrim.rewardPerKill || 0,
+        minimumKillsForReward: editScrim.minimumKillsForReward || 0,
         entryFee: editScrim.entryFee || 0,
         prizePool: editScrim.prizePool || 0,
         startTime: formattedStartTime,
@@ -146,6 +155,9 @@ export default function ScrimCreateModal({
         teamType: 'squad',
         map: MAP_OPTIONS[dbGames[0]?.name]?.[0] || 'Bermuda',
         totalSlots: 12,
+        scrimMode: 'STANDARD' as 'STANDARD' | 'PER_KILL',
+        rewardPerKill: 0,
+        minimumKillsForReward: 0,
         entryFee: 0,
         prizePool: 0,
         startTime: '',
@@ -241,6 +253,9 @@ export default function ScrimCreateModal({
         currentPlayers: filledSlots,
         entryFee: Number(formData.entryFee) || 0,
         prizePool: Number(formData.prizePool) || 0,
+        scrimMode: formData.scrimMode,
+        rewardPerKill: formData.scrimMode === 'PER_KILL' ? Number(formData.rewardPerKill) || 0 : 0,
+        minimumKillsForReward: formData.scrimMode === 'PER_KILL' ? Number(formData.minimumKillsForReward) || 0 : 0,
         currency: 'NPR',
         startTime: startTimestamp,
         bannerUrl: formData.bannerUrl || 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&q=80',
@@ -256,33 +271,36 @@ export default function ScrimCreateModal({
       const cleanedPayload = cleanFirestoreData(scrimPayload);
 
       if (editScrim) {
-        await Promise.all([
-          updateDoc(doc(db, 'tournaments', editScrim.id), cleanedPayload).catch(() => {}),
-          updateDoc(doc(db, 'scrims', editScrim.id), cleanedPayload).catch(() => {}),
-          setDoc(doc(db, 'scrims', editScrim.id), cleanedPayload, { merge: true }).catch(() => {}),
-          setDoc(doc(db, 'tournaments', editScrim.id), cleanedPayload, { merge: true }).catch(() => {}),
-        ]);
+        await updateDoc(doc(db, 'scrims', editScrim.id), cleanedPayload);
 
         if (formData.roomId || formData.roomPass) {
           await broadcastRoomCredentials(editScrim.id, formData.roomId, formData.roomPass, formData.streamUrl, 'scrims').catch(() => {});
         }
         showToast('Scrim updated successfully!', 'success');
       } else {
-        const docRef = await addDoc(collection(db, 'tournaments'), {
+        const docRef = await addDoc(collection(db, 'scrims'), {
           ...scrimPayload,
           createdAt: serverTimestamp(),
         });
 
-        // Also mirror to dedicated scrims collection
-        await setDoc(doc(db, 'scrims', docRef.id), {
-          ...scrimPayload,
-          id: docRef.id,
-          createdAt: serverTimestamp(),
-        }).catch(() => {});
-
         if (formData.roomId || formData.roomPass) {
           await broadcastRoomCredentials(docRef.id, formData.roomId, formData.roomPass, formData.streamUrl, 'scrims').catch(() => {});
         }
+
+        // Automated Discord announcement for newly created scrim
+        announceNewScrim({
+          id: docRef.id,
+          title: scrimPayload.title,
+          game: scrimPayload.game,
+          teamType: scrimPayload.teamType,
+          startTime: parsedDate,
+          prizePool: scrimPayload.prizePool,
+          entryFee: scrimPayload.entryFee,
+          currentPlayers: filledSlots,
+          slots: slotCount,
+          bannerUrl: scrimPayload.bannerUrl,
+        } as any).catch((e) => console.warn('Discord scrim announcement warning:', e));
+
         showToast('Scrim created successfully!', 'success');
       }
 
@@ -496,6 +514,107 @@ export default function ScrimCreateModal({
         {/* Step 3: Fees & Banner */}
         {currentStep === 3 && (
           <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-4">
+            {/* Scrim Reward Format Selection */}
+            <div>
+              <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">
+                Reward Structure
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, scrimMode: 'STANDARD' })}
+                  className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                    formData.scrimMode === 'STANDARD'
+                      ? 'bg-emerald-500/10 border-emerald-500 text-white shadow-lg shadow-emerald-500/10'
+                      : 'bg-black border-gray-800 text-gray-400 hover:border-gray-700'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <Trophy className={`w-4 h-4 ${formData.scrimMode === 'STANDARD' ? 'text-emerald-400' : 'text-gray-500'}`} />
+                    <span className="text-xs font-black uppercase tracking-wider">Standard Podium</span>
+                  </div>
+                  <p className="text-[11px] text-gray-400">
+                    Prize pool allocated to top 1st, 2nd, 3rd ranked winners.
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const defaultKillRate = formData.rewardPerKill || 20;
+                    const estimatedPool = (formData.totalSlots || 12) * defaultKillRate * (formData.teamType === 'solo' ? 2 : 4);
+                    setFormData({
+                      ...formData,
+                      scrimMode: 'PER_KILL',
+                      rewardPerKill: defaultKillRate,
+                      prizePool: formData.prizePool || estimatedPool,
+                    });
+                  }}
+                  className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                    formData.scrimMode === 'PER_KILL'
+                      ? 'bg-brand-500/10 border-brand-500 text-white shadow-lg shadow-brand-500/10'
+                      : 'bg-black border-gray-800 text-gray-400 hover:border-gray-700'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <Target className={`w-4 h-4 ${formData.scrimMode === 'PER_KILL' ? 'text-brand-400' : 'text-gray-500'}`} />
+                    <span className="text-xs font-black uppercase tracking-wider">Per-Kill Bounty</span>
+                  </div>
+                  <p className="text-[11px] text-gray-400">
+                    Cash reward calculated and paid per verified kill/elimination.
+                  </p>
+                </button>
+              </div>
+            </div>
+
+            {/* Per-Kill Configuration Options */}
+            {formData.scrimMode === 'PER_KILL' && (
+              <div className="bg-brand-500/10 border border-brand-500/20 p-4 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-brand-300 uppercase tracking-wide flex items-center gap-1.5">
+                    <Target className="w-3.5 h-3.5" /> Per-Kill Bounty Config
+                  </span>
+                  <span className="text-[10px] font-mono font-bold text-brand-400 bg-brand-500/20 px-2 py-0.5 rounded-full border border-brand-500/30">
+                    NPR / Kill
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">
+                      Reward Per Kill (Rs.) *
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      placeholder="e.g. 20"
+                      value={formData.rewardPerKill || ''}
+                      onChange={(e) => {
+                        const rate = Math.max(0, Number(e.target.value));
+                        setFormData({
+                          ...formData,
+                          rewardPerKill: rate,
+                        });
+                      }}
+                      className="w-full bg-black border border-gray-800 rounded-xl p-2.5 text-xs text-white font-bold focus-visible:outline-none focus:border-brand-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">
+                      Min Kills Required
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      placeholder="0 (no minimum)"
+                      value={formData.minimumKillsForReward || ''}
+                      onChange={(e) => setFormData({ ...formData, minimumKillsForReward: Math.max(0, Number(e.target.value)) })}
+                      className="w-full bg-black border border-gray-800 rounded-xl p-2.5 text-xs text-white font-bold focus-visible:outline-none focus:border-brand-500"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">
@@ -513,7 +632,7 @@ export default function ScrimCreateModal({
 
               <div>
                 <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">
-                  Prize Pool (Rs.)
+                  {formData.scrimMode === 'PER_KILL' ? 'Prize Pool / Bounty Pool (Rs.)' : 'Prize Pool (Rs.)'}
                 </label>
                 <input
                   type="number"

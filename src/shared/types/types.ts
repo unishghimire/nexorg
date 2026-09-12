@@ -225,6 +225,9 @@ export interface Scrim {
     prizePool?: number;
     currentSlots?: number;
     matchType?: 'scrims' | 'tournament';
+    scrimMode?: 'STANDARD' | 'PER_KILL';
+    rewardPerKill?: number;
+    minimumKillsForReward?: number;
 }
 
 export interface Tournament {

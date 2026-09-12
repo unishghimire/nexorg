@@ -2,17 +2,54 @@ import { collection, addDoc, serverTimestamp, query, where, orderBy, limit, onSn
 import { db } from '../config/firebase';
 import { Notification } from '../types/types';
 
+export interface NotificationCreateOptions {
+    userId: string;
+    title: string;
+    message: string;
+    type?: 'info' | 'success' | 'warning' | 'alert';
+    link?: string;
+    actionUrl?: string;
+}
+
 export const NotificationService = {
-    // Create a new notification for a user
-    create: async (userId: string, title: string, message: string, type: 'info' | 'success' | 'warning' | 'alert' = 'info', link?: string) => {
+    // Create a new notification for a user (supports both positional and object signatures)
+    create: async (
+        userIdOrOptions: string | NotificationCreateOptions,
+        title?: string,
+        message?: string,
+        type: 'info' | 'success' | 'warning' | 'alert' = 'info',
+        link?: string
+    ) => {
         try {
+            let targetUid: string;
+            let targetTitle: string;
+            let targetMessage: string;
+            let targetType: 'info' | 'success' | 'warning' | 'alert' = 'info';
+            let targetLink: string | undefined;
+
+            if (typeof userIdOrOptions === 'object') {
+                targetUid = userIdOrOptions.userId;
+                targetTitle = userIdOrOptions.title;
+                targetMessage = userIdOrOptions.message;
+                targetType = userIdOrOptions.type || 'info';
+                targetLink = userIdOrOptions.link || userIdOrOptions.actionUrl;
+            } else {
+                targetUid = userIdOrOptions;
+                targetTitle = title || '';
+                targetMessage = message || '';
+                targetType = type;
+                targetLink = link;
+            }
+
+            if (!targetUid) return;
+
             await addDoc(collection(db, 'notifications'), {
-                userId,
-                title,
-                message,
-                type,
+                userId: targetUid,
+                title: targetTitle,
+                message: targetMessage,
+                type: targetType,
                 read: false,
-                link,
+                link: targetLink || null,
                 timestamp: serverTimestamp()
             });
         } catch (error) {

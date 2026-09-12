@@ -20,13 +20,11 @@ import Seo from '../../../shared/components/Seo';
 import ProfileLink from '../../profile/components/ProfileLink';
 import PrizeBoard from '../components/PrizeBoard';
 import TournamentResultModal from '../components/TournamentResultModal';
-import PerKillResultView from '../components/PerKillResultView';
-import PerKillLeaderboard from '../components/PerKillLeaderboard';
 import { TournamentRoadmap } from '../components/TournamentRoadmap';
 import GroupStandingsView from '../components/GroupStandingsView';
 import { fetchRoomCredentials, subscribeRoomCredentials } from '../../../shared/services/roomCredentials';
 
-const TOURNAMENT_TAB_IDS = ['overview', 'description', 'participants', 'groups', 'roadmap', 'results', 'killrewards', 'slots'] as const;
+const TOURNAMENT_TAB_IDS = ['overview', 'description', 'participants', 'groups', 'roadmap', 'results', 'slots'] as const;
 type TournamentTabId = typeof TOURNAMENT_TAB_IDS[number];
 
 const getTournamentTab = (value: string | null): TournamentTabId =>
@@ -325,10 +323,7 @@ export default function TournamentDetails() {
                     stage: 'registration',
                     updatedAt: serverTimestamp(),
                 };
-                await Promise.all([
-                    updateDoc(doc(db, 'tournaments', id), updatePayload).catch(() => {}),
-                    updateDoc(doc(db, 'scrims', id), updatePayload).catch(() => {}),
-                ]);
+                await updateDoc(doc(db, 'tournaments', id), updatePayload);
                 success = true;
             }
 
@@ -729,7 +724,6 @@ export default function TournamentDetails() {
                             { id: 'roadmap', label: 'Roadmap', icon: Calendar },
                             { id: 'groups', label: 'Match Groups', icon: Trophy },
                             tournament.status === 'completed' ? { id: 'results', label: 'Results', icon: Trophy } : null,
-                            (tournament as any).tournamentMode === 'PER_KILL_REWARD' && (tournament as any).killRewards?.length > 0 ? { id: 'killrewards', label: 'Kill Rewards', icon: Target } : null
                         ]).filter((tab): tab is {id: string, label: string, icon: any} => tab !== null).map((tab) => (
                             <button type="button" 
                                 key={tab.id}
@@ -1246,26 +1240,10 @@ export default function TournamentDetails() {
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, y: -10 }}
                             >
-                                {(tournament as any).tournamentMode === 'PER_KILL_REWARD' ? (
-                                    <div className="space-y-6">
-                                        <PerKillLeaderboard tournament={tournament} />
-                                        <GroupStandingsView tournament={tournament} participants={participants} />
-                                    </div>
-                                ) : (
-                                    <GroupStandingsView tournament={tournament} participants={participants} />
-                                )}
+                                <GroupStandingsView tournament={tournament} participants={participants} />
                             </motion.div>
                         )}
-                        {activeTab === 'killrewards' && (
-                            <motion.div
-                                key="killrewards"
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -10 }}
-                            >
-                                <PerKillResultView tournament={tournament} />
-                            </motion.div>
-                        )}
+
                     </AnimatePresence>
 
                     {metaError && (

@@ -10,7 +10,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth } from '../config/firebase';
 import { NotificationService } from './NotificationService';
-import { countFilledScrimSlots, getFilledSlotCount, getSlotCount } from '../utils/scrimSlots';
+import { countFilledScrimSlots, getFilledSlotCount, getSlotCount, createResetScrimSlots } from '../utils/scrimSlots';
 import { resolveAllScrimResults } from '../utils/scrimResults';
 import { cleanFirestoreData } from '../utils/utils';
 
@@ -236,7 +236,22 @@ export async function executePrizeDistribution(
     if (teamKey) seenTeams.add(teamKey);
   }
 
+  // Strict validation: Until points and kills are updated, the tournament or scrim cannot finalize!
+  const hasInvalidStats = validWinners.some(
+    w => typeof w.kills !== 'number' || isNaN(w.kills) || w.kills < 0 ||
+         typeof w.points !== 'number' || isNaN(w.points) || w.points < 0
+  );
+  if (hasInvalidStats) {
+    throw new Error('Cannot finalize: Match points and kills must be updated for competitors before finalization!');
+  }
+
+  const allStatsZero = validWinners.every(w => (Number(w.kills) || 0) === 0 && (Number(w.points) || 0) === 0);
+  if (allStatsZero) {
+    throw new Error('Cannot finalize: Match points and kills must be updated for competitors before finalization!');
+  }
+
   const totalDistributed = validWinners.reduce((sum, w) => sum + (Number(w.prize) || 0), 0);
+
 
   // If prize pool is specified, ensure allocated amount does not exceed prize pool
   if (prizePool > 0 && Math.abs(totalDistributed - prizePool) > 0.01) {
@@ -437,6 +452,11 @@ export async function executePrizeDistribution(
     finalRoster: Array.isArray(existingData?.slots)
       ? existingData.slots.filter((s: any) => s.status === 'filled' || s.teamName)
       : allResolvedResults,
+    slots: createResetScrimSlots(getSlotCount(existingData)),
+    filledSlots: 0,
+    currentPlayers: 0,
+    roomId: '',
+    roomPass: '',
     payoutCompleted: true,
     payoutStatus: 'paid',
     payoutTotal: totalDistributed,
@@ -453,21 +473,21 @@ export async function executePrizeDistribution(
   // Clean all undefined values before Firestore updateDoc / setDoc serialization
   const cleanedPayload = cleanFirestoreData(docUpdatePayload);
 
-  // Update both collections for consistency
-  await Promise.all([
-    updateDoc(doc(db, 'tournaments', eventId), cleanedPayload).catch(() => {}),
-    updateDoc(doc(db, 'scrims', eventId), cleanedPayload).catch(() => {}),
-    setDoc(doc(db, 'tournaments', eventId), cleanedPayload, { merge: true }).catch(() => {}),
-    setDoc(doc(db, 'scrims', eventId), cleanedPayload, { merge: true }).catch(() => {}),
-  ]);
+  const targetCollection = eventType === 'scrim' ? 'scrims' : 'tournaments';
+
+  // Update target collection only — zero cross-collection writes
+  await updateDoc(doc(db, targetCollection, eventId), cleanedPayload).catch(() =>
+    setDoc(doc(db, targetCollection, eventId), cleanedPayload, { merge: true })
+  );
 
   // Step 4: Broadcast completion notification to all registered participants
+  const targetRoute = eventType === 'scrim' ? `/organizer/scrim/${eventId}` : `/tournaments/${eventId}`;
   await NotificationService.notifyParticipants(
     eventId,
     'Results Finalized & Prizes Distributed! 🏆',
     `The results for ${eventTitle} have been finalized and prizes have been credited to the winners! Check the leaderboard.`,
     'success',
-    `/tournaments/${eventId}`
+    targetRoute
   ).catch(() => {});
 
   return {

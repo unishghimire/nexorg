@@ -39,7 +39,7 @@ export interface TournamentsTabProps {
   onUpdateStatus: (id: string, status: string) => void;
   onCreateTournament: () => void;
   onOpenRoomDispatch: (tournament: any) => void;
-  onManageTournament?: (id: string, matchType?: string) => void;
+  onManageTournament?: (id: string) => void;
   onEditTournament?: (tournament: any) => void;
   onActivateTournament?: (id: string) => Promise<void>;
 }
@@ -324,7 +324,7 @@ const TournamentsTab: React.FC<TournamentsTabProps> = ({
                   {/* Manage / Details */}
                   {onManageTournament && (
                     <button
-                      onClick={() => onManageTournament(tournament.id, tournament.matchType || (tournament.isScrim ? 'scrims' : 'tournament'))}
+                      onClick={() => onManageTournament(tournament.id)}
                       className="min-h-[44px] px-3.5 py-2 rounded-lg text-sm font-medium bg-brand-500 hover:bg-brand-400 text-white transition-colors flex items-center justify-center gap-2"
                     >
                       <Settings2 className="w-4 h-4" />
