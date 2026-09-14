@@ -68,7 +68,7 @@ export function checkFinancialReadiness(event: any): FinancialReadiness {
     };
   }
 
-  const prizePool = Math.max(
+  const rawPrizePool = Math.max(
     0,
     Number(
       event.prizePool ??
@@ -89,8 +89,6 @@ export function checkFinancialReadiness(event: any): FinancialReadiness {
     )
   );
 
-  const isPaid = prizePool > 0 && entryFee > 0;
-
   // Determine slot counts using robust slot helpers
   const totalSlots = Math.max(
     1,
@@ -99,6 +97,27 @@ export function checkFinancialReadiness(event: any): FinancialReadiness {
     (Array.isArray(event.slots) ? event.slots.length : 20)
   );
 
+  // Calculate realistic maximum bounty pool for Per-Kill Scrims
+  const isPerKill = event.scrimMode === 'PER_KILL' || (event.rewardPerKill !== undefined && Number(event.rewardPerKill) > 0);
+  let prizePool = rawPrizePool;
+
+  if (isPerKill && Number(event.rewardPerKill) > 0) {
+    const teamType = String(event.teamType || '').toLowerCase();
+    const playersInMatch = teamType === 'solo' || totalSlots === 48
+      ? totalSlots
+      : teamType === 'duo' || totalSlots === 25
+        ? totalSlots * 2
+        : totalSlots * 4;
+    const maxBountyCapacity = playersInMatch * Number(event.rewardPerKill);
+
+    // If prizePool was unconfigured, or exceeded realistic player kill bounty liability, use maxBountyCapacity
+    if (prizePool === 0 || prizePool > maxBountyCapacity) {
+      prizePool = maxBountyCapacity;
+    }
+  }
+
+  const isPaid = prizePool > 0 && entryFee > 0;
+
   let filledSlots = 0;
   if (Array.isArray(event.slots)) {
     filledSlots = countFilledScrimSlots(event.slots);
@@ -106,9 +125,11 @@ export function checkFinancialReadiness(event: any): FinancialReadiness {
     filledSlots = getFilledSlotCount(event) || Number(event.filledSlots) || Number(event.currentPlayers) || 0;
   }
 
-  // Minimum slots needed to fund the required prize pool
-  const minSlotsNeeded = isPaid ? Math.ceil(prizePool / entryFee) : 0;
+  // Minimum slots needed to fund the required prize pool, capped at room capacity
+  const rawSlotsNeeded = isPaid ? Math.ceil(prizePool / entryFee) : 0;
+  const minSlotsNeeded = isPaid ? Math.min(totalSlots, rawSlotsNeeded) : 0;
   const collectedFees = isPaid ? filledSlots * entryFee : 0;
+  const maxCapacityRevenue = isPaid ? totalSlots * entryFee : 0;
 
   // Check if organizer pre-funded / escrowed the prize pool
   const fundingStatus = (event.fundingStatus || '').toUpperCase();
@@ -126,7 +147,11 @@ export function checkFinancialReadiness(event: any): FinancialReadiness {
 
   let statusText = 'Ready to start';
   if (isLocked) {
-    statusText = `Locked: Needs ${slotsRemaining} more registered ${slotsRemaining === 1 ? 'slot' : 'slots'} (Rs. ${shortfall.toLocaleString()} needed to fund Rs. ${prizePool.toLocaleString()} prize pool)`;
+    if (rawSlotsNeeded > totalSlots) {
+      statusText = `Locked: Needs ${slotsRemaining} more registered ${slotsRemaining === 1 ? 'slot' : 'slots'} (Rs. ${shortfall.toLocaleString()} shortfall to fund Rs. ${prizePool.toLocaleString()} prize pool). Note: Total room capacity (${totalSlots} slots @ Rs. ${entryFee}) yields max Rs. ${maxCapacityRevenue.toLocaleString()}`;
+    } else {
+      statusText = `Locked: Needs ${slotsRemaining} more registered ${slotsRemaining === 1 ? 'slot' : 'slots'} (Rs. ${shortfall.toLocaleString()} needed to fund Rs. ${prizePool.toLocaleString()} prize pool)`;
+    }
   } else if (isPreFunded) {
     statusText = 'Pre-funded by Host Escrow (Ready to start)';
   } else if (isPaid) {

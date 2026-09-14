@@ -53,6 +53,17 @@ const STEPS = [
   { id: 3, title: 'Fees & Banner', icon: DollarSign },
 ];
 
+export const calculateEstimatedBountyPool = (slots: number, teamType: string, killRate: number): number => {
+  const t = String(teamType || '').toLowerCase();
+  const s = Number(slots) || 12;
+  const players = t === 'solo' || s === 48
+    ? s
+    : t === 'duo' || s === 25
+      ? s * 2
+      : s * 4;
+  return Math.max(0, players * Math.max(0, Number(killRate) || 0));
+};
+
 export default function ScrimCreateModal({
   isOpen,
   onClose,
@@ -153,15 +164,17 @@ export default function ScrimCreateModal({
       const mode = initialMode || 'STANDARD';
       const isPk = mode === 'PER_KILL';
       const defaultKillRate = isPk ? 20 : 0;
-      const estimatedPool = isPk ? 960 : 0;
+      const defaultSlots = 12;
+      const defaultTeamType = 'squad';
+      const estimatedPool = isPk ? calculateEstimatedBountyPool(defaultSlots, defaultTeamType, defaultKillRate) : 0;
 
       setFormData({
         title: isPk ? 'Free Fire Per-Kill Bounty Scrim' : '',
         game: dbGames[0]?.name || 'Free Fire',
         format: 'Battle Royale',
-        teamType: 'squad',
+        teamType: defaultTeamType,
         map: MAP_OPTIONS[dbGames[0]?.name]?.[0] || 'Bermuda',
-        totalSlots: 12,
+        totalSlots: defaultSlots,
         scrimMode: mode,
         rewardPerKill: defaultKillRate,
         minimumKillsForReward: 0,
@@ -483,7 +496,10 @@ export default function ScrimCreateModal({
                   onChange={(e) => {
                     const type = e.target.value;
                     const slots = type === 'solo' ? 48 : type === 'duo' ? 25 : 12;
-                    setFormData({ ...formData, teamType: type, totalSlots: slots });
+                    const newPool = formData.scrimMode === 'PER_KILL'
+                      ? calculateEstimatedBountyPool(slots, type, formData.rewardPerKill || 20)
+                      : formData.prizePool;
+                    setFormData({ ...formData, teamType: type, totalSlots: slots, prizePool: newPool });
                   }}
                   className="w-full bg-black border border-gray-800 rounded-xl p-3 text-sm text-white font-bold focus-visible:outline-none focus:border-emerald-500"
                 >
@@ -500,7 +516,13 @@ export default function ScrimCreateModal({
                 </label>
                 <select
                   value={formData.totalSlots}
-                  onChange={(e) => setFormData({ ...formData, totalSlots: Number(e.target.value) })}
+                  onChange={(e) => {
+                    const slots = Number(e.target.value);
+                    const newPool = formData.scrimMode === 'PER_KILL'
+                      ? calculateEstimatedBountyPool(slots, formData.teamType, formData.rewardPerKill || 20)
+                      : formData.prizePool;
+                    setFormData({ ...formData, totalSlots: slots, prizePool: newPool });
+                  }}
                   className="w-full bg-black border border-gray-800 rounded-xl p-3 text-sm text-white font-bold focus-visible:outline-none focus:border-emerald-500"
                 >
                   <option value={12}>12 Slots (Squad BR - 12 Teams)</option>
@@ -604,12 +626,12 @@ export default function ScrimCreateModal({
                   type="button"
                   onClick={() => {
                     const defaultKillRate = formData.rewardPerKill || 20;
-                    const estimatedPool = (formData.totalSlots || 12) * defaultKillRate * (formData.teamType === 'solo' ? 2 : 4);
+                    const estimatedPool = calculateEstimatedBountyPool(formData.totalSlots, formData.teamType, defaultKillRate);
                     setFormData({
                       ...formData,
                       scrimMode: 'PER_KILL',
                       rewardPerKill: defaultKillRate,
-                      prizePool: formData.prizePool || estimatedPool,
+                      prizePool: estimatedPool,
                     });
                   }}
                   className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
@@ -652,9 +674,11 @@ export default function ScrimCreateModal({
                       value={formData.rewardPerKill || ''}
                       onChange={(e) => {
                         const rate = Math.max(0, Number(e.target.value));
+                        const newPool = calculateEstimatedBountyPool(formData.totalSlots, formData.teamType, rate);
                         setFormData({
                           ...formData,
                           rewardPerKill: rate,
+                          prizePool: newPool,
                         });
                       }}
                       className="w-full bg-black border border-gray-800 rounded-xl p-2.5 text-xs text-white font-bold focus-visible:outline-none focus:border-brand-500"
@@ -673,6 +697,23 @@ export default function ScrimCreateModal({
                       className="w-full bg-black border border-gray-800 rounded-xl p-2.5 text-xs text-white font-bold focus-visible:outline-none focus:border-brand-500"
                     />
                   </div>
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] text-amber-300 font-bold bg-amber-500/10 border border-amber-500/20 px-3 py-2 rounded-xl">
+                  <span>
+                    Bounty Pool: {formData.teamType === 'solo' || formData.totalSlots === 48 ? formData.totalSlots : formData.teamType === 'duo' ? formData.totalSlots * 2 : formData.totalSlots * 4} players × Rs. {formData.rewardPerKill || 0} = Rs. {calculateEstimatedBountyPool(formData.totalSlots, formData.teamType, formData.rewardPerKill || 0).toLocaleString()}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const pool = calculateEstimatedBountyPool(formData.totalSlots, formData.teamType, formData.rewardPerKill || 20);
+                      setFormData(prev => ({ ...prev, prizePool: pool }));
+                      showToast(`Prize pool updated to Rs. ${pool.toLocaleString()}`, 'info');
+                    }}
+                    className="px-2 py-0.5 rounded bg-amber-500 text-black font-black text-[10px] uppercase hover:bg-amber-400 cursor-pointer"
+                  >
+                    Auto-Fill
+                  </button>
                 </div>
               </div>
             )}

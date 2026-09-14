@@ -233,19 +233,35 @@ export default function ScrimDetailPage() {
       const filled = countFilledScrimSlots(updatedSlots);
       const startDate = toDateSafe(editForm.startTime);
 
+      const isPk = editForm.scrimMode === 'PER_KILL';
+      const rewardPerKill = isPk ? Number(editForm.rewardPerKill) || 0 : 0;
+      let finalPrizePool = prizePool;
+      if (isPk && rewardPerKill > 0) {
+        const teamType = String(scrim?.teamType || '').toLowerCase();
+        const players = teamType === 'solo' || newSlotCount === 48
+          ? newSlotCount
+          : teamType === 'duo' || newSlotCount === 25
+            ? newSlotCount * 2
+            : newSlotCount * 4;
+        const maxBounty = players * rewardPerKill;
+        if (finalPrizePool === 0 || finalPrizePool > maxBounty) {
+          finalPrizePool = maxBounty;
+        }
+      }
+
       const updatePayload = {
         title: editForm.title.trim(),
         startTime: startDate ? Timestamp.fromDate(startDate) : (editForm.startTime || ''),
         entryFee,
-        prizePool,
+        prizePool: finalPrizePool,
         slots: updatedSlots,
         totalSlots: newSlotCount,
         filledSlots: filled,
         currentPlayers: filled,
         map: editForm.map || 'Bermuda',
         scrimMode: editForm.scrimMode || 'STANDARD',
-        rewardPerKill: editForm.scrimMode === 'PER_KILL' ? Number(editForm.rewardPerKill) || 0 : 0,
-        minimumKillsForReward: editForm.scrimMode === 'PER_KILL' ? Number(editForm.minimumKillsForReward) || 0 : 0,
+        rewardPerKill,
+        minimumKillsForReward: isPk ? Number(editForm.minimumKillsForReward) || 0 : 0,
         updatedAt: serverTimestamp(),
       };
       const cleanedUpdatePayload = cleanFirestoreData(updatePayload);
@@ -1465,24 +1481,64 @@ export default function ScrimDetailPage() {
                   </div>
 
                   {editForm.scrimMode === 'PER_KILL' && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-                      <div>
-                        <label className="block text-xs text-amber-400 uppercase tracking-wider mb-1">Bounty Rate (Rs./kill)</label>
-                        <input
-                          type="number"
-                          value={editForm.rewardPerKill ?? 20}
-                          onChange={e => setEditForm({ ...editForm, rewardPerKill: Number(e.target.value) })}
-                          className="w-full bg-black border border-amber-500/30 rounded-lg p-2 text-sm text-white focus-visible:outline-none focus:border-amber-400"
-                        />
+                    <div className="space-y-3 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs text-amber-400 uppercase tracking-wider mb-1">Bounty Rate (Rs./kill)</label>
+                          <input
+                            type="number"
+                            value={editForm.rewardPerKill ?? 20}
+                            onChange={e => {
+                              const r = Math.max(0, Number(e.target.value));
+                              const slots = Number(editForm.slots) || 12;
+                              const teamType = String(scrim.teamType || '').toLowerCase();
+                              const players = teamType === 'solo' || slots === 48
+                                ? slots
+                                : teamType === 'duo' || slots === 25
+                                  ? slots * 2
+                                  : slots * 4;
+                              setEditForm({
+                                ...editForm,
+                                rewardPerKill: r,
+                                prizePool: players * r,
+                              });
+                            }}
+                            className="w-full bg-black border border-amber-500/30 rounded-lg p-2 text-sm text-white focus-visible:outline-none focus:border-amber-400"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-amber-400 uppercase tracking-wider mb-1">Min Kills For Reward</label>
+                          <input
+                            type="number"
+                            value={editForm.minimumKillsForReward ?? 1}
+                            onChange={e => setEditForm({ ...editForm, minimumKillsForReward: Number(e.target.value) })}
+                            className="w-full bg-black border border-amber-500/30 rounded-lg p-2 text-sm text-white focus-visible:outline-none focus:border-amber-400"
+                          />
+                        </div>
                       </div>
-                      <div>
-                        <label className="block text-xs text-amber-400 uppercase tracking-wider mb-1">Min Kills For Reward</label>
-                        <input
-                          type="number"
-                          value={editForm.minimumKillsForReward ?? 1}
-                          onChange={e => setEditForm({ ...editForm, minimumKillsForReward: Number(e.target.value) })}
-                          className="w-full bg-black border border-amber-500/30 rounded-lg p-2 text-sm text-white focus-visible:outline-none focus:border-amber-400"
-                        />
+
+                      <div className="flex items-center justify-between text-[11px] text-amber-300 font-bold bg-black/40 border border-amber-500/20 px-3 py-2 rounded-lg">
+                        <span>
+                          Estimated Bounty Pool: {((String(scrim.teamType || '').toLowerCase() === 'solo' || (Number(editForm.slots) || 12) === 48) ? (Number(editForm.slots) || 12) : (String(scrim.teamType || '').toLowerCase() === 'duo' || (Number(editForm.slots) || 12) === 25) ? (Number(editForm.slots) || 12) * 2 : (Number(editForm.slots) || 12) * 4)} players × Rs. {editForm.rewardPerKill || 0} = Rs. {(((String(scrim.teamType || '').toLowerCase() === 'solo' || (Number(editForm.slots) || 12) === 48) ? (Number(editForm.slots) || 12) : (String(scrim.teamType || '').toLowerCase() === 'duo' || (Number(editForm.slots) || 12) === 25) ? (Number(editForm.slots) || 12) * 2 : (Number(editForm.slots) || 12) * 4) * (Number(editForm.rewardPerKill) || 0)).toLocaleString()}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const slots = Number(editForm.slots) || 12;
+                            const teamType = String(scrim.teamType || '').toLowerCase();
+                            const players = teamType === 'solo' || slots === 48
+                              ? slots
+                              : teamType === 'duo' || slots === 25
+                                ? slots * 2
+                                : slots * 4;
+                            const pool = players * (Number(editForm.rewardPerKill) || 0);
+                            setEditForm({ ...editForm, prizePool: pool });
+                            showToast(`Prize pool updated to Rs. ${pool.toLocaleString()}`, 'info');
+                          }}
+                          className="px-2 py-0.5 rounded bg-amber-500 text-black font-black text-[10px] uppercase hover:bg-amber-400 cursor-pointer shrink-0 ml-2"
+                        >
+                          Auto-Fill
+                        </button>
                       </div>
                     </div>
                   )}
