@@ -74,7 +74,7 @@ export default function ScrimDetailPage() {
   const [manualLeader, setManualLeader] = useState('');
   const [manualUid, setManualUid] = useState('');
   const [manualCaptainUid, setManualCaptainUid] = useState('');
-  const [captainCheck, setCaptainCheck] = useState<{ username: string; uid: string } | null>(null);
+  const [captainCheck, setCaptainCheck] = useState<{ username: string; uid: string; balance?: number } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [dedicatedTeamsData, setDedicatedTeamsData] = useState<DedicatedTeamsLookup | null>(null);
 
@@ -319,7 +319,81 @@ export default function ScrimDetailPage() {
       showToast('Captain UID not found — the captain must have a Nexplay webapp account', 'error');
       return;
     }
-    const captainUsername = (captainSnap.data() as any)?.username || 'Captain';
+    const captainData = captainSnap.data() as any;
+    const captainUsername = captainData?.username || 'Captain';
+    const captainBalance = Number(captainData?.balance || 0);
+
+    const resolvedFee = Number(
+      scrim.entryFee ??
+      scrim.requirements?.entryFee ??
+      scrim.price ??
+      scrim.fee ??
+      0
+    );
+
+    if (resolvedFee > 0) {
+      if (captainBalance < resolvedFee) {
+        showToast(
+          `Insufficient captain balance: "${captainUsername}" has Rs. ${captainBalance.toLocaleString()}, but Rs. ${resolvedFee.toLocaleString()} is required for registration.`,
+          'error'
+        );
+        return;
+      }
+
+      // Atomically deduct entry fee from captain's wallet
+      const uRef = doc(db, 'users', trimmedCaptainUid);
+      await updateDoc(uRef, {
+        balance: increment(-resolvedFee),
+        updatedAt: serverTimestamp(),
+      });
+
+      // Record transaction in transactions ledger
+      const txRef = doc(collection(db, 'transactions'));
+      await setDoc(txRef, {
+        id: txRef.id,
+        userId: trimmedCaptainUid,
+        username: captainUsername,
+        type: 'entry_fee',
+        amount: resolvedFee,
+        method: 'Scrim Entry Fee',
+        status: 'success',
+        refId: `ENT-${id.slice(0, 8)}-${slotNumber}-${Date.now().toString().slice(-4)}`,
+        desc: `Registration entry fee for Slot #${slotNumber} in "${scrim.title || 'Scrim'}"`,
+        tournamentId: id,
+        slotNumber,
+        timestamp: serverTimestamp(),
+      }).catch(() => {});
+
+      // Notify captain
+      await NotificationService.create(
+        trimmedCaptainUid,
+        'Scrim Slot Reserved',
+        `Slot #${slotNumber} was reserved for your team "${trimmedTeam}" in "${scrim.title || 'Scrim'}". Rs. ${resolvedFee.toLocaleString()} registration fee was deducted from your wallet balance.`,
+        'info',
+        `/organizer/scrim/${id}`
+      ).catch(() => {});
+    }
+
+    // Register participant in participants collection
+    const partRef = doc(collection(db, 'participants'));
+    const partData = {
+      id: partRef.id,
+      tournamentId: id,
+      scrimId: id,
+      userId: trimmedCaptainUid,
+      username: captainUsername,
+      inGameName: leader?.trim() || captainUsername,
+      inGameId: inGameId?.trim() || 'N/A',
+      teamName: trimmedTeam,
+      teamId: `manual_${Date.now()}`,
+      slotNumber,
+      entryFee: resolvedFee,
+      captainUid: trimmedCaptainUid,
+      timestamp: serverTimestamp(),
+      status: 'confirmed',
+    };
+    await setDoc(partRef, partData).catch(() => {});
+    setParticipants(prev => [...prev.filter(p => (p as any).slotNumber !== slotNumber), partData as any]);
 
     try {
       const currentSlots = normalizeScrimSlots(scrim.slots, scrim.totalSlots, scrim.filledSlots ?? scrim.currentPlayers);
@@ -335,6 +409,7 @@ export default function ScrimDetailPage() {
           captainName: captainUsername,
           leader: leader?.trim() || trimmedTeam,
           inGameId: inGameId?.trim() || null,
+          entryFee: resolvedFee,
         };
       });
       const filled = countFilledScrimSlots(newSlots);
@@ -356,7 +431,12 @@ export default function ScrimDetailPage() {
       setManualUid('');
       setManualCaptainUid('');
       setCaptainCheck(null);
-      showToast(`Slot #${slotNumber} reserved for "${trimmedTeam}" (Captain: ${captainUsername})!`, 'success');
+      showToast(
+        resolvedFee > 0
+          ? `Slot #${slotNumber} reserved for "${trimmedTeam}"! Rs. ${resolvedFee.toLocaleString()} registration fee deducted from Captain ${captainUsername}.`
+          : `Slot #${slotNumber} reserved for "${trimmedTeam}" (Captain: ${captainUsername})!`,
+        'success'
+      );
     } catch (err: any) {
       showToast(err?.message || 'Failed to reserve slot', 'error');
     }
@@ -1858,6 +1938,14 @@ export default function ScrimDetailPage() {
               </button>
             </div>
 
+            {/* Registration Fee Summary */}
+            <div className="p-3 rounded-xl bg-surface border border-gray-800 flex items-center justify-between">
+              <span className="text-gray-400 uppercase font-semibold text-[11px]">Registration Fee</span>
+              <span className="font-black text-brand-400 text-sm">
+                {(scrim?.entryFee || 0) > 0 ? `Rs. ${Number(scrim.entryFee).toLocaleString()}` : 'FREE'}
+              </span>
+            </div>
+
             <div className="space-y-3 text-xs">
               <div>
                 <label className="block text-xs text-gray-400 uppercase font-semibold mb-1.5">
@@ -1884,7 +1972,12 @@ export default function ScrimDetailPage() {
                     try {
                       const snap = await getDoc(doc(db, 'users', uid));
                       if (snap.exists()) {
-                        setCaptainCheck({ uid, username: (snap.data() as any)?.username || 'Unknown' });
+                        const capData = snap.data() as any;
+                        const balance = Number(capData?.balance || 0);
+                        setCaptainCheck({ uid, username: capData?.username || 'Unknown', balance });
+                        if ((scrim?.entryFee || 0) > 0 && balance < (scrim?.entryFee || 0)) {
+                          showToast(`Captain has insufficient balance: Rs. ${balance.toLocaleString()} available vs Rs. ${Number(scrim.entryFee).toLocaleString()} required`, 'error');
+                        }
                       } else {
                         setCaptainCheck(null);
                         showToast('Captain UID not found in Nexplay accounts', 'error');
@@ -1895,11 +1988,23 @@ export default function ScrimDetailPage() {
                   className="w-full bg-black border border-gray-800 rounded-xl p-3 text-sm text-white font-mono focus:outline-none focus:border-brand-500"
                 />
                 {captainCheck && (
-                  <p className="mt-1.5 text-[11px] text-emerald-400 font-semibold">
-                    ✓ Verified: {captainCheck.username}
-                  </p>
+                  <div className="mt-1.5 space-y-1">
+                    <p className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1">
+                      <Check className="w-3.5 h-3.5" /> Verified: {captainCheck.username}
+                    </p>
+                    <p className="text-[11px] text-gray-300 font-medium">
+                      Captain Wallet Balance: <span className={typeof captainCheck.balance === 'number' && captainCheck.balance < (scrim?.entryFee || 0) ? 'text-rose-400 font-bold' : 'text-emerald-400 font-bold'}>
+                        Rs. {(captainCheck.balance || 0).toLocaleString()}
+                      </span>
+                    </p>
+                    {typeof captainCheck.balance === 'number' && (scrim?.entryFee || 0) > 0 && captainCheck.balance < (scrim?.entryFee || 0) && (
+                      <p className="text-[10px] text-rose-400 font-semibold">
+                        ⚠️ Insufficient Balance: Rs. {Number(scrim?.entryFee || 0).toLocaleString()} will be deducted from captain's wallet upon reservation.
+                      </p>
+                    )}
+                  </div>
                 )}
-                <p className="mt-1 text-[10px] text-gray-500">The captain's Nexorg webapp account UID (required to reserve this slot).</p>
+                <p className="mt-1 text-[10px] text-gray-500">The captain's Nexorg webapp account UID. Registration fee will be automatically deducted from their wallet.</p>
               </div>
               <div>
                 <label className="block text-xs text-gray-400 uppercase font-semibold mb-1.5">
@@ -1939,6 +2044,9 @@ export default function ScrimDetailPage() {
                 </button>
                 <button
                   type="button"
+                  disabled={
+                    Boolean(captainCheck && typeof captainCheck.balance === 'number' && (scrim?.entryFee || 0) > 0 && captainCheck.balance < (scrim?.entryFee || 0))
+                  }
                   onClick={() => {
                     if (!manualTeamName.trim()) {
                       showToast('Please enter a team name', 'error');
@@ -1948,9 +2056,13 @@ export default function ScrimDetailPage() {
                       showToast("Please enter the captain's webapp UID", 'error');
                       return;
                     }
+                    if (captainCheck && typeof captainCheck.balance === 'number' && (scrim?.entryFee || 0) > 0 && captainCheck.balance < (scrim?.entryFee || 0)) {
+                      showToast(`Captain has insufficient balance (Rs. ${captainCheck.balance.toLocaleString()} < Rs. ${Number(scrim.entryFee).toLocaleString()})`, 'error');
+                      return;
+                    }
                     handleManualAssignSlot(assignSlotNumber, manualTeamName, manualLeader, manualUid, manualCaptainUid);
                   }}
-                  className="px-4 py-2 rounded-xl bg-brand-500 hover:bg-brand-400 text-white text-xs font-bold transition-colors shadow-md shadow-brand-500/20 cursor-pointer"
+                  className="px-4 py-2 rounded-xl bg-brand-500 hover:bg-brand-400 text-white text-xs font-bold transition-colors shadow-md shadow-brand-500/20 cursor-pointer disabled:opacity-50"
                 >
                   Assign & Save
                 </button>

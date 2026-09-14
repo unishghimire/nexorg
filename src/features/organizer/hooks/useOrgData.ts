@@ -783,7 +783,9 @@ export function useOrgData() {
     if (!userDoc.exists()) {
       throw new Error('Captain UID not found — the captain must have a Nexplay webapp account');
     }
-    const captainUsername = (userDoc.data() as any)?.username || 'Captain';
+    const captainData = userDoc.data() as any;
+    const captainUsername = captainData?.username || 'Captain';
+    const captainBalance = Number(captainData?.balance || 0);
 
     const targetDocRef = doc(db, 'scrims', scrimId);
     let snap = await getDoc(targetDocRef);
@@ -802,6 +804,78 @@ export function useOrgData() {
       throw new Error('Not authorized');
     }
 
+    // Resolve scrim registration / entry fee
+    const resolvedFee = Number(
+      data.entryFee ??
+      data.requirements?.entryFee ??
+      data.price ??
+      data.fee ??
+      0
+    );
+
+    // If scrim requires entry fee, enforce captain wallet deduction
+    if (resolvedFee > 0) {
+      if (captainBalance < resolvedFee) {
+        throw new Error(
+          `Insufficient captain balance: "${captainUsername}" has Rs. ${captainBalance.toLocaleString()}, but Rs. ${resolvedFee.toLocaleString()} is required for registration.`
+        );
+      }
+
+      // Atomically deduct entry fee from captain's wallet
+      const uRef = doc(db, 'users', trimmedUid);
+      await updateDoc(uRef, {
+        balance: increment(-resolvedFee),
+        updatedAt: serverTimestamp(),
+      });
+
+      // Record entry fee transaction in ledger
+      const txRef = doc(collection(db, 'transactions'));
+      await setDoc(txRef, {
+        id: txRef.id,
+        userId: trimmedUid,
+        username: captainUsername,
+        type: 'entry_fee',
+        amount: resolvedFee,
+        method: 'Scrim Entry Fee',
+        status: 'success',
+        refId: `ENT-${scrimId.slice(0, 8)}-${slotNumber}-${Date.now().toString().slice(-4)}`,
+        desc: `Registration entry fee for Slot #${slotNumber} in "${data.title || 'Scrim'}"`,
+        tournamentId: scrimId,
+        slotNumber,
+        timestamp: serverTimestamp(),
+      }).catch(() => {});
+
+      // Notify captain of fee deduction
+      await NotificationService.create(
+        trimmedUid,
+        'Scrim Slot Reserved',
+        `Slot #${slotNumber} has been reserved for your team "${trimmedTeam}" in "${data.title || 'Scrim'}". Rs. ${resolvedFee.toLocaleString()} registration fee was deducted from your wallet balance.`,
+        'info',
+        `/organizer/scrim/${scrimId}`
+      ).catch(() => {});
+    }
+
+    // Register participant in participants collection
+    const partRef = doc(collection(db, 'participants'));
+    const partData = {
+      id: partRef.id,
+      tournamentId: scrimId,
+      scrimId,
+      userId: trimmedUid,
+      username: captainUsername,
+      inGameName: leader?.trim() || captainUsername,
+      inGameId: inGameId?.trim() || 'N/A',
+      teamName: trimmedTeam,
+      teamId: `manual_${Date.now()}`,
+      slotNumber,
+      entryFee: resolvedFee,
+      captainUid: trimmedUid,
+      timestamp: serverTimestamp(),
+      status: 'confirmed',
+    };
+    await setDoc(partRef, partData).catch(() => {});
+    setParticipants(prev => [...prev.filter(p => (p as any).slotNumber !== slotNumber), partData as any]);
+
     const currentSlots = normalizeScrimSlots(data.slots, data.totalSlots, data.filledSlots ?? data.currentPlayers);
     const newSlots = currentSlots.map((s: any) => {
       if (s.slotNumber !== slotNumber) return s;
@@ -815,6 +889,7 @@ export function useOrgData() {
         captainName: captainUsername,
         leader: leader?.trim() || trimmedTeam,
         inGameId: inGameId?.trim() || null,
+        entryFee: resolvedFee,
       };
     });
     const filled = countFilledScrimSlots(newSlots);
@@ -829,7 +904,7 @@ export function useOrgData() {
       return { ...s, slots: newSlots as any, filledSlots: filled, currentPlayers: filled };
     }));
 
-    return { success: true, captainUsername, teamName: trimmedTeam };
+    return { success: true, captainUsername, teamName: trimmedTeam, deductedAmount: resolvedFee };
   }, [user, profile?.role]);
 
   const toggleScrimSlot = useCallback(async (scrimId: string, slotNumber: number) => {

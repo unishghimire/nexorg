@@ -40,6 +40,7 @@ interface OrgOverlayManagerProps {
   onResolveDispute?: (action: 'solve' | 'warn' | 'ban' | 'dismiss', resolutionNote?: string) => void;
   // Scrim slots
   scrimTitle?: string;
+  scrimEntryFee?: number;
   slotGrid?: { slotNumber: number; teamName: string | null; status: string; teamTag?: string; isDedicatedTeam?: boolean; leader?: string }[];
   onToggleSlot?: (slotNumber: number) => void;
   onAssignSlot?: (slotNumber: number, teamName: string, captainUid: string, leader?: string, inGameId?: string) => Promise<void> | void;
@@ -67,6 +68,7 @@ export const OrgOverlayManager: React.FC<OrgOverlayManagerProps> = ({
   dispute,
   onResolveDispute,
   scrimTitle,
+  scrimEntryFee,
   slotGrid,
   onToggleSlot,
   onAssignSlot,
@@ -80,7 +82,7 @@ export const OrgOverlayManager: React.FC<OrgOverlayManagerProps> = ({
   const [assignCaptainUid, setAssignCaptainUid] = useState('');
   const [assignLeader, setAssignLeader] = useState('');
   const [assignInGameId, setAssignInGameId] = useState('');
-  const [assignCaptainCheck, setAssignCaptainCheck] = useState<{ uid: string; username: string } | null>(null);
+  const [assignCaptainCheck, setAssignCaptainCheck] = useState<{ uid: string; username: string; balance?: number } | null>(null);
   const [assignChecking, setAssignChecking] = useState(false);
   const [assignError, setAssignError] = useState<string | null>(null);
   const [isSubmittingAssign, setIsSubmittingAssign] = useState(false);
@@ -97,9 +99,17 @@ export const OrgOverlayManager: React.FC<OrgOverlayManagerProps> = ({
     try {
       const snap = await getDoc(doc(db, 'users', trimmed));
       if (snap.exists()) {
-        const username = (snap.data() as any)?.username || 'Captain';
-        setAssignCaptainCheck({ uid: trimmed, username });
-        setAssignError(null);
+        const userData = snap.data() as any;
+        const username = userData?.username || 'Captain';
+        const balance = Number(userData?.balance || 0);
+        setAssignCaptainCheck({ uid: trimmed, username, balance });
+
+        const fee = Number(scrimEntryFee || 0);
+        if (fee > 0 && balance < fee) {
+          setAssignError(`Insufficient captain balance: "${username}" has Rs. ${balance.toLocaleString()}, but Rs. ${fee.toLocaleString()} is required for registration.`);
+        } else {
+          setAssignError(null);
+        }
       } else {
         setAssignCaptainCheck(null);
         setAssignError('Captain UID not found — captain must have a Nexplay webapp account');
@@ -124,9 +134,11 @@ export const OrgOverlayManager: React.FC<OrgOverlayManagerProps> = ({
       setAssignError("Please enter the captain's webapp UID");
       return;
     }
+    const fee = Number(scrimEntryFee || 0);
     setIsSubmittingAssign(true);
     setAssignError(null);
     try {
+      let captainBal = assignCaptainCheck?.balance;
       if (!assignCaptainCheck || assignCaptainCheck.uid !== uid) {
         const snap = await getDoc(doc(db, 'users', uid));
         if (!snap.exists()) {
@@ -134,7 +146,17 @@ export const OrgOverlayManager: React.FC<OrgOverlayManagerProps> = ({
           setIsSubmittingAssign(false);
           return;
         }
+        const data = snap.data() as any;
+        captainBal = Number(data?.balance || 0);
+        setAssignCaptainCheck({ uid, username: data?.username || 'Captain', balance: captainBal });
       }
+
+      if (fee > 0 && (captainBal ?? 0) < fee) {
+        setAssignError(`Insufficient captain balance: Captain has Rs. ${(captainBal ?? 0).toLocaleString()}, but Rs. ${fee.toLocaleString()} is required for registration.`);
+        setIsSubmittingAssign(false);
+        return;
+      }
+
       await onAssignSlot?.(assigningSlot, team, uid, assignLeader.trim() || undefined, assignInGameId.trim() || undefined);
       setAssigningSlot(null);
       setAssignTeamName('');
@@ -525,6 +547,23 @@ export const OrgOverlayManager: React.FC<OrgOverlayManagerProps> = ({
               Directly assign this slot to a team. Both the <span className="text-white font-bold">Team Name</span> and the <span className="text-white font-bold">Captain's Webapp Account UID</span> are strictly required.
             </p>
 
+            {Number(scrimEntryFee || 0) > 0 ? (
+              <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between text-xs">
+                <div>
+                  <span className="text-amber-400 font-bold block">Registration Entry Fee</span>
+                  <span className="text-[11px] text-gray-400">Deducted from captain's wallet</span>
+                </div>
+                <span className="font-mono font-black text-amber-300 text-sm">
+                  Rs. {Number(scrimEntryFee).toLocaleString()}
+                </span>
+              </div>
+            ) : (
+              <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs flex items-center gap-2">
+                <span className="font-bold">Free Entry</span>
+                <span className="text-gray-400 text-[11px]">— No wallet deduction required</span>
+              </div>
+            )}
+
             {assignError && (
               <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center gap-2">
                 <AlertOctagon className="w-4 h-4 shrink-0" />
@@ -568,9 +607,18 @@ export const OrgOverlayManager: React.FC<OrgOverlayManagerProps> = ({
                 </p>
               )}
               {assignCaptainCheck && (
-                <p className="mt-1.5 text-[11px] text-emerald-400 font-semibold flex items-center gap-1">
-                  <Check className="w-3.5 h-3.5" /> Verified Captain: {assignCaptainCheck.username}
-                </p>
+                <div className="mt-1.5 p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-[11px] flex items-center justify-between">
+                  <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                    <Check className="w-3.5 h-3.5" /> Verified Captain: {assignCaptainCheck.username}
+                  </span>
+                  {typeof assignCaptainCheck.balance === 'number' && (
+                    <span className="text-gray-300 font-mono text-[11px]">
+                      Balance: <span className={Number(scrimEntryFee || 0) > 0 && assignCaptainCheck.balance < Number(scrimEntryFee || 0) ? "text-red-400 font-bold" : "text-emerald-400 font-bold"}>
+                        Rs. {assignCaptainCheck.balance.toLocaleString()}
+                      </span>
+                    </span>
+                  )}
+                </div>
               )}
               <p className="mt-1 text-[10px] text-gray-500">
                 This is the captain's account UID from their profile in the webapp (required to assign this slot).
@@ -618,7 +666,12 @@ export const OrgOverlayManager: React.FC<OrgOverlayManagerProps> = ({
               <button
                 type="button"
                 onClick={handleConfirmAssign}
-                disabled={isSubmittingAssign || !assignTeamName.trim() || !assignCaptainUid.trim()}
+                disabled={
+                  isSubmittingAssign ||
+                  !assignTeamName.trim() ||
+                  !assignCaptainUid.trim() ||
+                  (Number(scrimEntryFee || 0) > 0 && assignCaptainCheck !== null && (assignCaptainCheck.balance ?? 0) < Number(scrimEntryFee || 0))
+                }
                 className="px-5 py-2.5 rounded-xl bg-brand-500 hover:bg-brand-400 text-white text-xs font-black uppercase tracking-wider transition-colors shadow-lg shadow-brand-500/20 cursor-pointer disabled:opacity-50 flex items-center gap-2"
               >
                 {isSubmittingAssign ? (

@@ -62,6 +62,16 @@ const RegistrationModal: React.FC<RegistrationModalProps> = ({
                     showToast("Captain UID not found. Please enter a valid webapp account UID.", "error");
                     return;
                 }
+                const captainData = captainDoc.data() as any;
+                const captainBalance = Number(captainData?.balance || 0);
+                const fee = Number(tournament.entryFee || (tournament as any).price || (tournament as any).fee || 0);
+                if (fee > 0 && captainBalance < fee) {
+                    showToast(
+                        `Insufficient captain balance: Captain "${captainData?.username || 'Captain'}" has Rs. ${captainBalance.toLocaleString()}, but Rs. ${fee.toLocaleString()} is required for registration fee.`,
+                        "error"
+                    );
+                    return;
+                }
             } catch (err) {
                 console.warn('Could not verify captain UID:', err);
                 showToast('Could not verify Captain UID. Please check your connection and try again.', 'error');

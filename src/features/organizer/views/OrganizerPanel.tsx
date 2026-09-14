@@ -296,7 +296,14 @@ const OrganizerPanel: React.FC = () => {
     if (!scrimId) return;
     try {
       const res = await org.assignScrimSlot(scrimId, slotNumber, teamName, captainUid, leader, inGameId);
-      showToast(`Slot #${slotNumber} reserved for "${res.teamName}" (Captain: ${res.captainUsername})!`, 'success');
+      if (res.deductedAmount && res.deductedAmount > 0) {
+        showToast(
+          `Slot #${slotNumber} reserved for "${res.teamName}"! Rs. ${res.deductedAmount.toLocaleString()} registration fee deducted from Captain ${res.captainUsername}.`,
+          'success'
+        );
+      } else {
+        showToast(`Slot #${slotNumber} reserved for "${res.teamName}" (Captain: ${res.captainUsername})!`, 'success');
+      }
       setScrimSlotTarget((prev: any) => {
         if (!prev || prev.id !== scrimId) return prev;
         const currentSlots = normalizeScrimSlots(prev.slots, prev.totalSlots, prev.filledSlots ?? prev.currentPlayers);
@@ -312,6 +319,7 @@ const OrganizerPanel: React.FC = () => {
             captainName: res.captainUsername,
             leader: leader?.trim() || res.teamName,
             inGameId: inGameId?.trim() || null,
+            entryFee: res.deductedAmount || 0,
           };
         });
         const filled = countFilledScrimSlots(newSlots);
@@ -694,6 +702,7 @@ const OrganizerPanel: React.FC = () => {
         dispute={org.disputes.find(d => d.id === disputeTarget)}
         onResolveDispute={handleResolveDispute}
         scrimTitle={scrimSlotTarget?.title}
+        scrimEntryFee={Number(scrimSlotTarget?.entryFee ?? scrimSlotTarget?.requirements?.entryFee ?? scrimSlotTarget?.price ?? scrimSlotTarget?.fee ?? 0)}
         slotGrid={scrimSlotTarget?.slots}
         onToggleSlot={handleToggleSlot}
         onAssignSlot={handleAssignSlot}
