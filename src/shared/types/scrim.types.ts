@@ -3,11 +3,15 @@ export type ScrimStatus = 'open' | 'full' | 'credentials_sent' | 'live' | 'compl
 
 export interface ScrimSlot {
   slotNumber: number;          // 1..12 for Squad, 1..25 for Duo, 1..48 for Solo
-  status: 'open' | 'reserved' | 'locked';
+  status: 'open' | 'reserved' | 'locked' | 'filled';
   teamId?: string | null;
   teamName?: string | null;
   captainUid?: string | null;
+  captainName?: string | null;
   captainDiscord?: string | null;
+  userId?: string | null;
+  leader?: string | null;
+  inGameId?: string | null;
   joinedAt?: string | null;
 }
 
