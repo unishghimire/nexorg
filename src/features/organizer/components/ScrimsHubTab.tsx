@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Gamepad2, RefreshCw, Clock, DollarSign, Trophy, Plus, Settings2, Edit2, Trash2, Radio, Play, CheckCircle2, RotateCcw, XCircle, Users, Lock } from 'lucide-react';
+import { Gamepad2, RefreshCw, Clock, DollarSign, Trophy, Plus, Settings2, Edit2, Trash2, Radio, Play, CheckCircle2, RotateCcw, XCircle, Users, Lock, Target } from 'lucide-react';
 import { toDateSafe } from '../../../shared/utils/utils';
 import { resolveSlotTeam, fetchDedicatedTeams, DedicatedTeamsLookup } from '../../../shared/utils/teamUtils';
 import { checkFinancialReadiness } from '../../../shared/services/prizeDistributionService';
@@ -13,6 +13,7 @@ export interface ScrimsHubTabProps {
   onToggleSlot: (scrimId: any, slotNumber?: any) => void;
   onViewDetails?: (id: string) => void;
   onCreateScrim?: () => void;
+  onCreatePerKillScrim?: () => void;
   onEditScrim?: (scrim: any) => void;
   onDeleteScrim?: (scrimId: string, title: string) => void;
   onUpdateStatus?: (scrimId: string, status: string) => void;
@@ -26,12 +27,14 @@ export const ScrimsHubTab: React.FC<ScrimsHubTabProps> = ({
   onToggleSlot,
   onViewDetails,
   onCreateScrim,
+  onCreatePerKillScrim,
   onEditScrim,
   onDeleteScrim,
   onUpdateStatus,
   onOpenRoomDispatch,
 }) => {
   const [settleScrim, setSettleScrim] = useState<any | null>(null);
+  const [scrimModeFilter, setScrimModeFilter] = useState<'ALL' | 'STANDARD' | 'PER_KILL'>('ALL');
 
   const formatTime = (timeInput?: any) => {
     if (!timeInput) return 'TBD';
@@ -113,6 +116,25 @@ export const ScrimsHubTab: React.FC<ScrimsHubTabProps> = ({
     }
   };
 
+  const standardCount = React.useMemo(() => {
+    return (scrims || []).filter(s => s.scrimMode !== 'PER_KILL' && (!s.rewardPerKill || Number(s.rewardPerKill) === 0)).length;
+  }, [scrims]);
+
+  const perKillCount = React.useMemo(() => {
+    return (scrims || []).filter(s => s.scrimMode === 'PER_KILL' || (Number(s.rewardPerKill) > 0)).length;
+  }, [scrims]);
+
+  const visibleScrims = React.useMemo(() => {
+    if (!scrims) return [];
+    if (scrimModeFilter === 'PER_KILL') {
+      return scrims.filter(s => s.scrimMode === 'PER_KILL' || (Number(s.rewardPerKill) > 0));
+    }
+    if (scrimModeFilter === 'STANDARD') {
+      return scrims.filter(s => s.scrimMode !== 'PER_KILL' && (!s.rewardPerKill || Number(s.rewardPerKill) === 0));
+    }
+    return scrims;
+  }, [scrims, scrimModeFilter]);
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -126,15 +148,67 @@ export const ScrimsHubTab: React.FC<ScrimsHubTabProps> = ({
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => onCreateScrim?.()}
-          className="inline-flex items-center justify-center gap-2 bg-brand-500 hover:bg-brand-400 text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors shadow-lg shadow-brand-500/10 self-start sm:self-auto cursor-pointer min-h-[44px]"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Schedule Scrim</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2.5 self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={() => onCreateScrim?.()}
+            className="inline-flex items-center justify-center gap-2 bg-brand-500 hover:bg-brand-400 text-white px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors shadow-lg shadow-brand-500/10 cursor-pointer min-h-[42px]"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Schedule Scrim</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onCreatePerKillScrim ? onCreatePerKillScrim() : onCreateScrim?.()}
+            className="inline-flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-400 text-black px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors shadow-lg shadow-amber-500/20 cursor-pointer min-h-[42px]"
+          >
+            <Target className="w-4 h-4" />
+            <span>Host Per-Kill Scrim</span>
+          </button>
+        </div>
       </div>
+
+      {/* Mode Filter Bar */}
+      {scrims && scrims.length > 0 && (
+        <div className="flex items-center gap-2 bg-dark/60 border border-gray-800 p-1.5 rounded-2xl w-fit">
+          <button
+            type="button"
+            onClick={() => setScrimModeFilter('ALL')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              scrimModeFilter === 'ALL'
+                ? 'bg-surface text-white shadow-sm'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            All Scrims ({scrims.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setScrimModeFilter('STANDARD')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+              scrimModeFilter === 'STANDARD'
+                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                : 'text-gray-400 hover:text-emerald-400'
+            }`}
+          >
+            <Trophy className="w-3.5 h-3.5" />
+            <span>Standard ({standardCount})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setScrimModeFilter('PER_KILL')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+              scrimModeFilter === 'PER_KILL'
+                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                : 'text-gray-400 hover:text-amber-300'
+            }`}
+          >
+            <Target className="w-3.5 h-3.5" />
+            <span>Per-Kill Bounties ({perKillCount})</span>
+          </button>
+        </div>
+      )}
 
       {/* Empty State */}
       {!scrims || scrims.length === 0 ? (
@@ -146,17 +220,45 @@ export const ScrimsHubTab: React.FC<ScrimsHubTabProps> = ({
           <p className="text-sm text-slate-400 max-w-sm">
             There are no active or upcoming Free Fire scrim sessions available right now.
           </p>
+          <div className="flex items-center gap-3 mt-4">
+            <button
+              type="button"
+              onClick={() => onCreateScrim?.()}
+              className="inline-flex items-center gap-2 bg-brand-500 hover:bg-brand-400 text-white px-4 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+            >
+              <Plus className="w-4 h-4" /> Schedule Standard Scrim
+            </button>
+            <button
+              type="button"
+              onClick={() => onCreatePerKillScrim ? onCreatePerKillScrim() : onCreateScrim?.()}
+              className="inline-flex items-center gap-2 bg-amber-500 hover:bg-amber-400 text-black px-4 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+            >
+              <Target className="w-4 h-4" /> Host Per-Kill Scrim
+            </button>
+          </div>
+        </div>
+      ) : visibleScrims.length === 0 ? (
+        <div className="bg-dark/50 border border-slate-800 rounded-2xl p-10 text-center flex flex-col items-center justify-center">
+          <Target className="w-10 h-10 text-amber-400 mb-3" />
+          <h4 className="text-base font-bold text-white mb-1">No {scrimModeFilter === 'PER_KILL' ? 'Per-Kill' : 'Standard'} Scrims found</h4>
+          <p className="text-xs text-gray-400 mb-4">You haven't hosted any scrims matching this format yet.</p>
           <button
             type="button"
-            onClick={() => onCreateScrim?.()}
-            className="mt-4 inline-flex items-center gap-2 bg-brand-500 hover:bg-brand-400 text-white px-4 py-2 rounded-lg text-xs font-semibold transition-colors"
+            onClick={() => {
+              if (scrimModeFilter === 'PER_KILL') {
+                onCreatePerKillScrim ? onCreatePerKillScrim() : onCreateScrim?.();
+              } else {
+                onCreateScrim?.();
+              }
+            }}
+            className="inline-flex items-center gap-2 bg-brand-500 hover:bg-brand-400 text-white px-4 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer"
           >
-            <Plus className="w-4 h-4" /> Create First Scrim
+            <Plus className="w-4 h-4" /> Create {scrimModeFilter === 'PER_KILL' ? 'Per-Kill Scrim' : 'Standard Scrim'}
           </button>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-6">
-          {scrims.map((scrim) => {
+          {visibleScrims.map((scrim) => {
             const scrimParticipants = (participants || []).filter(
               (p) => p.tournamentId === scrim.id
             );
@@ -241,6 +343,12 @@ export const ScrimsHubTab: React.FC<ScrimsHubTabProps> = ({
                       <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-brand-500/10 text-brand-400 border border-brand-500/20">
                         {formatMode(scrim.format)}
                       </span>
+                      {(scrim.scrimMode === 'PER_KILL' || (scrim.rewardPerKill && Number(scrim.rewardPerKill) > 0)) && (
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1">
+                          <Target className="w-3 h-3 text-amber-400" />
+                          Per-Kill Bounty (Rs. {Number(scrim.rewardPerKill || 0)}/kill)
+                        </span>
+                      )}
                       <span
                         className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
                           statusUpper === 'LIVE'
@@ -432,15 +540,29 @@ export const ScrimsHubTab: React.FC<ScrimsHubTabProps> = ({
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3 p-2.5 rounded-lg bg-card/40 border border-slate-800/50">
-                    <div className="w-8 h-8 rounded-lg bg-surface/80 flex items-center justify-center flex-shrink-0 text-emerald-400">
-                      <Trophy className="w-4 h-4" />
+                  {(scrim.scrimMode === 'PER_KILL' || (scrim.rewardPerKill && Number(scrim.rewardPerKill) > 0)) ? (
+                    <div className="flex items-center gap-3 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                      <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center flex-shrink-0 text-amber-400">
+                        <Target className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-amber-400 uppercase tracking-wider font-bold">Bounty Rate</div>
+                        <div className="text-xs font-black text-amber-300 font-mono">
+                          Rs. {Number(scrim.rewardPerKill || 0).toLocaleString()} / kill
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <div className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Prize Pool</div>
-                      <div className="text-xs font-bold text-slate-200">{formatCurrency(scrim.prizePool)}</div>
+                  ) : (
+                    <div className="flex items-center gap-3 p-2.5 rounded-lg bg-card/40 border border-slate-800/50">
+                      <div className="w-8 h-8 rounded-lg bg-surface/80 flex items-center justify-center flex-shrink-0 text-emerald-400">
+                        <Trophy className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Prize Pool</div>
+                        <div className="text-xs font-bold text-slate-200">{formatCurrency(scrim.prizePool)}</div>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
 
                 {/* Visual Slot Grid & Registered Teams */}

@@ -96,6 +96,7 @@ const OrganizerPanel: React.FC = () => {
 
   const [showScrimCreateModal, setShowScrimCreateModal] = useState(false);
   const [editScrim, setEditScrim] = useState<any>(null);
+  const [scrimCreateInitialMode, setScrimCreateInitialMode] = useState<'STANDARD' | 'PER_KILL'>('STANDARD');
 
   // Loading states for async operations
   const [isDeleting, setIsDeleting] = useState(false);
@@ -513,7 +514,8 @@ const OrganizerPanel: React.FC = () => {
               onOpenSlotGrid={handleOpenSlotGrid}
               onToggleSlot={handleToggleSlot}
               onViewDetails={handleViewScrimDetails}
-              onCreateScrim={() => { setEditScrim(null); setShowScrimCreateModal(true); }}
+              onCreateScrim={() => { setEditScrim(null); setScrimCreateInitialMode('STANDARD'); setShowScrimCreateModal(true); }}
+              onCreatePerKillScrim={() => { setEditScrim(null); setScrimCreateInitialMode('PER_KILL'); setShowScrimCreateModal(true); }}
               onEditScrim={(scrim) => { setEditScrim(scrim); setShowScrimCreateModal(true); }}
               onDeleteScrim={handleDeleteScrim}
               onUpdateStatus={handleUpdateScrimStatus}
@@ -725,6 +727,7 @@ const OrganizerPanel: React.FC = () => {
           onClose={() => { setShowScrimCreateModal(false); setEditScrim(null); }}
           onSuccess={() => { setShowScrimCreateModal(false); setEditScrim(null); org.fetchHostedScrims(); }}
           editScrim={editScrim}
+          initialMode={scrimCreateInitialMode}
         />
       )}
     </DashboardLayout>

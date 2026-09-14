@@ -147,6 +147,12 @@ const ScrimsContent: React.FC = () => {
         return lower;
     };
 
+    const isScrimPerKill = (s: ScrimRecord) =>
+        s.scrimMode === 'PER_KILL' || (s.rewardPerKill !== undefined && Number(s.rewardPerKill) > 0);
+
+    const standardCount = React.useMemo(() => scrims.filter(s => !isScrimPerKill(s)).length, [scrims]);
+    const perKillCount = React.useMemo(() => scrims.filter(s => isScrimPerKill(s)).length, [scrims]);
+
     const filteredScrims = scrims.filter(s => {
         const titleMatch = s.title ? s.title.toLowerCase().includes(searchTerm.toLowerCase()) : false;
         const gameMatch = s.game ? s.game.toLowerCase().includes(searchTerm.toLowerCase()) : false;
@@ -156,7 +162,15 @@ const ScrimsContent: React.FC = () => {
             normalizeGameStr(s.game) === normalizeGameStr(filterGame) ||
             s.game === filterGame;
 
-        const matchesMode = filterMode === 'All' || s.type === filterMode || s.type?.toLowerCase() === filterMode.toLowerCase() || (s as any).mode === filterMode || (s as any).mode?.toLowerCase() === filterMode.toLowerCase();
+        const isPk = isScrimPerKill(s);
+        const matchesMode = filterMode === 'All'
+            ? true
+            : filterMode === 'PER_KILL'
+                ? isPk
+                : filterMode === 'STANDARD'
+                    ? !isPk
+                    : s.type === filterMode || s.type?.toLowerCase() === filterMode.toLowerCase() || (s as any).mode === filterMode || (s as any).mode?.toLowerCase() === filterMode.toLowerCase();
+
         return matchesSearch && matchesGame && matchesMode;
     });
 
@@ -214,32 +228,72 @@ const ScrimsContent: React.FC = () => {
                 </header>
 
                 {/* Filters */}
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-6 mb-12 bg-card/50 p-4 sm:p-8 rounded-2xl sm:rounded-3xl border border-gray-800">
-                    <div className="md:col-span-8 relative">
-                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
-                        <input 
-                            type="text" 
-                            aria-label="Search scrims"
-                            placeholder="Search by title or game..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full bg-black border border-gray-800 rounded-2xl py-4 pl-12 pr-6 text-white focus:border-brand-500 focus-visible:outline-none transition-colors shadow-xl font-bold"
-                        />
+                <div className="space-y-4 mb-12 bg-card/50 p-4 sm:p-8 rounded-2xl sm:rounded-3xl border border-gray-800">
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                        <div className="md:col-span-8 relative">
+                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+                            <input 
+                                type="text" 
+                                aria-label="Search scrims"
+                                placeholder="Search by title or game..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full bg-black border border-gray-800 rounded-2xl py-4 pl-12 pr-6 text-white focus:border-brand-500 focus-visible:outline-none transition-colors shadow-xl font-bold"
+                            />
+                        </div>
+                        <div className="md:col-span-4 relative">
+                            <Filter className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+                            <select 
+                                aria-label="Filter scrims by game"
+                                value={filterGame}
+                                onChange={(e) => setFilterGame(e.target.value)}
+                                className="w-full bg-black border border-gray-800 rounded-2xl py-4 pl-12 pr-6 text-white focus:border-brand-500 focus-visible:outline-none transition-colors shadow-xl font-bold appearance-none"
+                            >
+                                {availableGames.map(game => (
+                                    <option key={game} value={game}>
+                                        {game === 'All' ? 'All Games' : game}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
                     </div>
-                    <div className="md:col-span-4 relative">
-                        <Filter className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
-                        <select 
-                            aria-label="Filter scrims by game"
-                            value={filterGame}
-                            onChange={(e) => setFilterGame(e.target.value)}
-                            className="w-full bg-black border border-gray-800 rounded-2xl py-4 pl-12 pr-6 text-white focus:border-brand-500 focus-visible:outline-none transition-colors shadow-xl font-bold appearance-none"
+
+                    {/* Match Mode Pills */}
+                    <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-gray-800/60">
+                        <span className="text-xs font-bold text-gray-500 uppercase tracking-wider mr-2">Mode:</span>
+                        <button
+                            type="button"
+                            onClick={() => setFilterMode('All')}
+                            className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                filterMode === 'All'
+                                    ? 'bg-brand-500 text-white shadow-lg shadow-brand-500/20'
+                                    : 'bg-black/60 text-gray-400 hover:text-white border border-gray-800 hover:border-gray-700'
+                            }`}
                         >
-                            {availableGames.map(game => (
-                                <option key={game} value={game}>
-                                    {game === 'All' ? 'All Games' : game}
-                                </option>
-                            ))}
-                        </select>
+                            All Scrims ({scrims.length})
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setFilterMode('STANDARD')}
+                            className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                filterMode === 'STANDARD'
+                                    ? 'bg-brand-500 text-white shadow-lg shadow-brand-500/20'
+                                    : 'bg-black/60 text-gray-400 hover:text-white border border-gray-800 hover:border-gray-700'
+                            }`}
+                        >
+                            Standard BR ({standardCount})
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setFilterMode('PER_KILL')}
+                            className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer ${
+                                filterMode === 'PER_KILL'
+                                    ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/30'
+                                    : 'bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border border-amber-500/30'
+                            }`}
+                        >
+                            <Target className="w-3.5 h-3.5" /> Per-Kill Bounties ({perKillCount})
+                        </button>
                     </div>
                 </div>
 

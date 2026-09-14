@@ -243,6 +243,9 @@ export default function ScrimDetailPage() {
         filledSlots: filled,
         currentPlayers: filled,
         map: editForm.map || 'Bermuda',
+        scrimMode: editForm.scrimMode || 'STANDARD',
+        rewardPerKill: editForm.scrimMode === 'PER_KILL' ? Number(editForm.rewardPerKill) || 0 : 0,
+        minimumKillsForReward: editForm.scrimMode === 'PER_KILL' ? Number(editForm.minimumKillsForReward) || 0 : 0,
         updatedAt: serverTimestamp(),
       };
       const cleanedUpdatePayload = cleanFirestoreData(updatePayload);
@@ -703,10 +706,19 @@ export default function ScrimDetailPage() {
       return;
     }
 
+    const isPerKill = scrim?.scrimMode === 'PER_KILL' || (Number(scrim?.rewardPerKill) > 0);
     const totalAllocated = validTiers.reduce((acc, t) => acc + (Number(t.prize) || 0), 0);
     const expectedPool = Number(scrim.prizePool) || 0;
-    if (expectedPool > 0 && Math.abs(totalAllocated - expectedPool) > 0.01) {
-      showToast(`Distributed prize sum (${formatRupees(totalAllocated)}) must equal scrim prize pool (${formatRupees(expectedPool)})`, 'error');
+    if (!isPerKill && expectedPool > 0 && Math.abs(totalAllocated - expectedPool) > 0.01) {
+      if (totalAllocated > expectedPool) {
+        showToast(`Distributed prize sum (${formatRupees(totalAllocated)}) exceeds prize pool (${formatRupees(expectedPool)})`, 'error');
+        return;
+      }
+      if (!window.confirm(`Distributed prize sum (${formatRupees(totalAllocated)}) is less than scrim prize pool (${formatRupees(expectedPool)}). Proceed with payout?`)) {
+        return;
+      }
+    } else if (isPerKill && expectedPool > 0 && totalAllocated > expectedPool) {
+      showToast(`Total bounty payout (${formatRupees(totalAllocated)}) exceeds maximum prize pool cap (${formatRupees(expectedPool)})`, 'error');
       return;
     }
 
@@ -1040,7 +1052,10 @@ export default function ScrimDetailPage() {
                     entryFee: scrim.entryFee ?? scrim.requirements?.entryFee ?? 0,
                     prizePool: scrim.prizePool || 0,
                     slots: scrim.totalSlots || (Array.isArray(scrim.slots) ? scrim.slots.length : Number(scrim.slots) || 12),
-                    map: scrim.map || ''
+                    map: scrim.map || '',
+                    scrimMode: scrim.scrimMode || (scrim.rewardPerKill > 0 ? 'PER_KILL' : 'STANDARD'),
+                    rewardPerKill: scrim.rewardPerKill || 0,
+                    minimumKillsForReward: scrim.minimumKillsForReward || 0,
                   });
                   setIsEditing(true);
                 }} 
@@ -1083,9 +1098,52 @@ export default function ScrimDetailPage() {
               <Trophy className="w-3.5 h-3.5 text-brand-500" />
               <span>{formatRupees(scrim.prizePool)}</span>
             </div>
+            {(scrim.scrimMode === 'PER_KILL' || Number(scrim.rewardPerKill) > 0) && (
+              <div className="flex items-center gap-1.5 text-amber-400 font-black">
+                <Target className="w-3.5 h-3.5 text-amber-400" />
+                <span>Rs. {Number(scrim.rewardPerKill)}/kill Bounty</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Per-Kill Bounty Match Banner */}
+      {(scrim.scrimMode === 'PER_KILL' || Number(scrim.rewardPerKill) > 0) && (
+        <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-lg shadow-amber-500/5">
+          <div className="flex items-center gap-3.5">
+            <div className="w-11 h-11 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0 shadow-inner">
+              <Target className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm font-black text-white uppercase tracking-wider">
+                  Per-Kill Bounty Scrim Match
+                </h3>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono border border-amber-500/30">
+                  Rs. {Number(scrim.rewardPerKill || 0).toLocaleString()} / ELIMINATION
+                </span>
+              </div>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Every verified kill earns instant cash rewards.
+                {Number(scrim.minimumKillsForReward || 0) > 0 ? (
+                  <span className="text-amber-300/90 font-medium"> (Min. {scrim.minimumKillsForReward} kills threshold required)</span>
+                ) : (
+                  <span> No minimum kill threshold — all kills rewarded!</span>
+                )}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowWinnerModal(true)}
+            className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-black uppercase tracking-wider transition-colors shadow-lg shadow-amber-500/20 flex items-center gap-2 self-start sm:self-auto cursor-pointer"
+          >
+            <Trophy className="w-3.5 h-3.5" />
+            <span>Payout Kill Bounties</span>
+          </button>
+        </div>
+      )}
 
       {/* Financial Readiness Lock Banner */}
       <FinancialLockBanner readiness={financialReadiness} className="mb-4" />
@@ -1378,6 +1436,57 @@ export default function ScrimDetailPage() {
                     <input type="number" value={editForm.slots || 0} onChange={e => setEditForm({ ...editForm, slots: e.target.value })} className="w-full bg-black border border-gray-800 rounded-lg p-2.5 text-sm text-white focus-visible:outline-none focus:border-brand-500" />
                   </div>
                 </div>
+
+                <div className="pt-2 border-t border-gray-800/80">
+                  <label className="block text-xs text-gray-400 uppercase tracking-wider mb-2">Match Scrim Mode</label>
+                  <div className="grid grid-cols-2 gap-2 mb-3">
+                    <button
+                      type="button"
+                      onClick={() => setEditForm({ ...editForm, scrimMode: 'STANDARD' })}
+                      className={`px-3 py-2 rounded-lg text-xs font-bold border transition-colors ${
+                        editForm.scrimMode !== 'PER_KILL'
+                          ? 'bg-brand-500/20 border-brand-500 text-brand-300'
+                          : 'bg-black/50 border-gray-800 text-gray-400 hover:border-gray-700'
+                      }`}
+                    >
+                      Standard BR
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditForm({ ...editForm, scrimMode: 'PER_KILL', rewardPerKill: editForm.rewardPerKill || 20 })}
+                      className={`px-3 py-2 rounded-lg text-xs font-bold border transition-colors flex items-center justify-center gap-1.5 ${
+                        editForm.scrimMode === 'PER_KILL'
+                          ? 'bg-amber-500/20 border-amber-500 text-amber-300'
+                          : 'bg-black/50 border-gray-800 text-gray-400 hover:border-gray-700'
+                      }`}
+                    >
+                      <Target className="w-3.5 h-3.5" /> Per-Kill Scrim
+                    </button>
+                  </div>
+
+                  {editForm.scrimMode === 'PER_KILL' && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                      <div>
+                        <label className="block text-xs text-amber-400 uppercase tracking-wider mb-1">Bounty Rate (Rs./kill)</label>
+                        <input
+                          type="number"
+                          value={editForm.rewardPerKill ?? 20}
+                          onChange={e => setEditForm({ ...editForm, rewardPerKill: Number(e.target.value) })}
+                          className="w-full bg-black border border-amber-500/30 rounded-lg p-2 text-sm text-white focus-visible:outline-none focus:border-amber-400"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-amber-400 uppercase tracking-wider mb-1">Min Kills For Reward</label>
+                        <input
+                          type="number"
+                          value={editForm.minimumKillsForReward ?? 1}
+                          onChange={e => setEditForm({ ...editForm, minimumKillsForReward: Number(e.target.value) })}
+                          className="w-full bg-black border border-amber-500/30 rounded-lg p-2 text-sm text-white focus-visible:outline-none focus:border-amber-400"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1412,6 +1521,26 @@ export default function ScrimDetailPage() {
                   <p className="text-xs text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-1.5"><Clock className="w-3 h-3" /> Format</p>
                   <p className="text-sm text-white">{scrim.format === '5v5' ? '5v5' : 'Battle Royale'}</p>
                 </div>
+                {(scrim.scrimMode === 'PER_KILL' || (scrim.rewardPerKill && Number(scrim.rewardPerKill) > 0)) && (
+                  <>
+                    <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                      <p className="text-xs text-amber-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                        <Target className="w-3.5 h-3.5 text-amber-400" /> Kill Bounty Rate
+                      </p>
+                      <p className="text-sm text-amber-300 font-black">
+                        Rs. {Number(scrim.rewardPerKill || 0)} / kill
+                      </p>
+                    </div>
+                    <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                      <p className="text-xs text-amber-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                        <Target className="w-3.5 h-3.5 text-amber-400" /> Min Kills Required
+                      </p>
+                      <p className="text-sm text-amber-300 font-black">
+                        {scrim.minimumKillsForReward || 1} kill{Number(scrim.minimumKillsForReward) === 1 ? '' : 's'}
+                      </p>
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>

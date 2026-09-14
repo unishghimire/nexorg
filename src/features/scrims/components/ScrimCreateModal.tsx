@@ -35,6 +35,7 @@ interface ScrimCreateModalProps {
   isOpen: boolean;
   onClose: () => void;
   editScrim?: any;
+  initialMode?: 'STANDARD' | 'PER_KILL';
   onSuccess?: () => void;
 }
 
@@ -56,6 +57,7 @@ export default function ScrimCreateModal({
   isOpen,
   onClose,
   editScrim,
+  initialMode,
   onSuccess,
 }: ScrimCreateModalProps) {
   const { user, profile } = useAuth();
@@ -92,11 +94,11 @@ export default function ScrimCreateModal({
     teamType: 'squad', // solo | duo | squad | 5v5
     map: 'Bermuda',
     totalSlots: 12,
-    scrimMode: 'STANDARD' as 'STANDARD' | 'PER_KILL',
-    rewardPerKill: 0,
+    scrimMode: (initialMode || 'STANDARD') as 'STANDARD' | 'PER_KILL',
+    rewardPerKill: initialMode === 'PER_KILL' ? 20 : 0,
     minimumKillsForReward: 0,
     entryFee: 0,
-    prizePool: 0,
+    prizePool: initialMode === 'PER_KILL' ? 960 : 0,
     startTime: '',
     bannerUrl: '',
     roomId: '',
@@ -148,18 +150,23 @@ export default function ScrimCreateModal({
 
       setCurrentStep(1);
     } else {
+      const mode = initialMode || 'STANDARD';
+      const isPk = mode === 'PER_KILL';
+      const defaultKillRate = isPk ? 20 : 0;
+      const estimatedPool = isPk ? 960 : 0;
+
       setFormData({
-        title: '',
+        title: isPk ? 'Free Fire Per-Kill Bounty Scrim' : '',
         game: dbGames[0]?.name || 'Free Fire',
         format: 'Battle Royale',
         teamType: 'squad',
         map: MAP_OPTIONS[dbGames[0]?.name]?.[0] || 'Bermuda',
         totalSlots: 12,
-        scrimMode: 'STANDARD' as 'STANDARD' | 'PER_KILL',
-        rewardPerKill: 0,
+        scrimMode: mode,
+        rewardPerKill: defaultKillRate,
         minimumKillsForReward: 0,
         entryFee: 0,
-        prizePool: 0,
+        prizePool: estimatedPool,
         startTime: '',
         bannerUrl: '',
         roomId: '',
@@ -169,7 +176,7 @@ export default function ScrimCreateModal({
       });
       setCurrentStep(1);
     }
-  }, [editScrim, isOpen]);
+  }, [editScrim, isOpen, initialMode]);
 
   const validateStep = () => {
     if (currentStep === 1) {
@@ -355,13 +362,68 @@ export default function ScrimCreateModal({
         {/* Step 1: Scrim Config */}
         {currentStep === 1 && (
           <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-4">
+            {/* Scrim Match Mode Selector */}
+            <div>
+              <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">
+                Scrim Match Mode *
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, scrimMode: 'STANDARD' })}
+                  className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
+                    formData.scrimMode === 'STANDARD'
+                      ? 'bg-emerald-500/10 border-emerald-500 text-white shadow-lg shadow-emerald-500/10'
+                      : 'bg-black border-gray-800 text-gray-400 hover:border-gray-700'
+                  }`}
+                >
+                  <div className={`p-2 rounded-xl shrink-0 ${formData.scrimMode === 'STANDARD' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-gray-800 text-gray-400'}`}>
+                    <Trophy className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-black uppercase tracking-wider block text-white">Standard Scrim</span>
+                    <p className="text-[11px] text-gray-400 mt-0.5">Classic placement podium payout (1st, 2nd, 3rd ranked teams).</p>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const defaultRate = formData.rewardPerKill || 20;
+                    const estimatedPool = (formData.totalSlots || 12) * defaultRate * (formData.teamType === 'solo' ? 1 : 4);
+                    setFormData({
+                      ...formData,
+                      scrimMode: 'PER_KILL',
+                      rewardPerKill: defaultRate,
+                      prizePool: formData.prizePool || estimatedPool,
+                    });
+                  }}
+                  className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
+                    formData.scrimMode === 'PER_KILL'
+                      ? 'bg-amber-500/10 border-amber-500 text-white shadow-lg shadow-amber-500/10'
+                      : 'bg-black border-gray-800 text-gray-400 hover:border-gray-700'
+                  }`}
+                >
+                  <div className={`p-2 rounded-xl shrink-0 ${formData.scrimMode === 'PER_KILL' ? 'bg-amber-500/20 text-amber-400' : 'bg-gray-800 text-gray-400'}`}>
+                    <Target className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-black uppercase tracking-wider block text-white flex items-center gap-1.5">
+                      Per-Kill Scrim <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/30 text-amber-300 font-mono">BOUNTY</span>
+                    </span>
+                    <p className="text-[11px] text-gray-400 mt-0.5">Cash bounty awarded for every verified kill & elimination.</p>
+                  </div>
+                </button>
+              </div>
+            </div>
+
             <div>
               <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">
                 Scrim Title *
               </label>
               <input
                 type="text"
-                placeholder="e.g. Free Fire Night Scrim #12"
+                placeholder={formData.scrimMode === 'PER_KILL' ? "e.g. Free Fire Per-Kill Bounty Night #12" : "e.g. Free Fire Night Scrim #12"}
                 value={formData.title}
                 onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                 className="w-full bg-black border border-gray-800 rounded-xl p-3 text-sm text-white font-bold focus-visible:outline-none focus:border-emerald-500"
