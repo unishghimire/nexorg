@@ -35,6 +35,7 @@ export interface BracketMatch {
 
 export interface TournamentsTabProps {
   hostedTournaments: any[];
+  isPowerOrg?: boolean;
   onDelete: (id: string, title: string) => void;
   onUpdateStatus: (id: string, status: string) => void;
   onCreateTournament: () => void;
@@ -46,6 +47,7 @@ export interface TournamentsTabProps {
 
 const TournamentsTab: React.FC<TournamentsTabProps> = ({
   hostedTournaments,
+  isPowerOrg = false,
   onDelete,
   onUpdateStatus,
   onCreateTournament,
@@ -224,10 +226,19 @@ const TournamentsTab: React.FC<TournamentsTabProps> = ({
 
         <button
           onClick={onCreateTournament}
-          className="bg-brand-500 hover:bg-brand-400 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors min-h-[44px] flex items-center justify-center gap-2 shadow-sm"
+          className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors min-h-[44px] flex items-center justify-center gap-2 cursor-pointer ${
+            isPowerOrg
+              ? 'bg-brand-500 hover:bg-brand-400 text-white shadow-sm'
+              : 'bg-dark border border-gray-800 hover:border-amber-500/50 text-gray-400 hover:text-amber-300'
+          }`}
         >
-          <Plus className="w-4 h-4" />
+          {isPowerOrg ? <Plus className="w-4 h-4" /> : <Lock className="w-4 h-4 text-amber-400" />}
           <span>Create Tournament</span>
+          {!isPowerOrg && (
+            <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono font-bold">
+              POWER
+            </span>
+          )}
         </button>
       </div>
 
@@ -242,10 +253,19 @@ const TournamentsTab: React.FC<TournamentsTabProps> = ({
           </p>
           <button
             onClick={onCreateTournament}
-            className="bg-brand-500 hover:bg-brand-400 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors min-h-[44px] flex items-center justify-center gap-2"
+            className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors min-h-[44px] flex items-center justify-center gap-2 cursor-pointer ${
+              isPowerOrg
+                ? 'bg-brand-500 hover:bg-brand-400 text-white'
+                : 'bg-dark border border-gray-800 hover:border-amber-500/50 text-gray-400 hover:text-amber-300'
+            }`}
           >
-            <Plus className="w-4 h-4" />
+            {isPowerOrg ? <Plus className="w-4 h-4" /> : <Lock className="w-4 h-4 text-amber-400" />}
             <span>Create Tournament</span>
+            {!isPowerOrg && (
+              <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono font-bold">
+                POWER
+              </span>
+            )}
           </button>
         </div>
       ) : (

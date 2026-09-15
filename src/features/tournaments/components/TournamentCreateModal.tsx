@@ -106,47 +106,54 @@ const TournamentCreateModal: React.FC<TournamentCreateModalProps> = ({ isOpen, o
   }, []);
 
   useEffect(() => {
+    if (!isOpen) return;
+
+    const isPowerOrg = Boolean(
+      profile?.isPowerOrganizer ||
+      profile?.isPowerOrg ||
+      profile?.orgTier === 'power' ||
+      profile?.role === 'admin'
+    );
+
+    if (!isPowerOrg) {
+      showToast(
+        'Tournament hosting is restricted to Power Organizers. Standard Organizers can host Scrims and Per-Kill Scrims. Complete 20 authentic scrims to qualify for Power status.',
+        'error'
+      );
+      onClose();
+      return;
+    }
+
     if (editTournament) {
       setFormData({
-        title: editTournament.title,
-        game: editTournament.game,
+        title: editTournament.title || '',
+        game: editTournament.game || '',
         bannerUrl: editTournament.bannerUrl || '',
-        type: editTournament.type,
+        type: editTournament.type || 'Battle Royale',
         format: editTournament.format || 'single_elimination',
         map: editTournament.map || '',
-        teamType: editTournament.teamType as any,
-        teamSize: editTournament.teamSize,
-        slots: editTournament.slots,
-        prizePool: editTournament.prizePool,
+        teamType: editTournament.teamType || 'solo',
+        teamSize: editTournament.teamSize || 1,
+        slots: editTournament.slots || 100,
+        prizePool: editTournament.prizePool || 0,
         currency: editTournament.currency || 'NPR',
-        entryFee: editTournament.entryFee,
+        entryFee: editTournament.entryFee || 0,
         roomId: editTournament.roomId || '',
         roomPass: editTournament.roomPass || '',
-        startTime: (() => {
-          const startDate = toDateSafe(editTournament.startTime);
-          if (!startDate) return '';
-          return new Date(startDate.getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-        })(),
+        startTime: editTournament.startTime?.toDate
+          ? editTournament.startTime.toDate().toISOString().slice(0, 16)
+          : '',
         rules: editTournament.rules || '',
-        matchType: 'tournament' as const,
+        matchType: 'tournament',
         scheduleType: editTournament.scheduleType || 'auto',
         registrationType: editTournament.registrationType || 'auto',
-        prizeDistribution: editTournament.prizeDistribution && editTournament.prizeDistribution.length > 0 
-          ? editTournament.prizeDistribution.map(p => ({
-              id: p.id || `prize-${Date.now()}-${Math.random()}`,
-              rank: p.rank,
-              label: p.label || `${p.rank}`,
-              amount: p.amount
-            }))
-          : [{ id: 'prize-initial-1', rank: 1, label: '1st', amount: 0 }]
+        prizeDistribution: editTournament.prizeDistribution || [
+          { id: 'prize-initial-1', rank: 1, label: '1st', amount: 0 },
+        ],
       });
 
       // Load secured credentials from subcollection
-      fetchRoomCredentials(
-        editTournament.id,
-        undefined,
-        (editTournament.matchType === 'scrims' || (editTournament as any).isScrim) ? 'scrims' : 'tournaments'
-      ).then(creds => {
+      fetchRoomCredentials(editTournament.id, undefined, 'tournaments').then(creds => {
         if (creds && (creds.roomId || creds.roomPass)) {
           setFormData(prev => ({
             ...prev,
@@ -183,7 +190,7 @@ const TournamentCreateModal: React.FC<TournamentCreateModalProps> = ({ isOpen, o
         ]
       });
     }
-  }, [editTournament, isOpen]);
+  }, [editTournament, isOpen, profile]);
 
   const validateStep = () => {
     switch (currentStep) {
@@ -193,15 +200,11 @@ const TournamentCreateModal: React.FC<TournamentCreateModalProps> = ({ isOpen, o
         return formData.type !== '' && formData.slots > 0 && formData.startTime !== '';
       case 3:
         const totalPrize = formData.prizeDistribution.reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
-        const hasValidPrizes = formData.prizeDistribution.length === 0 || 
-          formData.prizeDistribution.every(p => p.amount > 0 && p.label.trim() !== '');
-        return formData.prizePool >= 0 && formData.entryFee >= 0 && 
-               (formData.prizePool === 0 || totalPrize <= formData.prizePool) && 
-               hasValidPrizes;
+        return formData.prizePool >= 0 && formData.entryFee >= 0 && totalPrize === formData.prizePool;
       case 4:
-        return formData.rules.trim() !== '';
-      default:
         return true;
+      default:
+        return false;
     }
   };
 
@@ -209,7 +212,7 @@ const TournamentCreateModal: React.FC<TournamentCreateModalProps> = ({ isOpen, o
     if (validateStep()) {
       if (currentStep < STEPS.length) setCurrentStep(currentStep + 1);
     } else {
-      showToast('Please fill all required fields correctly', 'error');
+      showToast('Please fill in all required fields properly before proceeding', 'error');
     }
   };
 
@@ -219,6 +222,22 @@ const TournamentCreateModal: React.FC<TournamentCreateModalProps> = ({ isOpen, o
 
   const handleSubmit = async () => {
     if (!user) return;
+    const isPowerOrg = Boolean(
+      profile?.isPowerOrganizer ||
+      profile?.isPowerOrg ||
+      profile?.orgTier === 'power' ||
+      profile?.role === 'admin'
+    );
+
+    if (!isPowerOrg) {
+      showToast(
+        'Tournament hosting is restricted to Power Organizers. Standard Organizers can host Scrims and Per-Kill Scrims. Complete 20 authentic scrims to qualify for Power status.',
+        'error'
+      );
+      setLoading(false);
+      return;
+    }
+
     if (!validateStep()) {
       showToast('Please complete all steps correctly', 'error');
       return;

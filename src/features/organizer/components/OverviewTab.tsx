@@ -12,6 +12,10 @@ import {
   Gamepad2,
   ChevronRight,
   ExternalLink,
+  Lock,
+  Zap,
+  CheckCircle2,
+  Clock,
 } from 'lucide-react';
 import { Tournament } from '../../../shared/types/types';
 import { getSlotCount, getFilledSlotCount } from '../../../shared/utils/scrimSlots';
@@ -37,6 +41,11 @@ export interface OverviewTabProps {
     type: string;
   }[];
   hostedTournaments: Tournament[] | any[];
+  hostedScrims?: Tournament[] | any[];
+  isPowerOrg?: boolean;
+  powerOrgApplicationStatus?: 'none' | 'pending' | 'approved' | 'rejected';
+  completedScrimsCount?: number;
+  onApplyPowerOrg?: () => void;
   onNavigateTab?: (tabId: string) => void;
   onCreateTournament?: () => void;
   onCreateScrim?: () => void;
@@ -117,10 +126,31 @@ const OverviewTab: React.FC<OverviewTabProps> = ({
   },
   activityFeed = [],
   hostedTournaments = [],
+  hostedScrims = [],
+  isPowerOrg = false,
+  powerOrgApplicationStatus = 'none',
+  completedScrimsCount,
+  onApplyPowerOrg,
   onNavigateTab,
   onCreateTournament,
   onCreateScrim,
 }) => {
+  // Calculate verified completed authentic scrims
+  const effectiveCompletedCount = typeof completedScrimsCount === 'number'
+    ? completedScrimsCount
+    : (hostedScrims || []).filter((s: any) =>
+        s.status === 'completed' &&
+        (s.payoutCompleted ||
+         (Array.isArray(s.winners) && s.winners.length > 0) ||
+         (Array.isArray(s.manualResults) && s.manualResults.length > 0) ||
+         (Number(s.filledSlots) >= 2 || Number(s.currentPlayers) >= 2))
+      ).length;
+
+  const requiredScrims = 20;
+  const progressPercent = Math.min(100, Math.round((effectiveCompletedCount / requiredScrims) * 100));
+  const isRequirementMet = effectiveCompletedCount >= requiredScrims;
+  const remainingScrims = Math.max(0, requiredScrims - effectiveCompletedCount);
+
   return (
     <div className="space-y-6 text-sm">
       {/* Overview Header with Quick Jump Buttons */}
@@ -140,21 +170,160 @@ const OverviewTab: React.FC<OverviewTabProps> = ({
             <button
               type="button"
               onClick={onCreateTournament}
-              className="px-3.5 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-black uppercase tracking-wider transition flex items-center gap-1.5 shadow-md shadow-brand-950/40"
+              className={`px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition flex items-center gap-1.5 cursor-pointer ${
+                isPowerOrg
+                  ? 'bg-brand-600 hover:bg-brand-500 text-white shadow-md shadow-brand-950/40'
+                  : 'bg-dark border border-gray-800 hover:border-amber-500/50 text-gray-400 hover:text-amber-300'
+              }`}
             >
-              <Plus className="w-3.5 h-3.5" /> Create Tournament
+              {isPowerOrg ? <Plus className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5 text-amber-400" />}
+              <span>Create Tournament</span>
+              {!isPowerOrg && (
+                <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono">
+                  POWER
+                </span>
+              )}
             </button>
           )}
           {onCreateScrim && (
             <button
               type="button"
               onClick={onCreateScrim}
-              className="px-3.5 py-2 bg-surface hover:bg-surface text-gray-200 hover:text-white rounded-xl text-xs font-bold uppercase tracking-wider border border-gray-700 transition flex items-center gap-1.5"
+              className="px-3.5 py-2 bg-surface hover:bg-surface text-gray-200 hover:text-white rounded-xl text-xs font-bold uppercase tracking-wider border border-gray-700 transition flex items-center gap-1.5 cursor-pointer"
             >
               <Gamepad2 className="w-3.5 h-3.5 text-orange-400" /> Schedule Scrim
             </button>
           )}
         </div>
+      </div>
+
+      {/* ─── POWER ORGANIZER TIER & TOURNAMENT UNLOCK PROGRESSION CARD ─── */}
+      <div
+        className={`p-5 rounded-2xl border transition-all ${
+          isPowerOrg
+            ? 'bg-gradient-to-br from-amber-500/10 via-emerald-500/5 to-card border-amber-500/30 shadow-lg shadow-amber-950/10'
+            : isRequirementMet
+            ? 'bg-gradient-to-br from-emerald-500/15 via-brand-500/10 to-card border-emerald-500/40 shadow-lg shadow-emerald-950/20'
+            : 'bg-card/80 border-gray-800/80 shadow-md'
+        }`}
+      >
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span
+                className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full border flex items-center gap-1.5 ${
+                  isPowerOrg
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                    : 'bg-dark text-gray-400 border-gray-700'
+                }`}
+              >
+                {isPowerOrg ? (
+                  <Zap className="w-3 h-3 text-amber-400 fill-amber-400" />
+                ) : (
+                  <Shield className="w-3 h-3 text-gray-400" />
+                )}
+                {isPowerOrg ? 'Power Organizer Verified' : 'Standard Organizer'}
+              </span>
+
+              {isPowerOrg ? (
+                <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" /> Tournaments &amp; Scrims Unlocked
+                </span>
+              ) : powerOrgApplicationStatus === 'pending' ? (
+                <span className="text-[10px] font-bold text-amber-300 bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <Clock className="w-3 h-3 text-amber-400" /> Application Under Admin Review
+                </span>
+              ) : isRequirementMet ? (
+                <span className="text-[10px] font-black text-emerald-300 bg-emerald-500/20 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" /> 20/20 Scrims Met — Ready to Apply
+                </span>
+              ) : (
+                <span className="text-[10px] font-bold text-gray-400 bg-black/40 border border-white/5 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <Lock className="w-3 h-3 text-amber-400" /> Tournament Hosting Locked
+                </span>
+              )}
+            </div>
+
+            <h3 className="text-base sm:text-lg font-black text-white uppercase tracking-tight flex items-center gap-2">
+              {isPowerOrg ? (
+                <>Official Tournament &amp; Scrim Host Suite</>
+              ) : (
+                <>Power Organizer Qualification</>
+              )}
+            </h3>
+
+            <p className="text-xs text-gray-400 max-w-2xl leading-relaxed">
+              {isPowerOrg
+                ? 'Your organization has full verified authorization to create and host official multi-round tournaments, brackets, and all scrim formats on Nexplay.'
+                : 'Standard Organizers can host Free Scrims, Paid Scrims, and Per-Kill Scrims. To unlock official Tournament hosting, complete 20 authentic scrims with verified results and apply for Power status.'}
+            </p>
+          </div>
+
+          {/* Action button if eligible & not power org */}
+          {!isPowerOrg && (
+            <div className="shrink-0 flex items-center gap-2">
+              {isRequirementMet ? (
+                powerOrgApplicationStatus === 'pending' ? (
+                  <button
+                    type="button"
+                    disabled
+                    className="px-4 py-2.5 bg-amber-500/20 border border-amber-500/30 text-amber-300 rounded-xl text-xs font-black uppercase tracking-wider cursor-not-allowed flex items-center gap-1.5"
+                  >
+                    <Clock className="w-4 h-4 animate-spin text-amber-400" /> Review Pending
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={onApplyPowerOrg}
+                    className="px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-black rounded-xl text-xs uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-lg shadow-emerald-500/20 cursor-pointer"
+                  >
+                    <Zap className="w-4 h-4 fill-black" /> Apply for Power Status
+                  </button>
+                )
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onNavigateTab?.('scrims')}
+                  className="px-4 py-2.5 bg-surface hover:bg-surface text-gray-200 hover:text-white rounded-xl text-xs font-bold uppercase tracking-wider border border-gray-700 transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Gamepad2 className="w-4 h-4 text-orange-400" /> Host Scrims ({remainingScrims} left)
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Progression Bar (shown for standard organizers) */}
+        {!isPowerOrg && (
+          <div className="mt-4 pt-4 border-t border-gray-800/80 space-y-2">
+            <div className="flex items-center justify-between text-xs font-bold">
+              <span className="text-gray-400 uppercase text-[10px] font-black tracking-wider flex items-center gap-1.5">
+                <Trophy className="w-3.5 h-3.5 text-amber-400" />
+                Authentic Scrims Milestone (20 Required)
+              </span>
+              <span
+                className={
+                  isRequirementMet
+                    ? 'text-emerald-400 font-mono font-black'
+                    : 'text-amber-400 font-mono font-black'
+                }
+              >
+                {effectiveCompletedCount} / 20 Scrims ({progressPercent}%)
+              </span>
+            </div>
+
+            <div className="w-full h-2.5 bg-black/60 rounded-full overflow-hidden border border-white/5 p-0.5">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${
+                  isRequirementMet
+                    ? 'bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-400 shadow-sm shadow-emerald-500/50'
+                    : 'bg-gradient-to-r from-brand-600 to-amber-500 shadow-sm shadow-brand-500/40'
+                }`}
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 1. Interactive KPI Navigation Grid */}

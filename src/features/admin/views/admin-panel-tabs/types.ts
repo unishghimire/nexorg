@@ -28,6 +28,8 @@ export type AdminPanelTabProps = Record<string, any> & {
     games?: any;
     getRelativeTime?: any;
     handleApproveOrg?: any;
+    handleApprovePowerOrg?: any;
+    handleRejectPowerOrg?: any;
     handleApproveTx?: any;
     handleRejectTx?: any;
     handleRefundTx?: any;
@@ -71,6 +73,7 @@ export type AdminPanelTabProps = Record<string, any> & {
     notice?: any;
     openEditGame?: any;
     orgApplications?: any;
+    powerOrgApplications?: any;
     orgDiscord?: any;
     orgEmail?: any;
     orgFormDescription?: any;

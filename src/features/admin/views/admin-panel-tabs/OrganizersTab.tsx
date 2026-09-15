@@ -28,13 +28,22 @@ export const OrganizersTab: React.FC<AdminPanelTabProps> = (props) => {
                                                 <p className="text-[10px] text-slate-400 uppercase font-bold">{org.orgName || 'No Org Name'}</p>
                                                 <span className="text-[10px] bg-brand-600/10 text-brand-400 px-1.5 py-0.5 rounded border border-brand-500/20 uppercase font-black">{org.role}</span>
                                             </div>
-                                            <button type="button"
-                                                onClick={() => togglePowerOrganizer(org)}
-                                                className={`mt-1 flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded ${org.isPowerOrganizer ? 'bg-green-600/20 text-green-500' : 'bg-surface/20 text-slate-400'}`}
-                                            >
-                                                {org.isPowerOrganizer ? <CheckCircle className="w-3 h-3" /> : <X className="w-3 h-3" />}
-                                                {org.isPowerOrganizer ? 'Power' : 'Standard'}
-                                            </button>
+                                            {(() => {
+                                                const isPower = Boolean(org.isPowerOrganizer || org.isPowerOrg || org.orgTier === 'power');
+                                                return (
+                                                    <button type="button"
+                                                        onClick={() => togglePowerOrganizer(org)}
+                                                        className={`mt-1.5 inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg border transition-all ${
+                                                            isPower
+                                                                ? 'bg-amber-500/20 text-yellow-400 border-yellow-500/40 shadow-sm shadow-yellow-500/10 hover:bg-amber-500/30'
+                                                                : 'bg-slate-800/60 text-slate-400 border-slate-700 hover:text-white hover:border-slate-600'
+                                                        }`}
+                                                    >
+                                                        {isPower ? <CheckCircle className="w-3 h-3 text-yellow-400" /> : <X className="w-3 h-3" />}
+                                                        <span>{isPower ? 'Power Org' : 'Standard Org'}</span>
+                                                    </button>
+                                                );
+                                            })()}
                                         </div>
                                     </div>
                                     <div className="flex gap-2">

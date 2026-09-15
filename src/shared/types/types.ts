@@ -44,6 +44,11 @@ export interface UserProfile {
     orgPendingEarnings?: number;
     orgWalletBalance?: number;
     reservedBalance?: number;
+    isPowerOrg?: boolean;
+    orgTier?: 'standard' | 'power';
+    powerOrgApplicationStatus?: 'none' | 'pending' | 'approved' | 'rejected';
+    powerOrgAppliedAt?: Timestamp | any;
+    completedScrimsCount?: number;
     stats?: {
         totalMatches: number;
         wins: number;
@@ -613,4 +618,20 @@ export interface TournamentEarning {
     status: 'pending' | 'released' | 'no_earnings';
     createdAt: Timestamp | any;
     releasedAt?: Timestamp | any;
+}
+
+export interface PowerOrgApplication {
+    id: string;
+    userId: string;
+    username: string;
+    orgName: string;
+    email: string;
+    phone?: string;
+    whatsapp?: string;
+    completedScrimsCount: number;
+    status: 'pending' | 'approved' | 'rejected';
+    appliedAt: Timestamp | any;
+    reviewedAt?: Timestamp | any;
+    reviewedBy?: string;
+    adminNotes?: string;
 }

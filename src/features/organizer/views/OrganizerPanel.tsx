@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../shared/context/AuthContext';
 import { auth } from '../../../shared/config/firebase';
@@ -27,6 +27,8 @@ import { DisputesTab } from '../components/DisputesTab';
 import { TeamsRostersTab } from '../components/TeamsRostersTab';
 import { WalletPayoutsTab } from '../components/WalletPayoutsTab';
 import { SettingsStreamTab } from '../components/SettingsStreamTab';
+import PowerOrgApplyModal from '../components/PowerOrgApplyModal';
+import PowerOrgLockedModal from '../components/PowerOrgLockedModal';
 
 const NAV_ITEMS = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -97,6 +99,28 @@ const OrganizerPanel: React.FC = () => {
   const [showScrimCreateModal, setShowScrimCreateModal] = useState(false);
   const [editScrim, setEditScrim] = useState<any>(null);
   const [scrimCreateInitialMode, setScrimCreateInitialMode] = useState<'STANDARD' | 'PER_KILL'>('STANDARD');
+
+  // Power Organizer State & Scrims Progression
+  const isPowerOrg = Boolean(
+    profile?.isPowerOrganizer ||
+    profile?.isPowerOrg ||
+    profile?.orgTier === 'power' ||
+    profile?.role === 'admin'
+  );
+
+  const completedScrimsCount = useMemo(() => {
+    return (org.scrims || []).filter(
+      (s: any) =>
+        s.status === 'completed' &&
+        (s.payoutCompleted ||
+         (Array.isArray(s.winners) && s.winners.length > 0) ||
+         (Array.isArray(s.manualResults) && s.manualResults.length > 0) ||
+         (Number(s.filledSlots) >= 2 || Number(s.currentPlayers) >= 2))
+    ).length;
+  }, [org.scrims]);
+
+  const [showPowerOrgApplyModal, setShowPowerOrgApplyModal] = useState(false);
+  const [showPowerOrgLockedModal, setShowPowerOrgLockedModal] = useState(false);
 
   // Loading states for async operations
   const [isDeleting, setIsDeleting] = useState(false);
@@ -179,9 +203,13 @@ const OrganizerPanel: React.FC = () => {
   }, [org, showToast, isUpdatingStatus, navigate]);
 
   const handleCreateTournament = useCallback(() => {
+    if (!isPowerOrg) {
+      setShowPowerOrgLockedModal(true);
+      return;
+    }
     setEditTournament(null);
     setShowCreateModal(true);
-  }, []);
+  }, [isPowerOrg]);
 
   const handleManageTournament = useCallback((id: string) => {
     navigate(`/tournament-admin/${id}`);
@@ -198,9 +226,13 @@ const OrganizerPanel: React.FC = () => {
   }, [org, showToast]);
 
   const handleEditTournament = useCallback((tournament: any) => {
+    if (!isPowerOrg) {
+      setShowPowerOrgLockedModal(true);
+      return;
+    }
     setEditTournament(tournament);
     setShowCreateModal(true);
-  }, []);
+  }, [isPowerOrg]);
 
   const handleViewScrimDetails = useCallback((scrimId: string) => {
     navigate(`/organizer/scrim/${scrimId}`);
@@ -484,6 +516,11 @@ const OrganizerPanel: React.FC = () => {
               kpis={org.kpis}
               activityFeed={org.activityFeed}
               hostedTournaments={org.tournamentsOnly}
+              hostedScrims={org.scrims}
+              isPowerOrg={isPowerOrg}
+              powerOrgApplicationStatus={profile?.powerOrgApplicationStatus || 'none'}
+              completedScrimsCount={completedScrimsCount}
+              onApplyPowerOrg={() => setShowPowerOrgApplyModal(true)}
               onNavigateTab={(tabId) => handleTabChange(tabId as TabId)}
               onCreateTournament={handleCreateTournament}
               onCreateScrim={() => { setEditScrim(null); setShowScrimCreateModal(true); }}
@@ -495,6 +532,7 @@ const OrganizerPanel: React.FC = () => {
           <TabErrorBoundary tabName="Tournaments Tab" resetKey={activeTab}>
             <TournamentsTab
               hostedTournaments={org.tournamentsOnly}
+              isPowerOrg={isPowerOrg}
               onDelete={handleDeleteTournament}
               onUpdateStatus={handleUpdateTournamentStatus}
               onCreateTournament={handleCreateTournament}
@@ -728,6 +766,35 @@ const OrganizerPanel: React.FC = () => {
           onSuccess={() => { setShowScrimCreateModal(false); setEditScrim(null); org.fetchHostedScrims(); }}
           editScrim={editScrim}
           initialMode={scrimCreateInitialMode}
+        />
+      )}
+
+      {/* Power Organizer Application Modal */}
+      {showPowerOrgApplyModal && (
+        <PowerOrgApplyModal
+          isOpen={showPowerOrgApplyModal}
+          onClose={() => setShowPowerOrgApplyModal(false)}
+          completedScrimsCount={completedScrimsCount}
+          onSuccess={() => {
+            showToast('Power Organizer application submitted for Admin approval!', 'success');
+          }}
+        />
+      )}
+
+      {/* Power Organizer Locked Notice Modal */}
+      {showPowerOrgLockedModal && (
+        <PowerOrgLockedModal
+          isOpen={showPowerOrgLockedModal}
+          onClose={() => setShowPowerOrgLockedModal(false)}
+          completedScrimsCount={completedScrimsCount}
+          applicationStatus={profile?.powerOrgApplicationStatus || 'none'}
+          onApply={() => setShowPowerOrgApplyModal(true)}
+          onHostScrim={() => {
+            handleTabChange('scrims');
+            setEditScrim(null);
+            setScrimCreateInitialMode('STANDARD');
+            setShowScrimCreateModal(true);
+          }}
         />
       )}
     </DashboardLayout>
