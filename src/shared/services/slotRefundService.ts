@@ -330,17 +330,33 @@ export async function releaseSlotWithRefund(
   });
 
   const filled = countFilledScrimSlots(newSlots);
-  const updatePayload = {
+  const updatePayload: any = {
     slots: newSlots,
     filledSlots: filled,
     currentPlayers: filled,
     updatedAt: serverTimestamp(),
   };
+  if (refunded && refundAmount > 0) {
+    updatePayload.collectedFees = increment(-refundAmount);
+    updatePayload.collectedEntryFees = increment(-refundAmount);
+    updatePayload.lockedMoney = increment(-refundAmount);
+    updatePayload.escrowBalance = increment(-refundAmount);
+  }
   const cleanedPayload = cleanFirestoreData(updatePayload);
 
   await updateDoc(doc(db, resolvedCollection, scrimId), cleanedPayload).catch(() =>
     setDoc(doc(db, resolvedCollection, scrimId), cleanedPayload, { merge: true })
   );
+
+  // Decrement locked tournament funds from organizer's locked wallet
+  const hostId = scrimData.hostUid || scrimData.createdBy || scrimData.userId;
+  if (refunded && refundAmount > 0 && hostId) {
+    await updateDoc(doc(db, 'users', hostId), {
+      orgTournamentsLockedBalance: increment(-refundAmount),
+      orgPendingEarnings: increment(-refundAmount),
+      updatedAt: serverTimestamp(),
+    }).catch(() => {});
+  }
 
   // Remove participant documents
   for (const p of matchParts) {

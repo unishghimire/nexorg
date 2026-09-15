@@ -433,15 +433,31 @@ export default function ScrimDetailPage() {
       });
       const filled = countFilledScrimSlots(newSlots);
 
-      const updatePayload = {
+      const updatePayload: any = {
         slots: newSlots,
         filledSlots: filled,
         currentPlayers: filled,
         updatedAt: serverTimestamp(),
       };
+      if (resolvedFee > 0) {
+        updatePayload.collectedFees = increment(resolvedFee);
+        updatePayload.collectedEntryFees = increment(resolvedFee);
+        updatePayload.lockedMoney = increment(resolvedFee);
+        updatePayload.escrowBalance = increment(resolvedFee);
+      }
       const cleanedPayload = cleanFirestoreData(updatePayload);
 
       await updateDoc(doc(db, 'scrims', id), cleanedPayload);
+
+      // Track locked entry fees into organizer's locked wallet
+      const hostId = scrim.hostUid || scrim.createdBy || scrim.userId;
+      if (resolvedFee > 0 && hostId) {
+        await updateDoc(doc(db, 'users', hostId), {
+          orgTournamentsLockedBalance: increment(resolvedFee),
+          orgPendingEarnings: increment(resolvedFee),
+          updatedAt: serverTimestamp(),
+        }).catch(() => {});
+      }
 
       setScrim((prev: any) => prev ? { ...prev, ...cleanedPayload } : prev);
       setIsAssignModalOpen(false);

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, addDoc, getDocs, serverTimestamp, Timestamp, updateDoc, doc, setDoc, where, query } from 'firebase/firestore';
+import { collection, addDoc, getDocs, serverTimestamp, Timestamp, updateDoc, doc, setDoc, where, query, increment } from 'firebase/firestore';
 import { Scrim } from '../../../shared/types/types';
 import { db, auth } from '../../../shared/config/firebase';
 import { useAuth } from '../../../shared/context/AuthContext';
@@ -23,6 +23,7 @@ import {
   Save,
   Target,
   Trophy,
+  AlertTriangle,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatCurrency, formatGameName, toDateSafe, cleanFirestoreData } from '../../../shared/utils/utils';
@@ -231,6 +232,21 @@ export default function ScrimCreateModal({
     setLoading(true);
     try {
       const slotCount = Number(formData.totalSlots) || 12;
+      const parsedPrizePool = Math.max(0, Math.round(Number(formData.prizePool || 0)));
+      const parsedEntryFee = Math.max(0, Math.round(Number(formData.entryFee || 0)));
+      const isFreeWithPrize = parsedEntryFee === 0 && parsedPrizePool > 0;
+      const availableOrg = (profile?.orgWalletBalance || 0) + (profile?.balance || 0);
+
+      // Free scrim with cash prize: Organizer MUST have sufficient balance to lock prize pool up-front
+      if (!editScrim && isFreeWithPrize && availableOrg < parsedPrizePool) {
+        showToast(
+          `Insufficient wallet balance: Free scrims with a cash prize require the host to lock Rs. ${parsedPrizePool.toLocaleString()} from their wallet balance (Available: Rs. ${availableOrg.toLocaleString()}). Please top up your wallet.`,
+          'error'
+        );
+        setLoading(false);
+        return;
+      }
+
       let slots: ScrimSlot[] = Array.from({ length: slotCount }, (_, idx) => ({
         slotNumber: idx + 1,
         status: 'open' as const,
@@ -271,8 +287,15 @@ export default function ScrimCreateModal({
         slots,
         filledSlots,
         currentPlayers: filledSlots,
-        entryFee: Number(formData.entryFee) || 0,
-        prizePool: Number(formData.prizePool) || 0,
+        entryFee: parsedEntryFee,
+        prizePool: parsedPrizePool,
+        fundingStatus: editScrim ? (editScrim.fundingStatus || (parsedPrizePool === 0 ? 'NOT_REQUIRED' : (isFreeWithPrize ? 'RESERVED' : 'PENDING_FUNDING'))) : (parsedPrizePool === 0 ? 'NOT_REQUIRED' : (isFreeWithPrize ? 'RESERVED' : 'PENDING_FUNDING')),
+        requiredFunding: parsedPrizePool,
+        reservedFunding: editScrim ? (editScrim.reservedFunding || 0) : (isFreeWithPrize ? parsedPrizePool : 0),
+        lockedMoney: editScrim ? (editScrim.lockedMoney || 0) : (isFreeWithPrize ? parsedPrizePool : 0),
+        escrowBalance: editScrim ? (editScrim.escrowBalance || 0) : (isFreeWithPrize ? parsedPrizePool : 0),
+        collectedFees: editScrim ? ((editScrim as any).collectedFees || 0) : 0,
+        collectedEntryFees: editScrim ? ((editScrim as any).collectedEntryFees || 0) : 0,
         scrimMode: formData.scrimMode,
         rewardPerKill: formData.scrimMode === 'PER_KILL' ? Number(formData.rewardPerKill) || 0 : 0,
         minimumKillsForReward: formData.scrimMode === 'PER_KILL' ? Number(formData.minimumKillsForReward) || 0 : 0,
@@ -299,9 +322,40 @@ export default function ScrimCreateModal({
         showToast('Scrim updated successfully!', 'success');
       } else {
         const docRef = await addDoc(collection(db, 'scrims'), {
-          ...scrimPayload,
+          ...cleanedPayload,
           createdAt: serverTimestamp(),
         });
+
+        // Free event with cash prize: Lock prize escrow from organizer's own wallet immediately
+        if (isFreeWithPrize) {
+          const deductOrg = Math.min(profile?.orgWalletBalance || 0, parsedPrizePool);
+          const deductPlayer = parsedPrizePool - deductOrg;
+          const userUpdates: any = {
+            reservedBalance: increment(parsedPrizePool),
+            updatedAt: serverTimestamp(),
+          };
+          if (deductOrg > 0) userUpdates.orgWalletBalance = increment(-deductOrg);
+          if (deductPlayer > 0) userUpdates.balance = increment(-deductPlayer);
+          await updateDoc(doc(db, 'users', user.uid), userUpdates).catch(() => {});
+
+          const txRef = doc(collection(db, 'transactions'));
+          await setDoc(txRef, {
+            id: txRef.id,
+            userId: user.uid,
+            username: profile?.username || 'Organizer',
+            type: 'tournament_reservation',
+            amount: -parsedPrizePool,
+            method: 'Prize Pool Escrow Lock',
+            status: 'success',
+            desc: `Prize pool reserve locked from wallet for free scrim "${formData.title}"`,
+            scrimId: docRef.id,
+            timestamp: serverTimestamp(),
+          }).catch(() => {});
+
+          showToast(`Free scrim published and Rs. ${parsedPrizePool.toLocaleString()} prize funds locked in escrow from your wallet!`, 'success');
+        } else {
+          showToast('Scrim created successfully!', 'success');
+        }
 
         if (formData.roomId || formData.roomPass) {
           await broadcastRoomCredentials(docRef.id, formData.roomId, formData.roomPass, formData.streamUrl, 'scrims').catch(() => {});
@@ -320,8 +374,6 @@ export default function ScrimCreateModal({
           slots: slotCount,
           bannerUrl: scrimPayload.bannerUrl,
         } as any).catch((e) => console.warn('Discord scrim announcement warning:', e));
-
-        showToast('Scrim created successfully!', 'success');
       }
 
       onSuccess?.();
@@ -747,6 +799,90 @@ export default function ScrimCreateModal({
                 />
               </div>
             </div>
+
+            {/* ─── SCRIM FUNDING & WALLET ESCROW STATUS ─── */}
+            {(() => {
+              const reqFunding = Math.max(0, Math.round(Number(formData.prizePool || 0)));
+              const entryFee = Math.max(0, Math.round(Number(formData.entryFee || 0)));
+              const isFreeWithPrize = entryFee === 0 && reqFunding > 0;
+              const availableOrg = (profile?.orgWalletBalance || 0) + (profile?.balance || 0);
+              const shortage = Math.max(0, reqFunding - availableOrg);
+              const isFunded = availableOrg >= reqFunding;
+
+              if (reqFunding === 0) {
+                return (
+                  <div className="bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-xl flex items-start gap-3">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="text-xs font-black text-emerald-300 uppercase tracking-wide">Free Practice Scrim — Zero Prize Pool</div>
+                      <div className="text-[11px] text-gray-400 mt-0.5">
+                        This practice scrim requires NPR 0 organizer funding and no prize escrow.
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              if (isFreeWithPrize) {
+                return (
+                  <div className={`p-4 rounded-xl border space-y-3 ${isFunded ? 'bg-brand-500/10 border-brand-500/30' : 'bg-amber-500/10 border-amber-500/30'}`}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {isFunded ? <Lock className="w-4 h-4 text-brand-400" /> : <AlertTriangle className="w-4 h-4 text-amber-400" />}
+                        <span className="text-xs font-black uppercase tracking-wider text-white">
+                          {isFunded ? 'Free Scrim Prize Escrow Secured' : 'Organizer Wallet Funding Required'}
+                        </span>
+                      </div>
+                      <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${isFunded ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'}`}>
+                        {isFunded ? 'Sufficient Balance' : 'Insufficient Balance'}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 bg-black/40 p-3 rounded-lg border border-white/5 text-center">
+                      <div>
+                        <div className="text-[9px] text-gray-500 uppercase font-black tracking-widest">Required Prize</div>
+                        <div className="text-xs font-black text-white font-mono">Rs. {reqFunding.toLocaleString()}</div>
+                      </div>
+                      <div>
+                        <div className="text-[9px] text-gray-500 uppercase font-black tracking-widest">Available Wallet</div>
+                        <div className="text-xs font-black text-emerald-400 font-mono">Rs. {availableOrg.toLocaleString()}</div>
+                      </div>
+                      <div>
+                        <div className="text-[9px] text-gray-500 uppercase font-black tracking-widest">{shortage > 0 ? 'Shortage' : 'Status'}</div>
+                        <div className={`text-xs font-black font-mono ${shortage > 0 ? 'text-red-400' : 'text-brand-400'}`}>
+                          {shortage > 0 ? `Rs. ${shortage.toLocaleString()}` : 'Ready to Lock'}
+                        </div>
+                      </div>
+                    </div>
+
+                    <p className="text-[11px] text-gray-400 leading-relaxed">
+                      {isFunded
+                        ? `Upon creation, Rs. ${reqFunding.toLocaleString()} will be automatically locked in escrow from your organizer wallet. Free scrims generate 0 profit for the host and platform; all prize money goes directly to the winners.`
+                        : `Free scrims with a cash prize require the organizer to deposit 100% of the prize pool from their wallet up front. Please top up your wallet to proceed.`}
+                    </p>
+                  </div>
+                );
+              }
+
+              // Paid scrim info
+              const totalSlots = Number(formData.totalSlots) || 12;
+              const estMaxCollection = totalSlots * entryFee;
+              const estMargin = estMaxCollection - reqFunding;
+
+              return (
+                <div className="bg-dark/60 border border-gray-800 p-4 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between text-xs font-black text-white uppercase tracking-wider">
+                    <span>Paid Scrim Financial Projection</span>
+                    <span className={estMargin >= 0 ? 'text-emerald-400 font-mono' : 'text-amber-400 font-mono'}>
+                      {estMargin >= 0 ? `Max Margin: +Rs. ${estMargin.toLocaleString()}` : `Deficit: Rs. ${estMargin.toLocaleString()}`}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-gray-400">
+                    Player slot registration fees (Rs. {entryFee.toLocaleString()} / slot) will be held in your tournament locked wallet. On match completion, profit margin (Collections − Prize Pool) is calculated and your share is queued for payout.
+                  </div>
+                </div>
+              );
+            })()}
 
             <div>
               <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">

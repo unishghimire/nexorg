@@ -649,12 +649,57 @@ export function useOrgData() {
     }
 
     if (!activatedViaApi) {
+      // Direct Firestore transaction fallback: verify wallet balance, debit wallet and lock into reservedBalance
+      const tourSnap = await getDoc(doc(db, 'tournaments', id));
+      const tData = tourSnap.data() || {};
+      const requiredFunding = Number(tData.prizePool || tData.requiredFunding || 0);
+
+      if (requiredFunding > 0) {
+        const userRef = doc(db, 'users', user.uid);
+        const userSnap = await getDoc(userRef);
+        const uData = userSnap.data() || {};
+        const availableOrg = Number(uData.orgWalletBalance || 0) + Number(uData.balance || 0);
+
+        if (availableOrg < requiredFunding) {
+          throw new Error(
+            `Insufficient wallet balance: NPR ${requiredFunding.toLocaleString()} required to activate and reserve prize pool (Available: NPR ${availableOrg.toLocaleString()}). Please top up.`
+          );
+        }
+
+        const deductOrg = Math.min(Number(uData.orgWalletBalance || 0), requiredFunding);
+        const deductPlayer = requiredFunding - deductOrg;
+        const userUpdates: any = {
+          reservedBalance: increment(requiredFunding),
+          updatedAt: serverTimestamp(),
+        };
+        if (deductOrg > 0) userUpdates.orgWalletBalance = increment(-deductOrg);
+        if (deductPlayer > 0) userUpdates.balance = increment(-deductPlayer);
+        await updateDoc(userRef, userUpdates);
+
+        const txRef = doc(collection(db, 'transactions'));
+        await setDoc(txRef, {
+          id: txRef.id,
+          userId: user.uid,
+          username: uData.username || 'Organizer',
+          type: 'tournament_reservation',
+          amount: -requiredFunding,
+          method: 'Prize Pool Escrow Lock',
+          status: 'success',
+          desc: `Prize pool reserve locked for tournament "${tData.title || id}"`,
+          tournamentId: id,
+          timestamp: serverTimestamp(),
+        }).catch(() => {});
+      }
+
       await updateDoc(doc(db, 'tournaments', id), {
         status: 'upcoming',
         fundingStatus: 'RESERVED',
+        reservedFunding: requiredFunding,
+        lockedMoney: requiredFunding,
+        escrowBalance: requiredFunding,
         stage: 'registration',
         updatedAt: serverTimestamp(),
-      }).catch(() => {});
+      });
     }
   }, [user, assertTournamentHost]);
 

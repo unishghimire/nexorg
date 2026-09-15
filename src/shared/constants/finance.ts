@@ -22,12 +22,17 @@ export const RATE_LIMITS = {
 
 export const TX_PAGE_SIZE = 10;
 
-/** Calculate org and platform shares from profit. Returns integer paisa-free amounts. */
-export function calculateRevenueSplit(profit: number) {
-  if (profit <= 0) return { orgShare: 0, nexplayShare: 0 };
+/** Calculate org and platform shares from profit with dynamic admin-configurable platform rate. Returns integer paisa-free amounts. */
+export function calculateRevenueSplit(profit: number, platformCommissionPercent = 15) {
+  if (profit <= 0) return { orgShare: 0, nexplayShare: 0, platformCommissionPercent: 15 };
+  const safePercent = Math.min(100, Math.max(0, Number(platformCommissionPercent) || 15));
+  const platformRate = safePercent / 100;
+  const nexplayShare = Math.round(profit * platformRate);
+  const orgShare = profit - nexplayShare; // keeps orgShare + nexplayShare === profit
   return {
-    orgShare: Math.round(profit * REVENUE_SPLIT.ORGANIZER_SHARE),
-    nexplayShare: Math.round(profit * REVENUE_SPLIT.PLATFORM_SHARE),
+    orgShare,
+    nexplayShare,
+    platformCommissionPercent: safePercent,
   };
 }
 

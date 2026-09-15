@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, query, where, getDocs, doc, updateDoc, deleteDoc, orderBy, limit, setDoc, serverTimestamp, getDoc, writeBatch, Timestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, updateDoc, deleteDoc, orderBy, limit, setDoc, serverTimestamp, getDoc, writeBatch, Timestamp, increment } from 'firebase/firestore';
 import { db, auth } from '../../../shared/config/firebase';
 import { useAuth } from '../../../shared/context/AuthContext';
 import { Transaction, UserProfile, Slide, PromoCode, Game, PaymentMethod, PaymentCategory, SiteSettings, DiscordWebhooksConfig, OrgApplication, Tournament, TournamentEarning } from '../../../shared/types/types';
@@ -81,6 +81,7 @@ export function useAdminData(showToast: (message: string, type: 'success' | 'err
 
     // Settings State
     const [minWithdrawal, setMinWithdrawal] = useState('');
+    const [platformCommissionPercent, setPlatformCommissionPercent] = useState<number>(15);
     const [supportEmail, setSupportEmail] = useState('');
     const [supportPhone, setSupportPhone] = useState('');
     const [notice, setNotice] = useState('');
@@ -350,6 +351,7 @@ export function useAdminData(showToast: (message: string, type: 'success' | 'err
                 const data = results[13].value.data() as SiteSettings;
                 setSiteSettings(data);
                 setMinWithdrawal(data.minWithdrawal?.toString() || '');
+                setPlatformCommissionPercent(data.platformCommissionPercent !== undefined ? Number(data.platformCommissionPercent) : 15);
                 setSupportEmail(data.supportEmail || '');
                 setSupportPhone(data.supportPhone || '');
                 setNotice(data.notice || '');
@@ -1146,6 +1148,7 @@ export function useAdminData(showToast: (message: string, type: 'success' | 'err
         try {
             const settingsData = {
                 minWithdrawal: parseFloat(minWithdrawal),
+                platformCommissionPercent: Math.min(100, Math.max(0, Number(platformCommissionPercent) || 15)),
                 supportEmail,
                 supportPhone,
                 notice,
@@ -1295,7 +1298,48 @@ export function useAdminData(showToast: (message: string, type: 'success' | 'err
                 try {
                     // Server-side earnings release (BUG-031) — atomic transaction
                     // that guards against double-release and writes the ledger + audit.
-                    await adminPost('/api/admin/earnings/release', { earningId: earning.id });
+                    let releasedViaApi = false;
+                    try {
+                        await adminPost('/api/admin/earnings/release', { earningId: earning.id });
+                        releasedViaApi = true;
+                    } catch (apiErr) {
+                        console.warn('API earnings release unavailable, falling back to direct Firestore transaction:', apiErr);
+                    }
+
+                    if (!releasedViaApi) {
+                        const earningRef = doc(db, 'tournamentEarnings', earning.id);
+                        const eSnap = await getDoc(earningRef);
+                        if (!eSnap.exists()) {
+                            throw new Error('Earning record not found');
+                        }
+                        if (eSnap.data().status === 'released') {
+                            throw new Error('Earnings have already been released');
+                        }
+                        await updateDoc(earningRef, {
+                            status: 'released',
+                            releasedAt: serverTimestamp(),
+                        });
+                        const orgRef = doc(db, 'users', earning.orgId);
+                        await updateDoc(orgRef, {
+                            orgWalletBalance: increment(earning.orgShare),
+                            balance: increment(earning.orgShare),
+                            orgPendingEarnings: increment(-earning.orgShare),
+                            updatedAt: serverTimestamp(),
+                        });
+                        const txRef = doc(collection(db, 'transactions'));
+                        await setDoc(txRef, {
+                            id: txRef.id,
+                            userId: earning.orgId,
+                            username: earning.orgName || 'Organizer',
+                            type: 'earning_payout',
+                            amount: earning.orgShare,
+                            method: 'Tournament Organizer Share',
+                            status: 'success',
+                            desc: `Organizer profit share released for "${earning.tournamentName}"`,
+                            tournamentId: earning.tournamentId,
+                            timestamp: serverTimestamp(),
+                        }).catch(() => {});
+                    }
                     
                     await NotificationService.create(
                         earning.orgId,
@@ -1480,6 +1524,7 @@ export function useAdminData(showToast: (message: string, type: 'success' | 'err
             mediaLoading,
             mediaSearch,
             minWithdrawal,
+            platformCommissionPercent,
             directUploadUrl,
             notice,
             openEditGame,
@@ -1527,6 +1572,7 @@ export function useAdminData(showToast: (message: string, type: 'success' | 'err
             setMediaFilter,
             setMediaSearch,
             setMinWithdrawal,
+            setPlatformCommissionPercent,
             setDirectUploadUrl,
             setNotice,
             setOrgDiscord,

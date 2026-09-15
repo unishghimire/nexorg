@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, addDoc, getDocs, serverTimestamp, Timestamp, updateDoc, doc, setDoc, where, query } from 'firebase/firestore';
+import { collection, addDoc, getDocs, getDoc, serverTimestamp, Timestamp, updateDoc, doc, setDoc, where, query, increment } from 'firebase/firestore';
 import { Tournament } from '../../../shared/types/types';
 import { createScoringSnapshot } from '../../../shared/services/scoringEngine';
 import { generateDefaultRoadmap } from '../../../shared/services/tournamentEngine';
@@ -229,8 +229,21 @@ const TournamentCreateModal: React.FC<TournamentCreateModalProps> = ({ isOpen, o
       const slotCount = Number(formData.slots) || 20;
 
       const requiredFunding = Math.max(0, Math.round(Number(formData.prizePool || 0)));
-      const initialFundingStatus = requiredFunding === 0 ? 'NOT_REQUIRED' : 'PENDING_FUNDING';
-      const initialStatus = requiredFunding === 0 ? 'upcoming' : 'pending_funding';
+      const isFreeWithPrize = formData.entryFee === 0 && requiredFunding > 0;
+      const availableOrg = (profile?.orgWalletBalance || 0) + (profile?.balance || 0);
+
+      // Free tournament with cash prize: Organizer MUST have sufficient balance to lock prize pool up-front
+      if (isFreeWithPrize && availableOrg < requiredFunding) {
+        showToast(
+          `Insufficient wallet balance: Free tournaments with a cash prize require the host to lock Rs. ${requiredFunding.toLocaleString()} from their wallet balance (Available: Rs. ${availableOrg.toLocaleString()}). Please top up your wallet.`,
+          'error'
+        );
+        setLoading(false);
+        return;
+      }
+
+      const initialFundingStatus = requiredFunding === 0 ? 'NOT_REQUIRED' : (isFreeWithPrize ? 'RESERVED' : 'PENDING_FUNDING');
+      const initialStatus = requiredFunding === 0 || isFreeWithPrize ? 'upcoming' : 'pending_funding';
 
       const tournamentData = {
         ...publicFormData,
@@ -245,7 +258,11 @@ const TournamentCreateModal: React.FC<TournamentCreateModalProps> = ({ isOpen, o
         status: editTournament ? editTournament.status : initialStatus,
         fundingStatus: editTournament ? (editTournament.fundingStatus || initialFundingStatus) : initialFundingStatus,
         requiredFunding,
-        reservedFunding: editTournament ? (editTournament.reservedFunding || 0) : 0,
+        reservedFunding: editTournament ? (editTournament.reservedFunding || 0) : (isFreeWithPrize ? requiredFunding : 0),
+        lockedMoney: editTournament ? (editTournament.lockedMoney || 0) : (isFreeWithPrize ? requiredFunding : 0),
+        escrowBalance: editTournament ? (editTournament.escrowBalance || 0) : (isFreeWithPrize ? requiredFunding : 0),
+        collectedFees: editTournament ? ((editTournament as any).collectedFees || 0) : 0,
+        collectedEntryFees: editTournament ? ((editTournament as any).collectedEntryFees || 0) : 0,
         stage: editTournament ? editTournament.stage : 'registration',
         updatedAt: serverTimestamp(),
         startTime: Timestamp.fromDate(new Date(formData.startTime)),
@@ -290,8 +307,35 @@ const TournamentCreateModal: React.FC<TournamentCreateModalProps> = ({ isOpen, o
           await setDoc(doc(db, 'tournaments', docRef.id, 'credentials', 'main'), { roomId, roomPass });
         }
 
-        // If funded tournament, attempt atomic activation/fund reservation immediately
-        if (requiredFunding > 0) {
+        // Free event with prize pool: Lock prize escrow from organizer's own wallet immediately
+        if (isFreeWithPrize) {
+          const deductOrg = Math.min(profile?.orgWalletBalance || 0, requiredFunding);
+          const deductPlayer = requiredFunding - deductOrg;
+          const userUpdates: any = {
+            reservedBalance: increment(requiredFunding),
+            updatedAt: serverTimestamp(),
+          };
+          if (deductOrg > 0) userUpdates.orgWalletBalance = increment(-deductOrg);
+          if (deductPlayer > 0) userUpdates.balance = increment(-deductPlayer);
+          await updateDoc(doc(db, 'users', user.uid), userUpdates).catch(() => {});
+
+          const txRef = doc(collection(db, 'transactions'));
+          await setDoc(txRef, {
+            id: txRef.id,
+            userId: user.uid,
+            username: profile?.username || 'Organizer',
+            type: 'tournament_reservation',
+            amount: -requiredFunding,
+            method: 'Prize Pool Escrow Lock',
+            status: 'success',
+            desc: `Prize pool reserve locked from wallet for "${formData.title}"`,
+            tournamentId: docRef.id,
+            timestamp: serverTimestamp(),
+          }).catch(() => {});
+
+          showToast(`Free tournament published and Rs. ${requiredFunding.toLocaleString()} prize funds locked in escrow from your wallet!`, 'success');
+        } else if (requiredFunding > 0) {
+          // Paid event: attempt atomic activation / fund reservation if available
           try {
             const token = await auth.currentUser?.getIdToken();
             if (token) {

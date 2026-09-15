@@ -276,6 +276,10 @@ export interface Tournament {
     requiredFunding?: number;
     reservedFunding?: number;
     fundingReservedAt?: Timestamp | any;
+    lockedMoney?: number;
+    escrowBalance?: number;
+    collectedFees?: number;
+    collectedEntryFees?: number;
     // ─── Engine fields (optional, backward compat) ───
     participantMode?: 'team' | 'solo';
     // Frozen scoring snapshot — inherited from game at creation, never changes
@@ -504,6 +508,7 @@ export interface DiscordWebhooksConfig {
 
 export interface SiteSettings {
     minWithdrawal: number;
+    platformCommissionPercent?: number;
     supportEmail: string;
     supportPhone: string;
     notice: string;
@@ -604,6 +609,7 @@ export interface TournamentEarning {
     profit: number;
     orgShare: number;
     nexplayShare: number;
+    platformCommissionPercent?: number;
     status: 'pending' | 'released' | 'no_earnings';
     createdAt: Timestamp | any;
     releasedAt?: Timestamp | any;

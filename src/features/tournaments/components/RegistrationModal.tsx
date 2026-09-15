@@ -230,11 +230,45 @@ const RegistrationModal: React.FC<RegistrationModalProps> = ({
                         return s;
                     });
                     const filledCount = countFilledScrimSlots(updated);
-                    const updatePayload = cleanFirestoreData({ slots: updated, filledSlots: filledCount, currentPlayers: filledCount });
-                    if (isScrim) {
-                        await updateDoc(doc(db, 'scrims', tournament.id), updatePayload).catch(() => {});
+                    const updatePayload: any = {
+                        slots: updated,
+                        filledSlots: filledCount,
+                        currentPlayers: filledCount,
+                        updatedAt: serverTimestamp(),
+                    };
+                    if (resolvedFee > 0) {
+                        updatePayload.collectedFees = increment(resolvedFee);
+                        updatePayload.collectedEntryFees = increment(resolvedFee);
+                        updatePayload.lockedMoney = increment(resolvedFee);
+                        updatePayload.escrowBalance = increment(resolvedFee);
                     }
-                    await updateDoc(doc(db, 'tournaments', tournament.id), updatePayload).catch(() => {});
+                    const cleanedPayload = cleanFirestoreData(updatePayload);
+                    if (isScrim) {
+                        await updateDoc(doc(db, 'scrims', tournament.id), cleanedPayload).catch(() => {});
+                    } else {
+                        await updateDoc(doc(db, 'tournaments', tournament.id), cleanedPayload).catch(() => {});
+                    }
+                } else if (resolvedFee > 0) {
+                    const targetCol = isScrim ? 'scrims' : 'tournaments';
+                    await updateDoc(doc(db, targetCol, tournament.id), {
+                        currentPlayers: increment(1),
+                        filledSlots: increment(1),
+                        collectedFees: increment(resolvedFee),
+                        collectedEntryFees: increment(resolvedFee),
+                        lockedMoney: increment(resolvedFee),
+                        escrowBalance: increment(resolvedFee),
+                        updatedAt: serverTimestamp(),
+                    }).catch(() => {});
+                }
+
+                // Increment organizer locked tournament balance
+                const hostId = tournament.hostUid || (tournament as any).createdBy || (tournament as any).userId;
+                if (resolvedFee > 0 && hostId) {
+                    await updateDoc(doc(db, 'users', hostId), {
+                        orgTournamentsLockedBalance: increment(resolvedFee),
+                        orgPendingEarnings: increment(resolvedFee),
+                        updatedAt: serverTimestamp(),
+                    }).catch(() => {});
                 }
             }
 

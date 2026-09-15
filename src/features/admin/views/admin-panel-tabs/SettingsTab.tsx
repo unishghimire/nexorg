@@ -4,7 +4,7 @@ import {Users, Settings, Megaphone, AlertTriangle} from 'lucide-react';
 import { AdminPanelTabProps } from './types';
 
 export const SettingsTab: React.FC<AdminPanelTabProps> = (props) => {
-    const { handleSaveSettings, isNoticeActive, maintenanceMode, minWithdrawal, notice, orgFormDescription, setIsNoticeActive, setMaintenanceMode, setMinWithdrawal, setNotice, setOrgFormDescription, setSupportEmail, setSupportPhone, siteSettings, supportEmail, supportPhone, toggleOrgForm } = props;
+    const { handleSaveSettings, isNoticeActive, maintenanceMode, minWithdrawal, platformCommissionPercent, notice, orgFormDescription, setIsNoticeActive, setMaintenanceMode, setMinWithdrawal, setPlatformCommissionPercent, setNotice, setOrgFormDescription, setSupportEmail, setSupportPhone, siteSettings, supportEmail, supportPhone, toggleOrgForm } = props;
     return (
                 <div className="bg-card p-6 rounded-xl border border-gray-800 space-y-8">
                     <div className="border-b border-gray-700 pb-4">
@@ -22,12 +22,32 @@ export const SettingsTab: React.FC<AdminPanelTabProps> = (props) => {
                                 <div className="relative">
                                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-bold">Rs.</span>
                                     <input 
+                                        id="min-withdrawal"
                                         type="number" 
                                         value={minWithdrawal}
                                         onChange={e => setMinWithdrawal(e.target.value)}
                                         className="w-full bg-dark border border-gray-700 rounded-lg p-3 pl-10 text-white focus:border-brand-500 focus-visible:outline-none"
                                     />
                                 </div>
+                            </div>
+                            <div>
+                                <label htmlFor="platform-commission" className="text-xs text-gray-500 uppercase font-bold mb-1 block">Platform Commission Share (%)</label>
+                                <div className="relative">
+                                    <input 
+                                        id="platform-commission"
+                                        type="number" 
+                                        min="0"
+                                        max="100"
+                                        value={platformCommissionPercent ?? 15}
+                                        onChange={e => setPlatformCommissionPercent?.(e.target.value)}
+                                        className="w-full bg-dark border border-gray-700 rounded-lg p-3 pr-10 text-white focus:border-brand-500 focus-visible:outline-none font-bold"
+                                        placeholder="15"
+                                    />
+                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">%</span>
+                                </div>
+                                <p className="text-[10px] text-gray-400 mt-1">
+                                    Platform cut from net profit on paid tournaments & scrims (Default: 15%). The remaining {100 - Number(platformCommissionPercent ?? 15)}% is the Organizer Share. Free events yield 0% profit.
+                                </p>
                             </div>
                         </div>
 

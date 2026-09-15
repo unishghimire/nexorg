@@ -13,6 +13,7 @@ import { NotificationService } from './NotificationService';
 import { countFilledScrimSlots, getFilledSlotCount, getSlotCount, createResetScrimSlots } from '../utils/scrimSlots';
 import { resolveAllScrimResults } from '../utils/scrimResults';
 import { cleanFirestoreData } from '../utils/utils';
+import { calculateRevenueSplit } from '../constants/finance';
 
 export interface WinnerPayoutEntry {
   rank: number;
@@ -485,6 +486,10 @@ export async function executePrizeDistribution(
     payoutCompleted: true,
     payoutStatus: 'paid',
     payoutTotal: totalDistributed,
+    lockedMoney: 0,
+    escrowBalance: 0,
+    collectedFees: 0,
+    collectedEntryFees: 0,
     status: 'completed',
     stage: 'completed',
     completedAt: serverTimestamp(),
@@ -505,7 +510,108 @@ export async function executePrizeDistribution(
     setDoc(doc(db, targetCollection, eventId), cleanedPayload, { merge: true })
   );
 
-  // Step 4: Broadcast completion notification to all registered participants
+  // Step 4: Financial Lifecycle Settlement & Profit Distribution
+  const hostId = existingData?.hostUid || organizerUid || existingData?.createdBy || existingData?.userId;
+  const entryFee = Math.max(0, Number(existingData?.entryFee || 0));
+  const isFreeEvent = entryFee === 0;
+  const eventPrizePool = Math.max(0, Number(existingData?.prizePool || prizePool || totalDistributed || 0));
+  const collectedFees = Math.max(
+    0,
+    Number(
+      existingData?.collectedFees ||
+      existingData?.collectedEntryFees ||
+      (entryFee > 0 ? (Number(existingData?.filledSlots) || Number(existingData?.currentPlayers) || 0) * entryFee : 0)
+    )
+  );
+
+  if (hostId) {
+    if (isFreeEvent) {
+      // 100% Free tournament/scrim: The host funded the prize pool from their own wallet into reservedBalance.
+      // Now that the prize is distributed to winners, release the locked reserve.
+      if (eventPrizePool > 0) {
+        await updateDoc(doc(db, 'users', hostId), {
+          reservedBalance: increment(-eventPrizePool),
+          updatedAt: serverTimestamp(),
+        }).catch(() => {});
+      }
+      // Zero profit rule: Free tournaments generate 0 earnings for host and platform. All prize money went to winners.
+    } else {
+      // Paid event with entryFee > 0:
+      // Decrement the locked tournament funds from host's locked balance
+      const hostUpdates: any = {
+        updatedAt: serverTimestamp(),
+      };
+      if (collectedFees > 0) {
+        hostUpdates.orgTournamentsLockedBalance = increment(-collectedFees);
+        hostUpdates.orgPendingEarnings = increment(-collectedFees);
+      }
+      await updateDoc(doc(db, 'users', hostId), hostUpdates).catch(() => {});
+
+      // Profit Margin Formula: Total Register Amount (Collected Entry Fees) - Total Prize Pool
+      const profitMargin = collectedFees - eventPrizePool;
+
+      if (profitMargin > 0) {
+        // Fetch dynamic platform commission percentage configured in Admin Settings (defaults to 15%)
+        let commissionPercent = 15;
+        try {
+          const siteSnap = await getDoc(doc(db, 'settings', 'site'));
+          if (siteSnap.exists()) {
+            const sData = siteSnap.data();
+            if (typeof sData.platformCommissionPercent === 'number') {
+              commissionPercent = sData.platformCommissionPercent;
+            }
+          }
+        } catch (sErr) {
+          console.warn('[PrizeDistribution] Could not load dynamic platformCommissionPercent, defaulting to 15%:', sErr);
+        }
+
+        const { orgShare, nexplayShare } = calculateRevenueSplit(profitMargin, commissionPercent);
+
+        // Record pending earnings entry in tournamentEarnings collection for Admin verification & release
+        const earningRef = doc(collection(db, 'tournamentEarnings'));
+        await setDoc(earningRef, {
+          id: earningRef.id,
+          tournamentId: eventId,
+          tournamentName: eventTitle,
+          orgId: hostId,
+          orgName: existingData?.hostName || 'Organizer',
+          entryFeeTotal: collectedFees,
+          prizePoolTotal: eventPrizePool,
+          profit: profitMargin,
+          orgShare,
+          nexplayShare,
+          platformCommissionPercent: commissionPercent,
+          status: 'pending',
+          createdAt: serverTimestamp(),
+        }).catch((eErr) => console.warn('[PrizeDistribution] Error writing tournamentEarnings record:', eErr));
+
+        // Increment organizer's pending earnings with their calculated profit share
+        await updateDoc(doc(db, 'users', hostId), {
+          orgPendingEarnings: increment(orgShare),
+          updatedAt: serverTimestamp(),
+        }).catch(() => {});
+      } else {
+        // Profit margin is zero or negative: record no_earnings
+        const earningRef = doc(collection(db, 'tournamentEarnings'));
+        await setDoc(earningRef, {
+          id: earningRef.id,
+          tournamentId: eventId,
+          tournamentName: eventTitle,
+          orgId: hostId,
+          orgName: existingData?.hostName || 'Organizer',
+          entryFeeTotal: collectedFees,
+          prizePoolTotal: eventPrizePool,
+          profit: profitMargin,
+          orgShare: 0,
+          nexplayShare: 0,
+          status: 'no_earnings',
+          createdAt: serverTimestamp(),
+        }).catch(() => {});
+      }
+    }
+  }
+
+  // Step 5: Broadcast completion notification to all registered participants
   const targetRoute = eventType === 'scrim' ? `/organizer/scrim/${eventId}` : `/tournaments/${eventId}`;
   await NotificationService.notifyParticipants(
     eventId,
