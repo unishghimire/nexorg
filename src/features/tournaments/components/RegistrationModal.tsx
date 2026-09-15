@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { db, auth } from '../../../shared/config/firebase';
-import { doc, collection, setDoc, updateDoc, serverTimestamp, query, where, getDocs, getDoc } from 'firebase/firestore';
+import { doc, collection, setDoc, updateDoc, serverTimestamp, query, where, getDocs, getDoc, increment } from 'firebase/firestore';
 import { normalizeScrimSlots, countFilledScrimSlots } from '../../../shared/utils/scrimSlots';
 import { Tournament, UserProfile } from '../../../shared/types/types';
 import Modal from '../../../shared/components/Modal';
@@ -98,9 +98,62 @@ const RegistrationModal: React.FC<RegistrationModalProps> = ({
             } catch {}
 
             if (!joinedViaApi) {
-                if (Number(tournament.entryFee) > 0) {
-                    throw new Error('Wallet service is currently unreachable. Please try again in a moment.');
+                const resolvedFee = Number(
+                    tournament.entryFee ||
+                    (tournament as any).requirements?.entryFee ||
+                    (tournament as any).price ||
+                    (tournament as any).fee ||
+                    0
+                );
+
+                if (resolvedFee > 0) {
+                    const payerUid = isScrim && trimmedCaptainUid ? trimmedCaptainUid : user.uid;
+                    const payerSnap = await getDoc(doc(db, 'users', payerUid));
+                    if (!payerSnap.exists()) {
+                        throw new Error(isScrim ? 'Captain webapp account not found in database.' : 'User account not found.');
+                    }
+                    const payerData = payerSnap.data() as any;
+                    const payerBalance = Number(payerData?.balance || 0);
+                    const payerUsername = payerData?.username || profile.username || 'User';
+
+                    if (payerBalance < resolvedFee) {
+                        throw new Error(
+                            `Insufficient wallet balance: ${isScrim ? `Captain "${payerUsername}"` : 'You'} have Rs. ${payerBalance.toLocaleString()}, but Rs. ${resolvedFee.toLocaleString()} is required for registration fee.`
+                        );
+                    }
+
+                    // Atomically deduct entry fee from payer's wallet balance
+                    await updateDoc(doc(db, 'users', payerUid), {
+                        balance: increment(-resolvedFee),
+                        updatedAt: serverTimestamp(),
+                    });
+
+                    // Record entry fee transaction in ledger
+                    const txRef = doc(collection(db, 'transactions'));
+                    await setDoc(txRef, {
+                        id: txRef.id,
+                        userId: payerUid,
+                        username: payerUsername,
+                        type: 'entry_fee',
+                        amount: resolvedFee,
+                        method: isScrim ? 'Scrim Entry Fee' : 'Tournament Entry Fee',
+                        status: 'success',
+                        refId: `ENT-${tournament.id.slice(0, 8)}-${Date.now().toString().slice(-4)}`,
+                        desc: `Registration entry fee for "${tournament.title || (isScrim ? 'Scrim' : 'Tournament')}"`,
+                        tournamentId: tournament.id,
+                        timestamp: serverTimestamp(),
+                    }).catch(() => {});
+
+                    // Notify payer of deduction
+                    await NotificationService.create(
+                        payerUid,
+                        isScrim ? 'Scrim Registration Confirmed' : 'Tournament Registration Confirmed',
+                        `Registration confirmed for "${tournament.title || 'Event'}". Rs. ${resolvedFee.toLocaleString()} entry fee was deducted from your wallet balance.`,
+                        'info',
+                        isScrim ? `/organizer/scrim/${tournament.id}` : `/tournaments/${tournament.id}`
+                    ).catch(() => {});
                 }
+
                 // Determine team identity:
                 const isTeamFormat = tournament.teamType === 'duo' || tournament.teamType === 'squad' ||
                     Boolean((tournament as any).format?.toLowerCase?.().includes('duo') || (tournament as any).format?.toLowerCase?.().includes('squad'));
@@ -139,11 +192,12 @@ const RegistrationModal: React.FC<RegistrationModalProps> = ({
                     finalTeamId = user.uid;
                 }
 
-                // Free event registration fallback: save participant & assign slot directly
+                // Free or deducted event registration fallback: save participant & assign slot directly
                 const partRef = doc(collection(db, 'participants'));
                 await setDoc(partRef, {
                     id: partRef.id,
                     tournamentId: tournament.id,
+                    scrimId: isScrim ? tournament.id : undefined,
                     userId: user.uid,
                     username: profile.username || 'Player',
                     inGameName: profile.inGameName || profile.username,
@@ -151,6 +205,7 @@ const RegistrationModal: React.FC<RegistrationModalProps> = ({
                     teamName: finalTeamName,
                     teamId: finalTeamId,
                     captainUid: isScrim ? trimmedCaptainUid : null,
+                    entryFee: resolvedFee,
                     timestamp: serverTimestamp(),
                     status: 'confirmed',
                 });
@@ -176,6 +231,9 @@ const RegistrationModal: React.FC<RegistrationModalProps> = ({
                     });
                     const filledCount = countFilledScrimSlots(updated);
                     const updatePayload = cleanFirestoreData({ slots: updated, filledSlots: filledCount, currentPlayers: filledCount });
+                    if (isScrim) {
+                        await updateDoc(doc(db, 'scrims', tournament.id), updatePayload).catch(() => {});
+                    }
                     await updateDoc(doc(db, 'tournaments', tournament.id), updatePayload).catch(() => {});
                 }
             }

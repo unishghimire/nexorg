@@ -6,12 +6,10 @@ import { Tournament, UserProfile } from '../../../shared/types/types';
 import { DEFAULT_BANNER } from '../../../shared/constants/constants';
 import { useAuth } from '../../../shared/context/AuthContext';
 import { formatCurrency, formatDate, formatGameName, getYoutubeId, toDateSafe, sanitizeUrl } from '../../../shared/utils/utils';
-import { getSlotCount, getFilledSlotCount, normalizeScrimSlots, countFilledScrimSlots } from '../../../shared/utils/scrimSlots';
 import { Clock, Users, Trophy, Lock, Eye, EyeOff, Play, Share2, Calendar, MapPin, Info, Medal, ExternalLink, ChevronRight, AlertCircle, CheckCircle2, Search, Building2 , Target, Trash2, Settings2, AlertTriangle, ShieldAlert, Radio, ShieldCheck, FileText, Copy } from 'lucide-react';
 import RegistrationModal from '../components/RegistrationModal';
 import JoinTournamentModal from '../components/JoinTournamentModal';
 import { TournamentDisputeModal } from '../components/TournamentDisputeModal';
-import { fetchDedicatedTeams, resolveSlotTeam, DedicatedTeamsLookup } from '../../../shared/utils/teamUtils';
 import Modal from '../../../shared/components/Modal';
 import { motion, AnimatePresence } from 'motion/react';
 import { NotificationService } from '../../../shared/services/NotificationService';
@@ -24,7 +22,7 @@ import { TournamentRoadmap } from '../components/TournamentRoadmap';
 import GroupStandingsView from '../components/GroupStandingsView';
 import { fetchRoomCredentials, subscribeRoomCredentials } from '../../../shared/services/roomCredentials';
 
-const TOURNAMENT_TAB_IDS = ['overview', 'description', 'participants', 'groups', 'roadmap', 'results', 'slots'] as const;
+const TOURNAMENT_TAB_IDS = ['overview', 'description', 'participants', 'groups', 'roadmap', 'results'] as const;
 type TournamentTabId = typeof TOURNAMENT_TAB_IDS[number];
 
 const getTournamentTab = (value: string | null): TournamentTabId =>
@@ -49,7 +47,6 @@ export default function TournamentDetails() {
     const [showJoinModal, setShowJoinModal] = useState(false);
     const [showRegistrationModal, setShowRegistrationModal] = useState(false);
     const [teamMembers, setTeamMembers] = useState<any[]>([]);
-    const [dedicatedTeamsData, setDedicatedTeamsData] = useState<DedicatedTeamsLookup | null>(null);
     const [showPassword, setShowPassword] = useState(false);
     const [roomCreds, setRoomCreds] = useState<{ roomId?: string; roomPass?: string } | null>(null);
     const [hostProfile, setHostProfile] = useState<UserProfile | null>(null);
@@ -74,27 +71,36 @@ export default function TournamentDetails() {
         user?.role === 'organizer'
     );
 
+    // Strict separation: Scrims belong exclusively to the Scrims Portal (/organizer/scrim/:id).
+    // If a scrim is opened on the tournament details route, redirect immediately.
+    useEffect(() => {
+        if (tournament && (tournament.matchType === 'scrims' || (tournament as any).isScrim === true || eventCollection === 'scrims')) {
+            navigate(`/organizer/scrim/${tournament.id}`, { replace: true });
+        }
+    }, [tournament, eventCollection, navigate]);
+
     useEffect(() => {
         if (!id) return;
         setLoading(true);
 
         let unsubScrims: (() => void) | null = null;
 
-        // 1. Core Tournament Listener (Real-time & Self-healing with fallback to 'scrims')
+        // 1. Core Tournament Listener (Real-time & Self-healing with fallback redirect to 'scrims')
         const unsubTournament = onSnapshot(doc(db, 'tournaments', id), (snapshot) => {
             if (snapshot.exists()) {
                 const tData = { id: snapshot.id, ...snapshot.data() } as Tournament;
+                if (tData.matchType === 'scrims' || (tData as any).isScrim === true) {
+                    navigate(`/organizer/scrim/${tData.id}`, { replace: true });
+                    return;
+                }
                 setTournament(tData);
                 setEventCollection('tournaments');
                 setLoading(false);
             } else {
-                // Fallback to legacy 'scrims' collection
+                // Fallback to 'scrims' collection — immediately redirect to Scrim portal
                 unsubScrims = onSnapshot(doc(db, 'scrims', id), (scrimSnap) => {
                     if (scrimSnap.exists()) {
-                        const sData = { id: scrimSnap.id, ...scrimSnap.data(), matchType: 'scrims' } as Tournament;
-                        setTournament(sData);
-                        setEventCollection('scrims');
-                        setLoading(false);
+                        navigate(`/organizer/scrim/${scrimSnap.id}`, { replace: true });
                     } else {
                         showToast("Event not found", "error");
                         navigate('/tournaments');
@@ -109,13 +115,17 @@ export default function TournamentDetails() {
             // Self-healing: if listener fails, try one-time fetch as fallback
             getDoc(doc(db, 'tournaments', id)).then(snap => {
                 if (snap.exists()) {
-                    setTournament({ id: snap.id, ...snap.data() } as Tournament);
+                    const tData = { id: snap.id, ...snap.data() } as Tournament;
+                    if (tData.matchType === 'scrims' || (tData as any).isScrim === true) {
+                        navigate(`/organizer/scrim/${tData.id}`, { replace: true });
+                        return;
+                    }
+                    setTournament(tData);
                     setEventCollection('tournaments');
                 } else {
                     getDoc(doc(db, 'scrims', id)).then(scrimSnap => {
                         if (scrimSnap.exists()) {
-                            setTournament({ id: scrimSnap.id, ...scrimSnap.data(), matchType: 'scrims' } as Tournament);
-                            setEventCollection('scrims');
+                            navigate(`/organizer/scrim/${scrimSnap.id}`, { replace: true });
                         }
                     });
                 }
@@ -243,18 +253,6 @@ export default function TournamentDetails() {
         fetchTeamMembers();
     }, [profile?.teamId, user?.uid]);
 
-    useEffect(() => {
-        if (!tournament) return;
-        const teamIds = [
-            ...participants.map(p => p.teamId),
-            ...(Array.isArray(tournament.slots) ? tournament.slots.map((s: any) => s.teamId) : []),
-        ];
-        const userIds = [
-            ...participants.map(p => p.userId),
-            ...(Array.isArray(tournament.slots) ? tournament.slots.map((s: any) => s.userId) : []),
-        ];
-        fetchDedicatedTeams({ teamIds, userIds }).then(setDedicatedTeamsData).catch(() => {});
-    }, [tournament?.id, participants, tournament?.slots]);
 
     useEffect(() => {
         if (!tournament?.startTime) return;
@@ -529,6 +527,7 @@ export default function TournamentDetails() {
 
     const bannerUrl = tournament.bannerUrl || DEFAULT_BANNER;
     const bannerStyle = { backgroundImage: `url('${bannerUrl}')`, backgroundSize: 'cover', backgroundPosition: 'center' };
+    const maxParticipants = Number((tournament as any).maxParticipants || (tournament as any).slotsCount || (typeof tournament.slots === 'number' ? tournament.slots : 48));
     const isSlotReserved = Boolean(
         Array.isArray(tournament.slots) && tournament.slots.some((s: any) => 
             s.status === 'filled' && (
@@ -712,19 +711,14 @@ export default function TournamentDetails() {
                 <div className="lg:col-span-8 space-y-6 sm:space-y-8 min-w-0">
                     {/* Tabs Navigation */}
                     <div className="flex p-1.5 sm:p-2 bg-card/50 rounded-2xl sm:rounded-full border border-gray-800 sticky top-16 sm:top-24 z-10 backdrop-blur-xl overflow-x-auto custom-scrollbar gap-2 max-w-full">
-                        {(isScrimEvent ? [
-                            { id: 'overview', label: 'Overview', icon: Info },
-                            { id: 'slots', label: 'Slots & Teams', icon: Users },
-                            { id: 'description', label: 'Rules & Info', icon: FileText },
-                            tournament.status === 'completed' ? { id: 'results', label: 'Results', icon: Trophy } : null,
-                        ] : [
+                        {[
                             { id: 'overview', label: 'Overview', icon: Info },
                             { id: 'description', label: 'Description', icon: Info },
                             { id: 'participants', label: 'Players', icon: Users },
                             { id: 'roadmap', label: 'Roadmap', icon: Calendar },
                             { id: 'groups', label: 'Match Groups', icon: Trophy },
                             tournament.status === 'completed' ? { id: 'results', label: 'Results', icon: Trophy } : null,
-                        ]).filter((tab): tab is {id: string, label: string, icon: any} => tab !== null).map((tab) => (
+                        ].filter((tab): tab is {id: string, label: string, icon: any} => tab !== null).map((tab) => (
                             <button type="button" 
                                 key={tab.id}
                                 onClick={() => {
@@ -878,7 +872,7 @@ export default function TournamentDetails() {
                                     {[
                                         { label: 'Prize Pool', value: formatCurrency(tournament.prizePool), icon: Trophy, color: 'text-yellow-500' },
                                         { label: 'Entry Fee', value: tournament.entryFee > 0 ? formatCurrency(tournament.entryFee) : 'FREE', icon: Medal, color: 'text-brand-500' },
-                                        { label: 'Slots', value: `${getFilledSlotCount(tournament)}/${getSlotCount(tournament)}`, icon: Users, color: 'text-blue-500' },
+                                        { label: 'Participants', value: `${participants.length}/${maxParticipants}`, icon: Users, color: 'text-blue-500' },
                                         { label: 'Game Mode', value: tournament.type, icon: Play, color: 'text-red-500' },
                                     ].map((stat, i) => (
                                         <div key={i} className="bg-card/50 p-4 sm:p-6 rounded-2xl sm:rounded-3xl border border-gray-800 hover:border-gray-700 transition-colors hover:bg-surface/50 min-w-0">
@@ -887,215 +881,6 @@ export default function TournamentDetails() {
                                             <div className="text-white font-black text-sm sm:text-xl truncate">{stat.value}</div>
                                         </div>
                                     ))}
-                                </div>
-                            </motion.div>
-                        )}
-
-                        {/* Scrim Slots & Teams View */}
-                        {activeTab === 'slots' && (
-                            <motion.div
-                                key="slots"
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -10 }}
-                                className="space-y-6"
-                            >
-                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-2 border-b border-gray-800">
-                                    <div>
-                                        <h3 className="text-white font-black text-lg sm:text-xl uppercase tracking-tight flex items-center gap-2">
-                                            <Users className="w-5 h-5 text-brand-500" />
-                                            Scrim Lobby Slots ({getFilledSlotCount(tournament)} / {getSlotCount(tournament)} Filled)
-                                        </h3>
-                                        <p className="text-xs text-gray-400 mt-1">Single lobby multi-match format. All teams compete together in this room.</p>
-                                    </div>
-                                    {isHostOrAdmin && (
-                                        <button
-                                            type="button"
-                                            onClick={() => navigate(`/organizer/scrim/${tournament.id}`)}
-                                            className="px-3.5 py-1.5 rounded-lg bg-brand-500 hover:bg-brand-400 text-white text-xs font-bold transition-colors flex items-center gap-1.5"
-                                        >
-                                            <Settings2 className="w-3.5 h-3.5" />
-                                            <span>Manage Slot Reservations</span>
-                                        </button>
-                                    )}
-                                </div>
-
-                                {/* Slot Grid */}
-                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-                                    {(() => {
-                                        const rawSlots: any[] = normalizeScrimSlots(tournament.slots, getSlotCount(tournament));
-                                        const isTeamFormat = tournament.teamType === 'duo' || 
-                                                            tournament.teamType === 'squad' || 
-                                                            (tournament as any).format?.toLowerCase?.() === 'duo' || 
-                                                            (tournament as any).format?.toLowerCase?.() === 'squad' ||
-                                                            (isScrimEvent && (tournament as any).teamType !== 'solo');
-
-                                        return rawSlots.map((slot: any) => {
-                                            const part = participants.find((p: any) =>
-                                                p.slotNumber === slot.slotNumber ||
-                                                (slot.teamId && (p.teamId === slot.teamId || p.userId === slot.teamId)) ||
-                                                (slot.userId && p.userId === slot.userId) ||
-                                                (slot.teamName && slot.teamName !== 'Reserved' && p.teamName === slot.teamName)
-                                            );
-                                            const isFilled = slot.status === 'filled' || Boolean(part);
-                                            const resolved = resolveSlotTeam(slot, part, dedicatedTeamsData || undefined, isTeamFormat);
-
-                                            return (
-                                                <div
-                                                    key={slot.slotNumber}
-                                                    className={`p-3.5 rounded-xl border flex flex-col justify-between min-h-[85px] transition-all ${
-                                                        isFilled
-                                                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 shadow-sm'
-                                                            : 'bg-card/40 border-gray-800/80 text-gray-500 border-dashed'
-                                                    }`}
-                                                >
-                                                    <div className="flex items-center justify-between">
-                                                        <span className="text-xs font-mono font-bold text-gray-400">#{slot.slotNumber}</span>
-                                                        <span className={`w-2 h-2 rounded-full ${isFilled ? 'bg-emerald-400 animate-pulse' : 'bg-gray-700'}`} />
-                                                    </div>
-                                                    <div className="mt-2 min-w-0">
-                                                        <div className="text-xs font-black truncate text-white flex items-center gap-1">
-                                                            {isFilled && resolved.teamTag && (
-                                                                <span className="text-[9px] px-1 py-0.2 rounded bg-brand-500/20 text-brand-400 font-mono font-bold shrink-0">
-                                                                    [{resolved.teamTag}]
-                                                                </span>
-                                                            )}
-                                                            <span className="truncate">{isFilled ? resolved.teamName : 'Available'}</span>
-                                                        </div>
-                                                        {isFilled && resolved.leader && (
-                                                            <div className="text-[10px] text-gray-400 mt-0.5 truncate font-semibold">
-                                                                {resolved.leader}
-                                                            </div>
-                                                        )}
-                                                        {!isFilled && (
-                                                            <div className="text-[10px] text-gray-400 mt-0.5 uppercase tracking-wider font-semibold">
-                                                                Open Slot
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            );
-                                        });
-                                    })()}
-                                </div>
-
-                                {/* Confirmed Teams Roster Table */}
-                                <div className="bg-card/40 border border-gray-800 rounded-2xl p-5 mt-6">
-                                    <h4 className="text-sm font-bold text-white uppercase tracking-wider mb-4 flex items-center gap-2">
-                                        <ShieldCheck className="w-4 h-4 text-brand-500" /> Confirmed Roster
-                                    </h4>
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full text-xs text-left">
-                                            <thead className="text-gray-500 uppercase font-mono border-b border-gray-800">
-                                                <tr>
-                                                    <th className="pb-3 px-2">Slot</th>
-                                                    <th className="pb-3 px-4">Team</th>
-                                                    <th className="pb-3 px-4">Leader / IGN</th>
-                                                    <th className="pb-3 px-4">Free Fire UID</th>
-                                                    <th className="pb-3 px-4">Teammates</th>
-                                                    <th className="pb-3 px-4">Status</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-gray-800/50">
-                                                {(() => {
-                                                    const rawSlots: any[] = normalizeScrimSlots(tournament.slots, getSlotCount(tournament));
-                                                    const isTeamFormat = tournament.teamType === 'duo' || 
-                                                                        tournament.teamType === 'squad' || 
-                                                                        (tournament as any).format?.toLowerCase?.() === 'duo' || 
-                                                                        (tournament as any).format?.toLowerCase?.() === 'squad' ||
-                                                                        (isScrimEvent && (tournament as any).teamType !== 'solo');
-
-                                                    const filledList = rawSlots.map((slot: any) => {
-                                                        const part = participants.find((p: any) =>
-                                                            p.slotNumber === slot.slotNumber ||
-                                                            (slot.teamId && (p.teamId === slot.teamId || p.userId === slot.teamId)) ||
-                                                            (slot.userId && p.userId === slot.userId) ||
-                                                            (slot.teamName && slot.teamName !== 'Reserved' && p.teamName === slot.teamName)
-                                                        );
-                                                        if (slot.status === 'filled' || part) {
-                                                            const resolved = resolveSlotTeam(slot, part, dedicatedTeamsData || undefined, isTeamFormat);
-                                                            return {
-                                                                slotNumber: slot.slotNumber,
-                                                                teamName: resolved.teamName,
-                                                                teamTag: resolved.teamTag,
-                                                                isDedicatedTeam: resolved.isDedicatedTeam,
-                                                                leader: resolved.leader,
-                                                                inGameId: resolved.inGameId,
-                                                                inGameName: resolved.inGameName,
-                                                                teammates: resolved.teammates,
-                                                            };
-                                                        }
-                                                        return null;
-                                                    }).filter(Boolean) as any[];
-
-                                                    if (filledList.length === 0) {
-                                                        return (
-                                                            <tr>
-                                                                <td colSpan={6} className="py-6 text-center text-gray-500">
-                                                                    No teams registered yet. Open slots are available!
-                                                                </td>
-                                                            </tr>
-                                                        );
-                                                    }
-
-                                                    return filledList.map((s) => (
-                                                        <tr key={s.slotNumber} className="hover:bg-surface/30 transition-colors">
-                                                            <td className="py-3 px-2 font-mono font-bold text-brand-400">Slot {s.slotNumber}</td>
-                                                            <td className="py-3 px-4 font-bold text-white">
-                                                                <div className="flex items-center gap-2">
-                                                                    <Users className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                                                                    {s.teamTag && (
-                                                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-500/20 text-brand-400 font-mono font-bold shrink-0">
-                                                                            [{s.teamTag}]
-                                                                        </span>
-                                                                    )}
-                                                                    <span>{s.teamName}</span>
-                                                                    {s.isDedicatedTeam && (
-                                                                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold uppercase tracking-wider">
-                                                                            Team
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                            </td>
-                                                            <td className="py-3 px-4 text-gray-300">
-                                                                <div>
-                                                                    <span className="font-semibold">{s.leader}</span>
-                                                                    {s.inGameName && s.inGameName !== s.leader && (
-                                                                        <span className="text-gray-500 block text-[10px]">IGN: {s.inGameName}</span>
-                                                                    )}
-                                                                </div>
-                                                            </td>
-                                                            <td className="py-3 px-4 font-mono text-gray-300">
-                                                                {s.inGameId ? (
-                                                                    <span className="text-brand-400 font-semibold">{s.inGameId}</span>
-                                                                ) : (
-                                                                    <span className="text-gray-600">—</span>
-                                                                )}
-                                                            </td>
-                                                            <td className="py-3 px-4">
-                                                                {Array.isArray(s.teammates) && s.teammates.length > 0 ? (
-                                                                    <div className="flex flex-wrap gap-1">
-                                                                        {s.teammates.map((m: any, i: number) => (
-                                                                            <span key={i} className="px-1.5 py-0.5 rounded bg-surface border border-gray-800 text-[10px] text-gray-300">
-                                                                                {typeof m === 'string' ? m : (m?.name || m?.inGameName || m?.username)}
-                                                                            </span>
-                                                                        ))}
-                                                                    </div>
-                                                                ) : (
-                                                                    <span className="text-gray-600">—</span>
-                                                                )}
-                                                            </td>
-                                                            <td className="py-3 px-4">
-                                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 uppercase">
-                                                                    Confirmed
-                                                                </span>
-                                                            </td>
-                                                        </tr>
-                                                    ));
-                                                })()}
-                                            </tbody>
-                                        </table>
-                                    </div>
                                 </div>
                             </motion.div>
                         )}
@@ -1223,7 +1008,7 @@ export default function TournamentDetails() {
                             </motion.div>
                         )}
 
-                        {!isScrimEvent && activeTab === 'roadmap' && (
+                        {activeTab === 'roadmap' && (
                             <motion.div 
                                 key="roadmap"
                                 initial={{ opacity: 0, y: 10 }}
@@ -1233,7 +1018,7 @@ export default function TournamentDetails() {
                                 <TournamentRoadmap tournament={tournament} />
                             </motion.div>
                         )}
-                        {!isScrimEvent && activeTab === 'groups' && (
+                        {activeTab === 'groups' && (
                             <motion.div
                                 key="groups"
                                 initial={{ opacity: 0, y: 10 }}
@@ -1363,13 +1148,13 @@ export default function TournamentDetails() {
                             </div>
                             <div className="p-3 sm:p-4 bg-dark rounded-2xl border border-gray-800">
                                 <div className="flex justify-between items-center mb-2">
-                                    <span className="text-xs text-gray-500 font-black uppercase tracking-widest">Slots Filled</span>
-                                    <span className="text-xs text-white font-black">{getFilledSlotCount(tournament)} / {getSlotCount(tournament)}</span>
+                                    <span className="text-xs text-gray-500 font-black uppercase tracking-widest">Registrations</span>
+                                    <span className="text-xs text-white font-black">{participants.length} / {maxParticipants}</span>
                                 </div>
                                 <div className="w-full bg-card rounded-full h-2.5 overflow-hidden">
                                     <motion.div 
                                         initial={{ width: 0 }}
-                                        animate={{ width: `${(getFilledSlotCount(tournament) / (getSlotCount(tournament) || 1)) * 100}%` }}
+                                        animate={{ width: `${Math.min(100, (participants.length / (maxParticipants || 1)) * 100)}%` }}
                                         className="bg-brand-600 h-full rounded-full shadow-[0_0_10px_rgba(var(--brand-primary-rgb),0.5)]"
                                     ></motion.div>
                                 </div>
@@ -1468,7 +1253,7 @@ export default function TournamentDetails() {
                                     </button>
                                 </div>
                             )
-                        ) : getFilledSlotCount(tournament) >= getSlotCount(tournament) ? (
+                        ) : participants.length >= maxParticipants ? (
                             <button type="button" disabled className="w-full bg-red-900/20 text-red-500 border border-red-900/50 py-4 sm:py-5 rounded-2xl text-xs sm:text-sm font-black uppercase tracking-widest cursor-not-allowed">
                                 Tournament Full
                             </button>
