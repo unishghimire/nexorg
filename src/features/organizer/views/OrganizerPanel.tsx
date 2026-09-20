@@ -520,6 +520,9 @@ const OrganizerPanel: React.FC = () => {
               isPowerOrg={isPowerOrg}
               powerOrgApplicationStatus={profile?.powerOrgApplicationStatus || 'none'}
               completedScrimsCount={completedScrimsCount}
+              minAuthenticScrimsForPowerOrg={org.minAuthenticScrimsForPowerOrg}
+              orgLevel={profile?.orgLevel}
+              orgXp={profile?.orgXp}
               onApplyPowerOrg={() => setShowPowerOrgApplyModal(true)}
               onNavigateTab={(tabId) => handleTabChange(tabId as TabId)}
               onCreateTournament={handleCreateTournament}
@@ -775,6 +778,7 @@ const OrganizerPanel: React.FC = () => {
           isOpen={showPowerOrgApplyModal}
           onClose={() => setShowPowerOrgApplyModal(false)}
           completedScrimsCount={completedScrimsCount}
+          minAuthenticScrims={org.minAuthenticScrimsForPowerOrg}
           onSuccess={() => {
             showToast('Power Organizer application submitted for Admin approval!', 'success');
           }}
@@ -787,6 +791,7 @@ const OrganizerPanel: React.FC = () => {
           isOpen={showPowerOrgLockedModal}
           onClose={() => setShowPowerOrgLockedModal(false)}
           completedScrimsCount={completedScrimsCount}
+          minAuthenticScrims={org.minAuthenticScrimsForPowerOrg}
           applicationStatus={profile?.powerOrgApplicationStatus || 'none'}
           onApply={() => setShowPowerOrgApplyModal(true)}
           onHostScrim={() => {

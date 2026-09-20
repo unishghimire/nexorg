@@ -34,6 +34,8 @@ import PrizeDistributionInput from './PrizeDistributionInput';
 import { formatCurrency, formatGameModeLabel, formatGameName, toDateSafe, cleanFirestoreData } from '../../../shared/utils/utils';
 import { commitFirestoreBatches } from '../../../shared/utils/firestoreBatches';
 import { fetchRoomCredentials, broadcastRoomCredentials } from '../../../shared/services/roomCredentials';
+import { awardOrgExp } from '../../../shared/services/orgLevelService';
+import { ORG_EXP_REWARDS } from '../../../shared/utils/utils';
 
 interface TournamentCreateModalProps {
   isOpen: boolean;
@@ -320,8 +322,13 @@ const TournamentCreateModal: React.FC<TournamentCreateModalProps> = ({ isOpen, o
 
         const docRef = await addDoc(collection(db, 'tournaments'), {
           ...newTournamentPayload,
+          orgExpAwardedForCreate: true,
           createdAt: serverTimestamp(),
         });
+
+        // Award +40 Organization EXP for creating a tournament
+        awardOrgExp(user.uid, ORG_EXP_REWARDS.TOURNAMENT_CREATED, `Created tournament "${formData.title}"`).catch(() => {});
+
         if (roomId || roomPass) {
           await setDoc(doc(db, 'tournaments', docRef.id, 'credentials', 'main'), { roomId, roomPass });
         }
@@ -352,7 +359,7 @@ const TournamentCreateModal: React.FC<TournamentCreateModalProps> = ({ isOpen, o
             timestamp: serverTimestamp(),
           }).catch(() => {});
 
-          showToast(`Free tournament published and Rs. ${requiredFunding.toLocaleString()} prize funds locked in escrow from your wallet!`, 'success');
+          showToast(`Free tournament published (+40 Org EXP) and Rs. ${requiredFunding.toLocaleString()} prize funds locked in escrow!`, 'success');
         } else if (requiredFunding > 0) {
           // Paid event: attempt atomic activation / fund reservation if available
           try {
@@ -364,17 +371,17 @@ const TournamentCreateModal: React.FC<TournamentCreateModalProps> = ({ isOpen, o
               });
               const activateData = await activateRes.json().catch(() => ({}));
               if (activateRes.ok && activateData.fundingStatus === 'RESERVED') {
-                showToast(`Tournament created and Rs. ${requiredFunding.toLocaleString()} prize funds secured in escrow!`, 'success');
+                showToast(`Tournament created (+40 Org EXP) and Rs. ${requiredFunding.toLocaleString()} prize funds secured in escrow!`, 'success');
               } else {
-                showToast(`Tournament created in PENDING FUNDING. Top up your wallet to activate registration.`, 'info');
+                showToast(`Tournament created (+40 Org EXP) in PENDING FUNDING. Top up your wallet to activate registration.`, 'info');
               }
             }
           } catch (fundErr) {
             console.warn("Auto-funding activation check deferred:", fundErr);
-            showToast('Tournament created in PENDING FUNDING status.', 'info');
+            showToast('Tournament created (+40 Org EXP) in PENDING FUNDING status.', 'info');
           }
         } else {
-          showToast('Tournament created successfully!', 'success');
+          showToast('Tournament created successfully! (+40 Org EXP)', 'success');
         }
 
         // Notify followers

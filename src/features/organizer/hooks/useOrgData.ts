@@ -27,6 +27,7 @@ import { toDateSafe, cleanFirestoreData } from '../../../shared/utils/utils';
 import { countFilledScrimSlots, normalizeScrimSlots, getSlotCount, getFilledSlotCount } from '../../../shared/utils/scrimSlots';
 import { releaseSlotWithRefund } from '../../../shared/services/slotRefundService';
 import { checkFinancialReadiness } from '../../../shared/services/prizeDistributionService';
+import { awardOrgEventCompletionExp } from '../../../shared/services/orgLevelService';
 import { checkScrimPayoutConfirmation, checkScrimResultsReadiness, checkTournamentResultsReadiness, isScrimEvent } from '../../../shared/utils/finalizationReadiness';
 
 export function useOrgData() {
@@ -37,6 +38,7 @@ export function useOrgData() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [orgEarnings, setOrgEarnings] = useState<any[]>([]);
   const [disputes, setDisputes] = useState<any[]>([]);
+  const [minAuthenticScrimsForPowerOrg, setMinAuthenticScrimsForPowerOrg] = useState<number>(20);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,9 +55,20 @@ export function useOrgData() {
       setTransactions([]);
       setOrgEarnings([]);
       setDisputes([]);
+      setMinAuthenticScrimsForPowerOrg(20);
       setLoading(false);
       return;
     }
+
+    // Load dynamic Power Org scrim requirement from site settings
+    getDoc(doc(db, 'settings', 'site')).then((snap) => {
+      if (snap.exists()) {
+        const val = snap.data()?.minAuthenticScrimsForPowerOrg;
+        if (val !== undefined && val !== null) {
+          setMinAuthenticScrimsForPowerOrg(Number(val) || 20);
+        }
+      }
+    }).catch(() => {});
 
     setLoading(true);
     setError(null);
@@ -475,7 +488,7 @@ export function useOrgData() {
     const inMemory = tourMapRef.current.get(tournamentId);
     if (inMemory) {
       const ownerId = inMemory.hostUid || (inMemory as any).orgId || (inMemory as any).hostId || (inMemory as any).userId || (inMemory as any).organizerId || (inMemory as any).createdBy;
-      if (ownerId && ownerId !== user.uid && profile?.role !== 'admin' && profile?.role !== 'organizer') {
+      if (ownerId && ownerId !== user.uid && profile?.role !== 'admin') {
         throw new Error('Not authorized — you do not own this tournament');
       }
       return;
@@ -484,7 +497,7 @@ export function useOrgData() {
     if (tDoc && tDoc.exists()) {
       const data = tDoc.data();
       const ownerId = data.hostUid || data.orgId || data.hostId || data.userId || data.organizerId || data.createdBy;
-      if (ownerId && ownerId !== user.uid && profile?.role !== 'admin' && profile?.role !== 'organizer') {
+      if (ownerId && ownerId !== user.uid && profile?.role !== 'admin') {
         throw new Error('Not authorized — you do not own this tournament');
       }
     }
@@ -495,7 +508,7 @@ export function useOrgData() {
     const inMemory = scrimMapRef.current.get(scrimId);
     if (inMemory) {
       const ownerId = inMemory.hostUid || (inMemory as any).orgId || (inMemory as any).hostId || (inMemory as any).userId || (inMemory as any).organizerId || (inMemory as any).createdBy;
-      if (ownerId && ownerId !== user.uid && profile?.role !== 'admin' && profile?.role !== 'organizer') {
+      if (ownerId && ownerId !== user.uid && profile?.role !== 'admin') {
         throw new Error('Not authorized — you do not own this scrim');
       }
       return;
@@ -504,7 +517,7 @@ export function useOrgData() {
     if (sDoc && sDoc.exists()) {
       const data = sDoc.data();
       const ownerId = data.hostUid || data.orgId || data.hostId || data.userId || data.organizerId || data.createdBy;
-      if (ownerId && ownerId !== user.uid && profile?.role !== 'admin' && profile?.role !== 'organizer') {
+      if (ownerId && ownerId !== user.uid && profile?.role !== 'admin') {
         throw new Error('Not authorized — you do not own this scrim');
       }
     }
@@ -607,7 +620,11 @@ export function useOrgData() {
     const cleanedPayload = cleanFirestoreData(updatePayload);
     await assertTournamentHost(id);
     await updateDoc(doc(db, 'tournaments', id), cleanedPayload).catch(() => {});
-  }, [assertTournamentHost, hostedTournaments]);
+
+    if (status === 'completed' && user?.uid) {
+      awardOrgEventCompletionExp(id, 'tournament', user.uid).catch(() => {});
+    }
+  }, [assertTournamentHost, hostedTournaments, user]);
 
   const updateScrimStatus = useCallback(async (id: string, status: Tournament['status']) => {
     const target = hostedScrims.find(s => s.id === id);
@@ -624,7 +641,11 @@ export function useOrgData() {
     const cleanedPayload = cleanFirestoreData(updatePayload);
     await assertScrimHost(id);
     await updateDoc(doc(db, 'scrims', id), cleanedPayload).catch(() => {});
-  }, [assertScrimHost, hostedScrims]);
+
+    if (status === 'completed' && user?.uid) {
+      awardOrgEventCompletionExp(id, 'scrim', user.uid).catch(() => {});
+    }
+  }, [assertScrimHost, hostedScrims, user]);
 
   const activateTournament = useCallback(async (id: string) => {
     if (!user) throw new Error('Not authenticated');
@@ -1246,6 +1267,7 @@ export function useOrgData() {
     loading,
     error,
     kpis,
+    minAuthenticScrimsForPowerOrg,
     scrims,
     matchRooms,
     teams,

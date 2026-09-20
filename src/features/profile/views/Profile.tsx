@@ -10,7 +10,7 @@ import Modal from '../../../shared/components/Modal';
 import { useInvisibleImage } from '../../../shared/hooks/useInvisibleImage';
 import { MediaCategory } from '../../../shared/services/mediaService';
 import { DEFAULT_AVATAR, NEXPLAY_LOGO, PRESET_AVATARS, PRESET_PLAYER_BANNERS } from '../../../shared/constants/constants';
-import { User, Mail, Phone, Shield, Trophy, Wallet as WalletIcon, Save, Info, Briefcase, Users, Hash, Clock, ArrowDown, ArrowUp, Copy, CheckCircle2, Image as ImageIcon, Settings as SettingsIcon, X } from 'lucide-react';
+import { User, Mail, Phone, Shield, Trophy, Wallet as WalletIcon, Save, Info, Briefcase, Users, Hash, Clock, ArrowDown, ArrowUp, Copy, CheckCircle2, Image as ImageIcon, Settings as SettingsIcon, X, Sparkles } from 'lucide-react';
 import { Transaction } from '../../../shared/types/types';
 import { useSiteSettings } from '../../../shared/context/SiteSettingsContext';
 import { Seo } from '../../../shared/components/Seo';
@@ -464,6 +464,23 @@ const Profile: React.FC = () => {
                                 </div>
                             </div>
                         </div>
+                        {(profile.isOrganizer || profile.role === 'organizer' || profile.orgName) && (
+                            <div className="bg-card p-6 rounded-2xl border border-purple-500/30 shadow-lg relative overflow-hidden group sm:col-span-2 lg:col-span-1">
+                                <div className="absolute top-0 left-0 h-1 bg-gradient-to-r from-purple-500 to-indigo-500 transition-colors duration-1000" style={{ width: `${getLevelProgress(profile.orgXp || 0)}%` }}></div>
+                                <div className="flex items-center gap-3 mb-3">
+                                    <div className="p-2 bg-purple-500/10 rounded-lg border border-purple-500/20 text-purple-400">
+                                        <Sparkles className="w-5 h-5" />
+                                    </div>
+                                    <span className="text-xs text-purple-300 font-bold uppercase tracking-widest">Organization Level</span>
+                                </div>
+                                <div className="flex items-start sm:items-end justify-between">
+                                    <div className="text-2xl font-black text-white font-mono">LVL {profile.orgLevel || calculateLevel(profile.orgXp || 0)}</div>
+                                    <div className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">
+                                        {profile.orgXp || 0} / {getXPForNextLevel(profile.orgLevel || calculateLevel(profile.orgXp || 0))} EXP
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     {/* Bio & Skills */}

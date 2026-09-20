@@ -10,6 +10,7 @@ import { fetchDedicatedTeams, resolveSlotTeam, DedicatedTeamsLookup } from '../.
 import { releaseSlotWithRefund } from '../../../shared/services/slotRefundService';
 import { NotificationService } from '../../../shared/services/NotificationService';
 import { checkFinancialReadiness } from '../../../shared/services/prizeDistributionService';
+import { awardOrgEventCompletionExp } from '../../../shared/services/orgLevelService';
 import { FinancialLockBanner } from '../../../shared/components/FinancialLockBanner';
 import { PrizeDistributionModal } from '../../../shared/components/PrizeDistributionModal';
 import { toDateSafe, cleanFirestoreData } from '../../../shared/utils/utils';
@@ -101,10 +102,8 @@ export default function ScrimDetailPage() {
         const scrimHostId = data.hostUid || data.orgId || data.hostId || data.userId || data.organizerId || data.createdBy;
         const isAuthorized = Boolean(
           user && (
-            !scrimHostId ||
-            String(scrimHostId).trim() === String(user.uid).trim() ||
-            profile?.role === 'admin' ||
-            profile?.role === 'organizer'
+            (scrimHostId && String(scrimHostId).trim() === String(user.uid).trim()) ||
+            profile?.role === 'admin'
           )
         );
         if (!isAuthorized) {
@@ -131,16 +130,14 @@ export default function ScrimDetailPage() {
               const isScrim = data.matchType === 'scrims' || data.isScrim === true || data.type === 'scrim';
               if (!isScrim) {
                 // Strict separation: This is a tournament, not a scrim. Redirect to Tournament Managing Portal
-                navigate(`/tournament-admin/${id}`, { replace: true });
+                navigate(`/tournaments/${id}`, { replace: true });
                 return;
               }
               const scrimHostId = data.hostUid || data.orgId || data.hostId || data.userId || data.organizerId || data.createdBy;
               const isAuthorized = Boolean(
                 user && (
-                  !scrimHostId ||
-                  String(scrimHostId).trim() === String(user.uid).trim() ||
-                  profile?.role === 'admin' ||
-                  profile?.role === 'organizer'
+                  (scrimHostId && String(scrimHostId).trim() === String(user.uid).trim()) ||
+                  profile?.role === 'admin'
                 )
               );
               if (!isAuthorized) {
@@ -885,6 +882,9 @@ export default function ScrimDetailPage() {
       });
 
       await updateDoc(doc(db, 'scrims', id!), cleanedWinnerPayload);
+
+      // Award +60 Organization EXP for completing a scrim (idempotent)
+      awardOrgEventCompletionExp(id!, 'scrim', user?.uid || scrim?.hostUid).catch(() => {});
 
       setScrim((prev: any) => prev ? { ...prev, ...cleanedWinnerPayload } : prev);
 

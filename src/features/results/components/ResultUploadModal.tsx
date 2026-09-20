@@ -8,10 +8,9 @@ import { NotificationService } from '../../../shared/services/NotificationServic
 import { useNotification } from '../../../shared/context/NotificationContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { useInvisibleImage } from '../../../shared/hooks/useInvisibleImage';
-import { MediaCategory } from '../../../shared/services/mediaService';
-import ManualResultManager from './ManualResultManager';
 import { useAuth } from '../../../shared/context/AuthContext';
 import { executePrizeDistribution } from '../../../shared/services/prizeDistributionService';
+import { awardOrgEventCompletionExp } from '../../../shared/services/orgLevelService';
 import { cleanFirestoreData } from '../../../shared/utils/utils';
 
 interface ResultUploadModalProps {
@@ -226,8 +225,15 @@ const ResultUploadModal: React.FC<ResultUploadModalProps> = ({ isOpen, onClose, 
                 if (templateConfig) updatePayload.resultTemplate = templateConfig;
                 
                 const cleanedPayload = cleanFirestoreData(updatePayload);
-                const targetCollection = (tournament.matchType === 'scrims' || (tournament as any).isScrim === true || (tournament as any).type === 'scrim') ? 'scrims' : 'tournaments';
+                const isScrim = tournament.matchType === 'scrims' || (tournament as any).isScrim === true || (tournament as any).type === 'scrim';
+                const targetCollection = isScrim ? 'scrims' : 'tournaments';
                 await updateDoc(doc(db, targetCollection, tournament.id), cleanedPayload).catch(() => {});
+
+                // Award Organization completion EXP (+60 for scrim, +80 for tournament) with idempotency
+                const hostUid = tournament.hostUid || user?.uid;
+                if (hostUid) {
+                    awardOrgEventCompletionExp(tournament.id, isScrim ? 'scrim' : 'tournament', hostUid).catch(() => {});
+                }
 
                 await NotificationService.notifyParticipants(
                     tournament.id,
@@ -237,7 +243,7 @@ const ResultUploadModal: React.FC<ResultUploadModalProps> = ({ isOpen, onClose, 
                     `/tournaments/${tournament.id}`
                 );
 
-                showToast('Results finalized successfully!', 'success');
+                showToast(`Results finalized successfully! (+${isScrim ? 60 : 80} Org EXP)`, 'success');
             }
 
             onSuccess();

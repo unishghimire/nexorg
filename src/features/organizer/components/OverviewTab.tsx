@@ -16,9 +16,12 @@ import {
   Zap,
   CheckCircle2,
   Clock,
+  Sparkles,
+  TrendingUp,
 } from 'lucide-react';
 import { Tournament } from '../../../shared/types/types';
 import { getSlotCount, getFilledSlotCount } from '../../../shared/utils/scrimSlots';
+import { calculateLevel, getXPForNextLevel, getLevelProgress, ORG_EXP_REWARDS } from '../../../shared/utils/utils';
 
 export interface OverviewTabProps {
   kpis: {
@@ -45,6 +48,9 @@ export interface OverviewTabProps {
   isPowerOrg?: boolean;
   powerOrgApplicationStatus?: 'none' | 'pending' | 'approved' | 'rejected';
   completedScrimsCount?: number;
+  minAuthenticScrimsForPowerOrg?: number;
+  orgLevel?: number;
+  orgXp?: number;
   onApplyPowerOrg?: () => void;
   onNavigateTab?: (tabId: string) => void;
   onCreateTournament?: () => void;
@@ -130,6 +136,9 @@ const OverviewTab: React.FC<OverviewTabProps> = ({
   isPowerOrg = false,
   powerOrgApplicationStatus = 'none',
   completedScrimsCount,
+  minAuthenticScrimsForPowerOrg = 20,
+  orgLevel,
+  orgXp,
   onApplyPowerOrg,
   onNavigateTab,
   onCreateTournament,
@@ -146,10 +155,16 @@ const OverviewTab: React.FC<OverviewTabProps> = ({
          (Number(s.filledSlots) >= 2 || Number(s.currentPlayers) >= 2))
       ).length;
 
-  const requiredScrims = 20;
+  const requiredScrims = Number(minAuthenticScrimsForPowerOrg) || 20;
   const progressPercent = Math.min(100, Math.round((effectiveCompletedCount / requiredScrims) * 100));
   const isRequirementMet = effectiveCompletedCount >= requiredScrims;
   const remainingScrims = Math.max(0, requiredScrims - effectiveCompletedCount);
+
+  // Organization Level & EXP calculations
+  const currentOrgXp = Math.max(0, Number(orgXp) || 0);
+  const orgLevelValue = Math.max(1, Number(orgLevel) || calculateLevel(currentOrgXp));
+  const nextLevelTarget = getXPForNextLevel(orgLevelValue);
+  const levelProgressPercent = getLevelProgress(currentOrgXp);
 
   return (
     <div className="space-y-6 text-sm">
@@ -194,6 +209,75 @@ const OverviewTab: React.FC<OverviewTabProps> = ({
               <Gamepad2 className="w-3.5 h-3.5 text-orange-400" /> Schedule Scrim
             </button>
           )}
+        </div>
+      </div>
+
+      {/* ─── ORGANIZATION LEVEL & EXP PROGRESSION CARD ─── */}
+      <div className="bg-gradient-to-br from-indigo-950/40 via-purple-950/20 to-card border border-purple-500/30 p-5 rounded-2xl shadow-lg relative overflow-hidden backdrop-blur-sm">
+        <div className="absolute -top-10 -right-10 w-48 h-48 bg-purple-600/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
+          <div className="flex items-center gap-3.5">
+            <div className="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-br from-purple-500 via-indigo-500 to-brand-500 p-0.5 shadow-md shadow-purple-950/50 flex-shrink-0">
+              <div className="w-full h-full bg-dark/95 rounded-[14px] flex flex-col items-center justify-center">
+                <span className="text-[9px] font-black uppercase tracking-widest text-purple-300 leading-none">LVL</span>
+                <span className="text-xl sm:text-2xl font-black text-white font-mono leading-tight">{orgLevelValue}</span>
+              </div>
+            </div>
+
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center gap-1">
+                  <Sparkles className="w-3 h-3 text-purple-400" />
+                  Organization Level {orgLevelValue}
+                </span>
+                <span className="text-[10px] text-gray-400 font-bold">
+                  {currentOrgXp.toLocaleString()} Total EXP
+                </span>
+              </div>
+              <h3 className="text-base sm:text-lg font-black text-white uppercase tracking-tight mt-1">
+                Organization Progression &amp; EXP
+              </h3>
+              <p className="text-xs text-gray-400">
+                Earn host EXP through event creation and match completions to advance your organization level.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap shrink-0">
+            <div className="text-[11px] font-bold text-gray-300 bg-black/40 border border-white/5 px-2.5 py-1 rounded-xl flex items-center gap-1.5">
+              <span className="text-purple-400 font-black font-mono">+{ORG_EXP_REWARDS.SCRIM_CREATED}</span> Scrim Create
+            </div>
+            <div className="text-[11px] font-bold text-gray-300 bg-black/40 border border-white/5 px-2.5 py-1 rounded-xl flex items-center gap-1.5">
+              <span className="text-emerald-400 font-black font-mono">+{ORG_EXP_REWARDS.SCRIM_COMPLETED}</span> Scrim Done
+            </div>
+            <div className="text-[11px] font-bold text-gray-300 bg-black/40 border border-white/5 px-2.5 py-1 rounded-xl flex items-center gap-1.5">
+              <span className="text-purple-400 font-black font-mono">+{ORG_EXP_REWARDS.TOURNAMENT_CREATED}</span> Tourn Create
+            </div>
+            <div className="text-[11px] font-bold text-gray-300 bg-black/40 border border-white/5 px-2.5 py-1 rounded-xl flex items-center gap-1.5">
+              <span className="text-amber-400 font-black font-mono">+{ORG_EXP_REWARDS.TOURNAMENT_COMPLETED}</span> Tourn Done
+            </div>
+          </div>
+        </div>
+
+        {/* Level Progression Bar */}
+        <div className="mt-4 pt-4 border-t border-gray-800/80 space-y-2 relative z-10">
+          <div className="flex items-center justify-between text-xs font-bold">
+            <span className="text-gray-400 uppercase text-[10px] font-black tracking-wider flex items-center gap-1.5">
+              <TrendingUp className="w-3.5 h-3.5 text-purple-400" />
+              Level {orgLevelValue} Progress {orgLevelValue >= 100 ? '(Max Level)' : `(Next Target: Level ${orgLevelValue + 1})`}
+            </span>
+            <span className="text-purple-300 font-mono font-black">
+              {currentOrgXp} / {nextLevelTarget} EXP ({Math.round(levelProgressPercent)}%)
+            </span>
+          </div>
+
+          <div className="w-full h-2.5 bg-black/60 rounded-full overflow-hidden border border-white/5 p-0.5">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-purple-600 via-indigo-500 to-pink-500 shadow-sm shadow-purple-500/50 transition-all duration-500"
+              style={{ width: `${levelProgressPercent}%` }}
+            />
+          </div>
         </div>
       </div>
 

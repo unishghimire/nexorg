@@ -27,10 +27,10 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatCurrency, formatGameName, toDateSafe, cleanFirestoreData } from '../../../shared/utils/utils';
-import { commitFirestoreBatches } from '../../../shared/utils/firestoreBatches';
-import { normalizeScrimSlots, countFilledScrimSlots, ScrimSlot } from '../../../shared/utils/scrimSlots';
 import { fetchRoomCredentials, broadcastRoomCredentials } from '../../../shared/services/roomCredentials';
 import { announceNewScrim } from '../../../shared/services/DiscordService';
+import { awardOrgExp } from '../../../shared/services/orgLevelService';
+import { ORG_EXP_REWARDS } from '../../../shared/utils/utils';
 
 interface ScrimCreateModalProps {
   isOpen: boolean;
@@ -323,8 +323,12 @@ export default function ScrimCreateModal({
       } else {
         const docRef = await addDoc(collection(db, 'scrims'), {
           ...cleanedPayload,
+          orgExpAwardedForCreate: true,
           createdAt: serverTimestamp(),
         });
+
+        // Award +20 Organization EXP for creating a scrim
+        awardOrgExp(user.uid, ORG_EXP_REWARDS.SCRIM_CREATED, `Created scrim "${formData.title}"`).catch(() => {});
 
         // Free event with cash prize: Lock prize escrow from organizer's own wallet immediately
         if (isFreeWithPrize) {
@@ -352,9 +356,9 @@ export default function ScrimCreateModal({
             timestamp: serverTimestamp(),
           }).catch(() => {});
 
-          showToast(`Free scrim published and Rs. ${parsedPrizePool.toLocaleString()} prize funds locked in escrow from your wallet!`, 'success');
+          showToast(`Free scrim published (+20 Org EXP) and Rs. ${parsedPrizePool.toLocaleString()} prize funds locked in escrow!`, 'success');
         } else {
-          showToast('Scrim created successfully!', 'success');
+          showToast('Scrim created successfully! (+20 Org EXP)', 'success');
         }
 
         if (formData.roomId || formData.roomPass) {

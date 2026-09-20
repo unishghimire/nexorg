@@ -49,6 +49,8 @@ export interface UserProfile {
     powerOrgApplicationStatus?: 'none' | 'pending' | 'approved' | 'rejected';
     powerOrgAppliedAt?: Timestamp | any;
     completedScrimsCount?: number;
+    orgXp?: number;
+    orgLevel?: number;
     stats?: {
         totalMatches: number;
         wins: number;
@@ -233,6 +235,8 @@ export interface Scrim {
     scrimMode?: 'STANDARD' | 'PER_KILL';
     rewardPerKill?: number;
     minimumKillsForReward?: number;
+    orgExpAwardedForCreate?: boolean;
+    orgExpAwardedForComplete?: boolean;
 }
 
 export interface Tournament {
@@ -305,6 +309,8 @@ export interface Tournament {
     killRewards?: PlayerKillReward[];
     // Audit trail for reward changes
     rewardAuditLog?: RewardAuditEntry[];
+    orgExpAwardedForCreate?: boolean;
+    orgExpAwardedForComplete?: boolean;
     // ─── Audit log — tracks all major tournament operations ───
     auditLog?: {
         timestamp: Timestamp | any;
@@ -525,6 +531,7 @@ export interface SiteSettings {
     discordWebhookTournaments?: string;
     discordWebhookScrims?: string;
     autoDiscordTournamentAnnouncements?: boolean;
+    minAuthenticScrimsForPowerOrg?: number;
     updatedAt: Timestamp | any;
 }
 
@@ -628,6 +635,9 @@ export interface PowerOrgApplication {
     email: string;
     phone?: string;
     whatsapp?: string;
+    communityLink?: string;
+    proofLink?: string;
+    notes?: string;
     completedScrimsCount: number;
     status: 'pending' | 'approved' | 'rejected';
     appliedAt: Timestamp | any;

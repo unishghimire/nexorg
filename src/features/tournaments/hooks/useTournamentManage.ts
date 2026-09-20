@@ -42,7 +42,7 @@ import {
 } from '../../../shared/services/tournamentEngine';
 import { TournamentAuditEntry } from '../../../shared/types/tournament-engine';
 
-export function useTournamentAdmin(
+export function useTournamentManage(
     id: string | undefined,
     navigate: (path: string) => void,
     showToast: (message: string, type: 'success' | 'error' | 'info' | 'warning') => void
@@ -72,11 +72,12 @@ export function useTournamentAdmin(
                 const data = { id: docSnap.id, ...docSnap.data() } as Tournament;
                 const isScrim = data.matchType === 'scrims' || (data as any).isScrim === true || (data as any).type === 'scrim';
                 if (isScrim) {
-                    navigate(`/organizer/scrim/${id}`);
+                    navigate(`/scrims/${id}`);
                     return;
                 }
-                if (data.hostUid && data.hostUid !== user.uid && profile?.role !== 'admin' && profile?.role !== 'organizer') {
-                    showToast('Unauthorized access', 'error');
+                const ownerId = data.hostUid || (data as any).orgId || (data as any).hostId || (data as any).userId || (data as any).organizerId || (data as any).createdBy;
+                if (ownerId && ownerId !== user.uid && profile?.role !== 'admin') {
+                    showToast('Unauthorized access: You do not own this tournament', 'error');
                     navigate('/organizer');
                     return;
                 }
@@ -96,7 +97,7 @@ export function useTournamentAdmin(
                 // If it's a scrim in the scrims collection, redirect to dedicated scrim manager
                 getDoc(doc(db, 'scrims', id)).then(scrimSnap => {
                     if (scrimSnap.exists()) {
-                        navigate(`/organizer/scrim/${id}`);
+                        navigate(`/scrims/${id}`);
                     } else {
                         showToast('Tournament not found', 'error');
                         navigate('/organizer');
@@ -222,7 +223,6 @@ export function useTournamentAdmin(
             return;
         }
 
-        // ponytail: validate before generating
         const existingGroups = tournament.groups?.length || 0;
         const confirmMsg = existingGroups > 0
             ? `Regenerate groups for ${eligibleParticipants.length} participants? This will replace ${existingGroups} existing groups.`
@@ -317,8 +317,6 @@ export function useTournamentAdmin(
                     throw new Error("No groups found to advance from.");
                 }
 
-                // ponytail: use the engine — single source of truth for standings + qualification
-                // CRITICAL FIX: was using m.score1/score2 (1v1) instead of m.results[] (BR)
                 const roundStatus = isRoundComplete({ groups: tournament.groups, tournament });
                 if (!roundStatus.complete) {
                     throw new Error(`Cannot advance: ${roundStatus.completedMatches}/${roundStatus.totalMatches} matches completed.`);
@@ -368,8 +366,7 @@ export function useTournamentAdmin(
                         tournament,
                     });
 
-                    // CRITICAL FIX: Append next round groups — preserve previous round history
-                    // Previous rounds' groups are kept for progression history and public results
+                    // Append next round groups — preserve previous round history
                     const allGroups = [...(tournament.groups || []), ...nextRound.groups];
                     const advanceAudit = createAuditEntry({
                         userId: auth.currentUser?.uid || 'unknown',
@@ -482,7 +479,6 @@ export function useTournamentAdmin(
             showToast('Failed to delete group', 'error');
         }
     };
-
 
     const handleSetGroupRoom = async (groupId: string, field: 'roomId' | 'roomPass', value: string) => {
         if (!tournament) return;
@@ -633,7 +629,8 @@ export function useTournamentAdmin(
     };
 
     // Match Update State
-    const [isUpdateScoreModalOpen, setIsUpdateScoreModalOpen] = useState(false);    const [isResultUploaderOpen, setIsResultUploaderOpen] = useState(false);
+    const [isUpdateScoreModalOpen, setIsUpdateScoreModalOpen] = useState(false);
+    const [isResultUploaderOpen, setIsResultUploaderOpen] = useState(false);
     const [selectedMatch, setSelectedMatch] = useState<{ groupId: string, match: Match } | null>(null);
     const [matchScore, setMatchScore] = useState({ score1: 0, score2: 0, status: 'scheduled' as 'scheduled' | 'live' | 'completed', map: '' });
 
@@ -708,13 +705,11 @@ export function useTournamentAdmin(
                 return g;
             }) || [];
 
-            // Optimistic UI update: instantly update local state so zero lag is experienced
             setTournament({ ...tournament, groups: updatedGroups });
             setIsAddMatchModalOpen(false);
             setNewMatchData({ team1Id: '', team2Id: '', round: tournament.currentRound || 1, map: resolvedMap, matchCount: 1, scheduledTime: '', status: 'scheduled' });
             showToast(`${newMatches.length} match(es) added to ${selectedGroup.name}`, 'success');
 
-            // Async background Firestore persistence
             await updateDoc(doc(db, 'tournaments', tournament.id), cleanFirestoreData({
                 groups: updatedGroups
             }));
@@ -747,7 +742,6 @@ export function useTournamentAdmin(
                 if (currentMatch.status === 'completed') {
                     const winnerId = currentMatch.score1 > currentMatch.score2 ? currentMatch.team1Id : currentMatch.team2Id;
                     
-                    // Match ID is bracket-R-P
                     const parts = currentMatch.id.split('-');
                     const round = parseInt(parts[1]);
                     const position = parseInt(parts[2]);
@@ -807,12 +801,11 @@ export function useTournamentAdmin(
             showToast('Failed to update score', 'error');
         }
     };
+
     const getTeamName = (teamId: string) => {
         if (teamId === 'TBD') return 'TBD';
-        // Try groups first
-        const groupTeam = tournament.groups?.flatMap(g => g.teams).find(t => t.id === teamId);
+        const groupTeam = tournament?.groups?.flatMap(g => g.teams).find(t => t.id === teamId);
         if (groupTeam) return groupTeam.name;
-        // Try participants
         const participant = participants.find(p => p.teamId === teamId || p.userId === teamId);
         if (participant) return participant.teamName || participant.username;
         return teamId;
@@ -821,11 +814,8 @@ export function useTournamentAdmin(
     const handleGenerateBracket = async () => {
         if (!tournament) return;
         
-        // Collect all teams from all groups
         const allTeams: Team[] = [];
         tournament.groups?.forEach(g => {
-            // In a real app, we would sort by points/wins and take top N
-            // For now, take all teams that have played matches
             allTeams.push(...g.teams);
         });
 
@@ -834,13 +824,11 @@ export function useTournamentAdmin(
             return;
         }
 
-        // Determine bracket size (next power of 2)
         const bracketSize = Math.pow(2, Math.ceil(Math.log2(allTeams.length)));
         
         try {
             const bracketMatches: Match[] = [];
             
-            // Generate first round
             for (let i = 0; i < bracketSize / 2; i++) {
                 const team1 = allTeams[i * 2];
                 const team2 = allTeams[i * 2 + 1];
@@ -856,7 +844,6 @@ export function useTournamentAdmin(
                 });
             }
 
-            // Generate subsequent rounds (empty matches)
             let matchesInRound = bracketSize / 2;
             let round = 2;
             while (matchesInRound > 1) {
@@ -886,6 +873,7 @@ export function useTournamentAdmin(
             showToast('Failed to generate bracket', 'error');
         }
     };
+
     const handleGenerateGroupMatches = async (groupId: string, mode: 'round-robin' | 'single' = 'single') => {
         if (!tournament) return;
         const group = tournament.groups?.find(g => g.id === groupId);
@@ -895,7 +883,6 @@ export function useTournamentAdmin(
         }
 
         try {
-            // ponytail: use the engine — no more ALL_TEAMS hack
             const isBR = isBRTournament(tournament);
             const roundConfig = tournament.roadmap?.[((tournament.currentRound || 1) - 1)];
             const matchesPerGroup = roundConfig?.matchesPerGroup || (isBR ? (mode === 'single' ? 1 : 3) : 0);
@@ -906,7 +893,7 @@ export function useTournamentAdmin(
 
             const matches = generateMatchesForRound({
                 groups: [group],
-                matchesPerGroup: isBR ? matchesPerGroup : 0, // 0 = round-robin for 1v1
+                matchesPerGroup: isBR ? matchesPerGroup : 0,
                 isBR,
                 roundNumber: tournament.currentRound || 1,
                 maps,
@@ -919,23 +906,65 @@ export function useTournamentAdmin(
                 return g;
             }) || [];
 
-            // Optimistic update for 0ms lag
             setTournament({ ...tournament, groups: updatedGroups });
             showToast(`${matches.length} ${isBR ? 'lobby' : 'round-robin'} match(es) generated`, 'success');
 
             await updateDoc(doc(db, 'tournaments', tournament.id), cleanFirestoreData({
                 groups: updatedGroups
             }));
-
-            showToast(`${matches.length} ${isBR ? 'lobby' : 'round-robin'} match(es) generated`, 'success');
         } catch (error) {
             console.error("Error generating matches:", error);
             showToast('Failed to generate matches', 'error');
         }
     };
 
-
-
-    // ponytail: shared props object — spread to all tabs, each destructures what it needs
-    return { activeTab, discordSending, fetchingParticipants, gameStartGroupId, handleAdvanceRound, handleAssignTeam, handleAutoGenerateGroups, handleCreateGroup, handleDeleteGroup, handleSetGroupRoom, handleDiscord, handleRemoveTeam, handleUpdateStage, handleUpdateStatus, isAddMatchModalOpen, isCreateGroupModalOpen, isManageTeamsModalOpen, isResultUploaderOpen, isUpdateScoreModalOpen, loading, matchScore, newGroup, newMatchData, participants, selectedGroup, selectedMatch, setActiveTab, setGameStartGroupId, setIsAddMatchModalOpen, setIsCreateGroupModalOpen, setIsManageTeamsModalOpen, setIsResultUploaderOpen, setIsUpdateScoreModalOpen, setMatchScore, setNewGroup, setNewMatchData, setParticipants, setSelectedGroup, setSelectedMatch, tournamentEarning, tournament, setTournament, handleAddMatch, handleUpdateScore, handleGenerateBracket, handleGenerateGroupMatches, getTeamName };
+    return {
+        activeTab,
+        discordSending,
+        fetchingParticipants,
+        gameStartGroupId,
+        handleAdvanceRound,
+        handleAssignTeam,
+        handleAutoGenerateGroups,
+        handleCreateGroup,
+        handleDeleteGroup,
+        handleSetGroupRoom,
+        handleDiscord,
+        handleRemoveTeam,
+        handleUpdateStage,
+        handleUpdateStatus,
+        isAddMatchModalOpen,
+        isCreateGroupModalOpen,
+        isManageTeamsModalOpen,
+        isResultUploaderOpen,
+        isUpdateScoreModalOpen,
+        loading,
+        matchScore,
+        newGroup,
+        newMatchData,
+        participants,
+        selectedGroup,
+        selectedMatch,
+        setActiveTab,
+        setGameStartGroupId,
+        setIsAddMatchModalOpen,
+        setIsCreateGroupModalOpen,
+        setIsManageTeamsModalOpen,
+        setIsResultUploaderOpen,
+        setIsUpdateScoreModalOpen,
+        setMatchScore,
+        setNewGroup,
+        setNewMatchData,
+        setParticipants,
+        setSelectedGroup,
+        setSelectedMatch,
+        tournamentEarning,
+        tournament,
+        setTournament,
+        handleAddMatch,
+        handleUpdateScore,
+        handleGenerateBracket,
+        handleGenerateGroupMatches,
+        getTeamName
+    };
 }

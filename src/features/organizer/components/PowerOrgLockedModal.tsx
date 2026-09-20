@@ -6,6 +6,7 @@ interface PowerOrgLockedModalProps {
   isOpen: boolean;
   onClose: () => void;
   completedScrimsCount: number;
+  minAuthenticScrims?: number;
   onApply?: () => void;
   onHostScrim?: () => void;
   applicationStatus?: 'none' | 'pending' | 'approved' | 'rejected';
@@ -15,11 +16,12 @@ export const PowerOrgLockedModal: React.FC<PowerOrgLockedModalProps> = ({
   isOpen,
   onClose,
   completedScrimsCount,
+  minAuthenticScrims,
   onApply,
   onHostScrim,
   applicationStatus = 'none',
 }) => {
-  const requiredScrims = 20;
+  const requiredScrims = minAuthenticScrims || 20;
   const progressPercent = Math.min(100, Math.round((completedScrimsCount / requiredScrims) * 100));
   const isRequirementMet = completedScrimsCount >= requiredScrims;
   const remaining = Math.max(0, requiredScrims - completedScrimsCount);
@@ -76,7 +78,7 @@ export const PowerOrgLockedModal: React.FC<PowerOrgLockedModalProps> = ({
               ) : (
                 <span className="text-emerald-300 font-bold flex items-center gap-1">
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                  You have completed the 20 authentic scrims requirement! Submit your application below to unlock Tournament hosting.
+                  You have completed the {requiredScrims} authentic scrims requirement! Submit your application below to unlock Tournament hosting.
                 </span>
               )
             ) : (

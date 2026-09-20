@@ -14,6 +14,7 @@ import { countFilledScrimSlots, getFilledSlotCount, getSlotCount, createResetScr
 import { resolveAllScrimResults } from '../utils/scrimResults';
 import { cleanFirestoreData } from '../utils/utils';
 import { calculateRevenueSplit } from '../constants/finance';
+import { awardOrgEventCompletionExp } from './orgLevelService';
 
 export interface WinnerPayoutEntry {
   rank: number;
@@ -525,6 +526,9 @@ export async function executePrizeDistribution(
   );
 
   if (hostId) {
+    // Award Organization completion EXP (+60 for scrim, +80 for tournament) with idempotency
+    awardOrgEventCompletionExp(eventId, eventType, hostId).catch(() => {});
+
     if (isFreeEvent) {
       // 100% Free tournament/scrim: The host funded the prize pool from their own wallet into reservedBalance.
       // Now that the prize is distributed to winners, release the locked reserve.

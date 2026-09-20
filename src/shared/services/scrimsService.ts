@@ -15,6 +15,8 @@ import {
     Unsubscribe
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
+import { awardOrgExp } from './orgLevelService';
+import { ORG_EXP_REWARDS } from '../utils/utils';
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES & INTERFACES
@@ -207,12 +209,16 @@ export const ScrimsService = {
             ytLink: data.roomDetails?.streamUrl || '',
             streamUrl: data.roomDetails?.streamUrl || '',
             bannerUrl: data.bannerUrl || '',
+            orgExpAwardedForCreate: true,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
         };
 
         try {
             const docRef = await addDoc(collection(db, SCRIMS_COLLECTION), scrimPayload);
+            // Award +20 Organization EXP for creating a scrim
+            awardOrgExp(data.hostUid, ORG_EXP_REWARDS.SCRIM_CREATED, `Created scrim "${data.title}"`).catch(() => {});
+
             // AUD-013: write credentials to protected subcollection, not public doc
             if (data.roomDetails?.roomId || data.roomDetails?.roomPassword) {
                 await setDoc(doc(db, SCRIMS_COLLECTION, docRef.id, 'credentials', 'main'), {

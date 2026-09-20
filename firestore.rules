@@ -38,35 +38,53 @@ service cloud.firestore {
       );
     }
 
+    // STRICT OWNER OR ADMIN CHECK
+    // Explicitly avoids universal isOrganizer() bypasses to prevent cross-organization tampering.
     function isHostOrAdmin(docData) {
       return isAuthenticated() && (
         isAdmin() ||
-        isOrganizer() ||
         (docData.hostUid != null && docData.hostUid == request.auth.uid) ||
         (docData.orgId != null && docData.orgId == request.auth.uid) ||
         (docData.hostId != null && docData.hostId == request.auth.uid) ||
         (docData.userId != null && docData.userId == request.auth.uid) ||
         (docData.organizerId != null && docData.organizerId == request.auth.uid) ||
+        (docData.organizationId != null && docData.organizationId == request.auth.uid) ||
         (docData.createdBy != null && docData.createdBy == request.auth.uid)
       );
     }
 
     // ===============================================================
-    // USERS COLLECTION
+    // USERS & ORGANIZATIONS
     // ===============================================================
     match /users/{userId} {
       allow read: if isAuthenticated();
       allow create: if isUser(userId);
       allow update: if (isUser(userId) &&
         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['walletBalance', 'role', 'banned', 'isBanned', 'bonusBalance']))
-        || isAdmin()
-        || isOrganizer();
+        || isAdmin();
       allow delete: if isAdmin();
     }
 
     match /users_public/{userId} {
       allow read: if true;
       allow write: if isUser(userId) || isAdmin();
+    }
+
+    match /organizations/{orgId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && (
+        request.resource.data.ownerId == request.auth.uid ||
+        request.resource.data.hostUid == request.auth.uid ||
+        isUser(orgId) ||
+        isAdmin()
+      );
+      allow update: if isAuthenticated() && (
+        resource.data.ownerId == request.auth.uid ||
+        resource.data.hostUid == request.auth.uid ||
+        isUser(orgId) ||
+        isAdmin()
+      );
+      allow delete: if isAdmin();
     }
 
     // ===============================================================
@@ -123,7 +141,8 @@ service cloud.firestore {
       );
       allow update, delete: if isAuthenticated() && (
         resource.data.userId == request.auth.uid ||
-        isOrganizer() ||
+        resource.data.hostUid == request.auth.uid ||
+        resource.data.orgId == request.auth.uid ||
         isAdmin()
       );
     }
@@ -191,10 +210,13 @@ service cloud.firestore {
     // ===============================================================
     match /transactions/{transactionId} {
       allow read: if isAuthenticated() && (
-        resource.data.userId == request.auth.uid || isAdmin() || isOrganizer()
+        resource.data.userId == request.auth.uid ||
+        (resource.data.orgId != null && resource.data.orgId == request.auth.uid) ||
+        isAdmin()
       );
       allow create: if isAuthenticated() && (
-        request.resource.data.userId == request.auth.uid || isAdmin() || isOrganizer()
+        request.resource.data.userId == request.auth.uid ||
+        isAdmin()
       );
       allow update, delete: if isAdmin();
     }
@@ -204,11 +226,17 @@ service cloud.firestore {
     // ===============================================================
     match /pending_refunds/{refundId} {
       allow read: if isAuthenticated() && (
-        resource.data.userId == request.auth.uid || isOrganizer() || isAdmin()
+        resource.data.userId == request.auth.uid ||
+        (resource.data.hostUid != null && resource.data.hostUid == request.auth.uid) ||
+        (resource.data.orgId != null && resource.data.orgId == request.auth.uid) ||
+        isAdmin()
       );
       allow create: if isAuthenticated();
       allow update: if isAuthenticated() && (
-        resource.data.userId == request.auth.uid || isOrganizer() || isAdmin()
+        resource.data.userId == request.auth.uid ||
+        (resource.data.hostUid != null && resource.data.hostUid == request.auth.uid) ||
+        (resource.data.orgId != null && resource.data.orgId == request.auth.uid) ||
+        isAdmin()
       );
       allow delete: if isAdmin();
     }
@@ -219,11 +247,17 @@ service cloud.firestore {
     match /disputes/{disputeId} {
       allow read: if isAuthenticated() && (
         resource.data.userId == request.auth.uid ||
-        isOrganizer() ||
+        (resource.data.orgId != null && resource.data.orgId == request.auth.uid) ||
+        (resource.data.hostUid != null && resource.data.hostUid == request.auth.uid) ||
         isAdmin()
       );
       allow create: if isAuthenticated();
-      allow update, delete: if isOrganizer() || isAdmin();
+      allow update, delete: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        (resource.data.orgId != null && resource.data.orgId == request.auth.uid) ||
+        (resource.data.hostUid != null && resource.data.hostUid == request.auth.uid) ||
+        isAdmin()
+      );
     }
 
     // ===============================================================
@@ -231,7 +265,7 @@ service cloud.firestore {
     // ===============================================================
     match /games/{gameId} {
       allow read: if true;
-      allow write: if isAdmin() || isOrganizer();
+      allow write: if isAdmin();
     }
 
     match /slides/{slideId} {
@@ -256,7 +290,11 @@ service cloud.firestore {
 
     match /media/{mediaId} {
       allow read: if true;
-      allow write: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        isAdmin()
+      );
     }
 
     match /org_posts/{postId} {
@@ -285,9 +323,11 @@ service cloud.firestore {
     }
 
     match /tournamentEarnings/{earningId} {
-      allow read: if isOrganizer() || isAdmin();
+      allow read: if isAdmin() || (isAuthenticated() && (
+        (resource.data.orgId != null && resource.data.orgId == request.auth.uid) ||
+        (resource.data.hostUid != null && resource.data.hostUid == request.auth.uid)
+      ));
       allow write: if isAdmin();
     }
   }
 }
-

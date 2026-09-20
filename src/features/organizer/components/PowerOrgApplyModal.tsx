@@ -10,6 +10,7 @@ interface PowerOrgApplyModalProps {
   isOpen: boolean;
   onClose: () => void;
   completedScrimsCount: number;
+  minAuthenticScrims?: number;
   onSuccess?: () => void;
 }
 
@@ -17,6 +18,7 @@ export const PowerOrgApplyModal: React.FC<PowerOrgApplyModalProps> = ({
   isOpen,
   onClose,
   completedScrimsCount,
+  minAuthenticScrims,
   onSuccess,
 }) => {
   const { user, profile } = useAuth();
@@ -26,7 +28,8 @@ export const PowerOrgApplyModal: React.FC<PowerOrgApplyModalProps> = ({
   const [whatsapp, setWhatsapp] = useState(profile?.whatsapp || profile?.phone || '');
   const [notes, setNotes] = useState('');
 
-  const isEligible = completedScrimsCount >= 20;
+  const requiredCount = minAuthenticScrims || 20;
+  const isEligible = completedScrimsCount >= requiredCount;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,7 +39,7 @@ export const PowerOrgApplyModal: React.FC<PowerOrgApplyModalProps> = ({
     }
 
     if (!isEligible) {
-      showToast(`Requirement not met: You need at least 20 completed authentic scrims to apply (currently: ${completedScrimsCount}).`, 'error');
+      showToast(`Requirement not met: You need at least ${requiredCount} completed authentic scrims to apply (currently: ${completedScrimsCount}).`, 'error');
       return;
     }
 
@@ -113,7 +116,7 @@ export const PowerOrgApplyModal: React.FC<PowerOrgApplyModalProps> = ({
             <div className="bg-black/50 p-3 rounded-lg border border-white/5">
               <div className="text-[10px] text-gray-500 uppercase font-black">Completed Scrims</div>
               <div className="text-xl font-black text-emerald-400 font-mono mt-0.5">
-                {completedScrimsCount} <span className="text-xs text-gray-500">/ 20</span>
+                {completedScrimsCount} <span className="text-xs text-gray-500">/ {requiredCount}</span>
               </div>
             </div>
             <div className="bg-black/50 p-3 rounded-lg border border-white/5">
