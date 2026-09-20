@@ -544,7 +544,7 @@ export function useOrgData() {
 
     if (!deleted) {
       await assertTournamentHost(id);
-      await deleteDoc(doc(db, 'tournaments', id)).catch(() => {});
+      await deleteDoc(doc(db, 'tournaments', id));
     }
   }, [user, assertTournamentHost]);
 
@@ -569,7 +569,7 @@ export function useOrgData() {
 
     if (!deleted) {
       await assertScrimHost(id);
-      await deleteDoc(doc(db, 'scrims', id)).catch(() => {});
+      await deleteDoc(doc(db, 'scrims', id));
     }
   }, [user, assertScrimHost]);
 
@@ -709,7 +709,7 @@ export function useOrgData() {
           desc: `Prize pool reserve locked for tournament "${tData.title || id}"`,
           tournamentId: id,
           timestamp: serverTimestamp(),
-        }).catch(() => {});
+        }).catch((txErr) => console.error('Failed to log tournament reservation transaction:', txErr));
       }
 
       await updateDoc(doc(db, 'tournaments', id), {
@@ -734,7 +734,7 @@ export function useOrgData() {
     // 0ms Optimistic update
     setHostedTournaments(prev => prev.map(t => t.id === tournamentId ? { ...t, roomId, roomPass, ytLink, streamUrl: ytLink } : t));
 
-    await assertTournamentHost(tournamentId).catch(() => {});
+    await assertTournamentHost(tournamentId);
     // Instant multi-channel broadcast (RTDB websocket + Firestore + root docs + notifications)
     await broadcastRoomCredentials(tournamentId, roomId, roomPass, ytLink, collectionName);
   }, [assertTournamentHost]);

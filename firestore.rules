@@ -60,7 +60,11 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow create: if isUser(userId);
       allow update: if (isUser(userId) &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['walletBalance', 'role', 'banned', 'isBanned', 'bonusBalance']))
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'balance', 'walletBalance', 'bonusBalance', 'reservedBalance',
+          'lockedMoney', 'orgWalletBalance', 'escrowBalance', 'role',
+          'banned', 'isBanned', 'orgStatus', 'isPowerOrganizer', 'isPowerOrg', 'orgTier'
+        ]))
         || isAdmin();
       allow delete: if isAdmin();
     }
@@ -99,9 +103,7 @@ service cloud.firestore {
       allow delete: if isHostOrAdmin(resource.data);
 
       match /credentials/{credentialId} {
-        allow read: if isHostOrAdmin(get(/databases/$(database)/documents/tournaments/$(tournamentId)).data) ||
-                       isAuthenticated();
-        allow write: if isHostOrAdmin(get(/databases/$(database)/documents/tournaments/$(tournamentId)).data);
+        allow read, write: if isHostOrAdmin(get(/databases/$(database)/documents/tournaments/$(tournamentId)).data);
       }
 
       match /groups/{groupId} {
@@ -123,9 +125,7 @@ service cloud.firestore {
       allow delete: if isHostOrAdmin(resource.data);
 
       match /credentials/{credentialId} {
-        allow read: if isHostOrAdmin(get(/databases/$(database)/documents/scrims/$(scrimId)).data) ||
-                       isAuthenticated();
-        allow write: if isHostOrAdmin(get(/databases/$(database)/documents/scrims/$(scrimId)).data);
+        allow read, write: if isHostOrAdmin(get(/databases/$(database)/documents/scrims/$(scrimId)).data);
       }
     }
 
@@ -231,14 +231,14 @@ service cloud.firestore {
         (resource.data.orgId != null && resource.data.orgId == request.auth.uid) ||
         isAdmin()
       );
-      allow create: if isAuthenticated();
-      allow update: if isAuthenticated() && (
-        resource.data.userId == request.auth.uid ||
-        (resource.data.hostUid != null && resource.data.hostUid == request.auth.uid) ||
-        (resource.data.orgId != null && resource.data.orgId == request.auth.uid) ||
-        isAdmin()
+      // Only admin or an authentic host releasing another player's slot can create
+      allow create: if isAuthenticated() && (
+        isAdmin() ||
+        (request.resource.data.hostUid == request.auth.uid &&
+         request.resource.data.userId != request.auth.uid &&
+         request.resource.data.amount > 0)
       );
-      allow delete: if isAdmin();
+      allow update, delete: if isAdmin();
     }
 
     // ===============================================================

@@ -97,20 +97,44 @@ export function isBRTournament(tournament: Tournament): boolean {
 // ─── Group Distribution Algorithm ──────────────────────────────
 
 /**
- * Distribute participants into groups as evenly as possible.
- * Difference between largest and smallest group never exceeds 1.
- * 
- * Example: 50 teams / 4 groups → [13, 13, 12, 12]
+ * Distribute participants into groups.
+ * For Battle Royale: strictly enforces maximum 12 teams per group/lobby.
+ * If fillToCap is true, fills groups to capacity (e.g. 25 teams with 12 per lobby -> [12, 12, 1]).
+ * If fillToCap is false, distributes evenly without any group exceeding maxPerGroup.
  */
-export function calculateGroupSizes(totalParticipants: number, numGroups: number): number[] {
-    if (numGroups <= 0) return [];
-    const base = Math.floor(totalParticipants / numGroups);
-    const remainder = totalParticipants % numGroups;
-    const sizes: number[] = [];
-    for (let i = 0; i < numGroups; i++) {
-        sizes.push(base + (i < remainder ? 1 : 0));
+export function calculateGroupSizes(
+    totalParticipants: number,
+    numGroups: number,
+    maxPerGroup: number = 12,
+    fillToCap: boolean = true
+): number[] {
+    if (totalParticipants <= 0) return [];
+    const effectiveMax = Math.max(1, Math.min(maxPerGroup || 12, 12));
+
+    if (fillToCap) {
+        // Sequential lobby filling up to capacity (e.g. 25 teams -> [12, 12, 1])
+        const sizes: number[] = [];
+        let remaining = totalParticipants;
+        while (remaining > 0) {
+            const take = Math.min(remaining, effectiveMax);
+            sizes.push(take);
+            remaining -= take;
+        }
+        return sizes;
     }
-    return sizes; // e.g. [13, 13, 12, 12]
+
+    // Even distribution: calculate minimum groups needed so no group exceeds effectiveMax
+    const minGroupsNeeded = Math.ceil(totalParticipants / effectiveMax);
+    const effectiveNumGroups = Math.max(numGroups, minGroupsNeeded);
+
+    const base = Math.floor(totalParticipants / effectiveNumGroups);
+    const remainder = totalParticipants % effectiveNumGroups;
+    const sizes: number[] = [];
+    for (let i = 0; i < effectiveNumGroups; i++) {
+        const sz = base + (i < remainder ? 1 : 0);
+        sizes.push(Math.min(sz, effectiveMax));
+    }
+    return sizes;
 }
 
 /**
@@ -171,6 +195,8 @@ export function generateGroups(params: {
     namingStyle?: GroupNamingStyle;
     roundNumber: number;
     maps?: string[];
+    isBR?: boolean;
+    fillToCap?: boolean;
 }): GroupGenerationResult {
     const {
         participants,
@@ -178,14 +204,25 @@ export function generateGroups(params: {
         distributionMethod = 'random',
         namingStyle = 'alpha',
         roundNumber,
+        isBR = true,
+        fillToCap = true,
     } = params;
 
     if (participants.length === 0) {
         return { groups: [], distributionMethod, totalAssigned: 0 };
     }
 
+    // Deduplicate participants by unique ID to prevent double-assignment
+    const seen = new Set<string>();
+    const uniqueParticipants = participants.filter(p => {
+        const id = p.teamId || p.userId;
+        if (!id || seen.has(id)) return false;
+        seen.add(id);
+        return true;
+    });
+
     // Convert participants to Team objects
-    const teams: Team[] = participants.map(p => {
+    const teams: Team[] = uniqueParticipants.map(p => {
         const t: Team = {
             id: p.teamId || p.userId,
             name: p.teamName || p.username,
@@ -198,22 +235,14 @@ export function generateGroups(params: {
     // Apply distribution method
     let orderedTeams: Team[];
     if (distributionMethod === 'seeded' || distributionMethod === 'balanced') {
-        // ponytail: seeded/balanced not fully implemented yet — use random with a note
-        // Mark as unavailable rather than pretending it works
         orderedTeams = fisherYatesShuffle(teams);
     } else {
-        // Random
         orderedTeams = fisherYatesShuffle(teams);
     }
 
-    // Strict Battle Royale limit: never allow more than 12 teams in one BR group
-    const isBR = (params as any).isBR ?? true;
-    const effectiveNumGroups = isBR
-        ? Math.max(numGroups, Math.ceil(orderedTeams.length / 12))
-        : numGroups;
-
-    // Calculate group sizes (even distribution, diff <= 1, max 12 for BR)
-    const sizes = calculateGroupSizes(orderedTeams.length, effectiveNumGroups);
+    // Strict Battle Royale limit: max 12 teams per group
+    const maxPerLobby = isBR ? Math.min(params.teamsPerGroup || 12, 12) : (params.teamsPerGroup || 16);
+    const sizes = calculateGroupSizes(orderedTeams.length, numGroups, maxPerLobby, fillToCap);
 
     // Build groups
     const groups = sizes.map((size, i) => {
@@ -221,7 +250,7 @@ export function generateGroups(params: {
         return {
             id: `group-r${roundNumber}-${Date.now()}-${i}`,
             name: generateGroupName(i, namingStyle),
-            teamLimit: isBR ? Math.min(params.teamsPerGroup || 12, 12) : (params.teamsPerGroup || size),
+            teamLimit: maxPerLobby,
             teams: groupTeams,
             matches: [],
             isPublic: true,
@@ -234,6 +263,59 @@ export function generateGroups(params: {
         groups,
         distributionMethod,
         totalAssigned: teams.length,
+    };
+}
+
+// ─── Clash Squad Validation & Generation ───────────────────────
+
+export interface ClashSquadValidationResult {
+    valid: boolean;
+    errors: string[];
+    team1Id?: string;
+    team2Id?: string;
+    winnerId?: string;
+}
+
+/**
+ * Validates Clash Squad match integrity:
+ * - Exactly 2 participating teams.
+ * - Winner must be one of the participating teams.
+ * - Prevents third team or invalid/foreign winner IDs.
+ */
+export function validateClashSquadMatch(match: {
+    team1Id?: string;
+    team2Id?: string;
+    teams?: Team[];
+    winnerId?: string;
+}): ClashSquadValidationResult {
+    const errors: string[] = [];
+    const team1 = match.team1Id || match.teams?.[0]?.id;
+    const team2 = match.team2Id || match.teams?.[1]?.id;
+
+    if (!team1 || !team2) {
+        errors.push('Clash Squad requires exactly 2 participating teams');
+    }
+
+    if (team1 && team2 && team1 === team2) {
+        errors.push('Clash Squad cannot have a team play against itself');
+    }
+
+    if (match.teams && match.teams.length > 2) {
+        errors.push(`Clash Squad lobby cannot have more than 2 teams (found ${match.teams.length})`);
+    }
+
+    if (match.winnerId) {
+        if (match.winnerId !== team1 && match.winnerId !== team2) {
+            errors.push(`Invalid winner: ID "${match.winnerId}" does not belong to participating teams`);
+        }
+    }
+
+    return {
+        valid: errors.length === 0,
+        errors,
+        team1Id: team1,
+        team2Id: team2,
+        winnerId: match.winnerId,
     };
 }
 

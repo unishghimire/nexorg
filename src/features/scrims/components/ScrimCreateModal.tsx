@@ -31,6 +31,7 @@ import { fetchRoomCredentials, broadcastRoomCredentials } from '../../../shared/
 import { announceNewScrim } from '../../../shared/services/DiscordService';
 import { awardOrgExp } from '../../../shared/services/orgLevelService';
 import { ORG_EXP_REWARDS } from '../../../shared/utils/utils';
+import { ScrimSlot, normalizeScrimSlots, countFilledScrimSlots } from '../../../shared/utils/scrimSlots';
 
 interface ScrimCreateModalProps {
   isOpen: boolean;

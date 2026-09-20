@@ -355,13 +355,17 @@ export async function releaseSlotWithRefund(
       orgTournamentsLockedBalance: increment(-refundAmount),
       orgPendingEarnings: increment(-refundAmount),
       updatedAt: serverTimestamp(),
-    }).catch(() => {});
+    }).catch((err) => {
+      console.warn('Could not decrement locked balance on host doc:', err);
+    });
   }
 
   // Remove participant documents
   for (const p of matchParts) {
     if (p.id) {
-      await deleteDoc(doc(db, 'participants', p.id)).catch(() => {});
+      await deleteDoc(doc(db, 'participants', p.id)).catch((err) => {
+        console.warn(`Failed to delete participant doc ${p.id}:`, err);
+      });
     }
   }
 

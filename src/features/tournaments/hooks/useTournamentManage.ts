@@ -740,27 +740,35 @@ export function useTournamentManage(
 
                 // Propagate winner if match is completed
                 if (currentMatch.status === 'completed') {
-                    const winnerId = currentMatch.score1 > currentMatch.score2 ? currentMatch.team1Id : currentMatch.team2Id;
-                    
-                    const parts = currentMatch.id.split('-');
-                    const round = parseInt(parts[1]);
-                    const position = parseInt(parts[2]);
-                    
-                    const nextRound = round + 1;
-                    const nextPosition = Math.floor(position / 2);
-                    const isFirstInNextMatch = position % 2 === 0;
-                    
-                    const nextMatchId = `bracket-${nextRound}-${nextPosition}`;
-                    const nextMatchIndex = updatedBracketMatches.findIndex(m => m.id === nextMatchId);
-                    
-                    if (nextMatchIndex !== -1) {
-                        const nextMatch = { ...updatedBracketMatches[nextMatchIndex] };
-                        if (isFirstInNextMatch) {
-                            nextMatch.team1Id = winnerId || 'TBD';
-                        } else {
-                            nextMatch.team2Id = winnerId || 'TBD';
+                    let winnerId: string | undefined;
+                    if (currentMatch.score1 > currentMatch.score2) {
+                        winnerId = currentMatch.team1Id;
+                    } else if (currentMatch.score2 > currentMatch.score1) {
+                        winnerId = currentMatch.team2Id;
+                    }
+
+                    if (winnerId) {
+                        currentMatch.winnerId = winnerId;
+                        const parts = currentMatch.id.split('-');
+                        const round = parseInt(parts[1]);
+                        const position = parseInt(parts[2]);
+                        
+                        const nextRound = round + 1;
+                        const nextPosition = Math.floor(position / 2);
+                        const isFirstInNextMatch = position % 2 === 0;
+                        
+                        const nextMatchId = `bracket-${nextRound}-${nextPosition}`;
+                        const nextMatchIndex = updatedBracketMatches.findIndex(m => m.id === nextMatchId);
+                        
+                        if (nextMatchIndex !== -1) {
+                            const nextMatch = { ...updatedBracketMatches[nextMatchIndex] };
+                            if (isFirstInNextMatch) {
+                                nextMatch.team1Id = winnerId;
+                            } else {
+                                nextMatch.team2Id = winnerId;
+                            }
+                            updatedBracketMatches[nextMatchIndex] = nextMatch;
                         }
-                        updatedBracketMatches[nextMatchIndex] = nextMatch;
                     }
                 }
 
@@ -774,12 +782,20 @@ export function useTournamentManage(
                             ...g,
                             matches: g.matches.map(m => {
                                 if (m.id === selectedMatch.match.id) {
+                                    let winnerId: string | undefined;
+                                    if (matchScore.score1 > matchScore.score2) {
+                                        winnerId = m.team1Id;
+                                    } else if (matchScore.score2 > matchScore.score1) {
+                                        winnerId = m.team2Id;
+                                    }
+
                                     return {
                                         ...m,
                                         score1: matchScore.score1,
                                         score2: matchScore.score2,
                                         status: matchScore.status,
-                                        map: matchScore.map
+                                        map: matchScore.map,
+                                        ...(winnerId ? { winnerId } : {}),
                                     };
                                 }
                                 return m;

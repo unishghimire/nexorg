@@ -25,7 +25,7 @@ import {
   writeBatch
 } from 'firebase/firestore';
 import { db, auth } from '../../shared/config/firebase';
-import { Tournament, TournamentGroup, Match, Team, TournamentEarning, UserProfile } from '../../shared/types/types';
+import { Tournament, TournamentGroup, Match, Team, TournamentEarning, UserProfile, TeamMatchResult } from '../../shared/types/types';
 import { cleanFirestoreData } from '../../shared/utils/utils';
 import { calculateTeamScore } from '../../shared/services/scoringEngine';
 
@@ -307,8 +307,10 @@ export async function updateScore(
   // Update or insert result in match
   if (!match.results) match.results = [];
   const existingIdx = match.results.findIndex((r: any) => r.teamId === teamId);
-  const resultEntry = {
+  const assignedTeam = group.teams?.find(t => t.id === teamId);
+  const resultEntry: TeamMatchResult = {
     teamId,
+    teamName: assignedTeam?.name || 'Unknown',
     placement: scoreData.placement,
     kills: scoreData.kills,
     placementPoints: calculated.placementPoints,

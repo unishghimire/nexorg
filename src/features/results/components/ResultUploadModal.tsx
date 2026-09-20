@@ -12,6 +12,7 @@ import { useAuth } from '../../../shared/context/AuthContext';
 import { executePrizeDistribution } from '../../../shared/services/prizeDistributionService';
 import { awardOrgEventCompletionExp } from '../../../shared/services/orgLevelService';
 import { cleanFirestoreData } from '../../../shared/utils/utils';
+import ManualResultManager from './ManualResultManager';
 
 interface ResultUploadModalProps {
     isOpen: boolean;

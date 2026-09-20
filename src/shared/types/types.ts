@@ -206,10 +206,13 @@ export interface MatchResultUpload {
 
 export interface TeamMatchResult {
     teamId: string;
-    teamName: string;
+    teamName?: string;
     placement: number;
     kills: number;
     totalPoints: number; // Calculated
+    placementPoints?: number;
+    killPoints?: number;
+    updatedAt?: string;
 }
 
 export interface Scrim {
@@ -265,8 +268,10 @@ export interface Tournament {
     groups?: TournamentGroup[];
     bracketMatches?: Match[];
     hostUid: string;
+    orgId?: string;
     hostName?: string;
     createdAt: Timestamp | any;
+    updatedAt?: Timestamp | any;
     roomId?: string;
     roomPass?: string;
     ytLink?: string;
