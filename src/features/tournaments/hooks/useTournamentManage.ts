@@ -56,7 +56,7 @@ export function useTournamentManage(
     const [tournament, setTournament] = useState<Tournament | null>(null);
     const [tournamentEarning, setTournamentEarning] = useState<TournamentEarning | null>(null);
     const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState<'overview' | 'groups' | 'matches' | 'brackets' | 'settings' | 'participants'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'groups' | 'matches' | 'brackets' | 'settings' | 'participants' | 'stages'>('overview');
 
     // Group State
     const [isCreateGroupModalOpen, setIsCreateGroupModalOpen] = useState(false);

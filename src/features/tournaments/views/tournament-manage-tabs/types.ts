@@ -50,4 +50,5 @@ export interface TournamentAdminTabProps {
     handleGenerateGroupMatches: (groupId: string, mode?: 'round-robin' | 'single') => void;
     getTeamName: (teamId: string) => string;
     showToast: (msg: string, type: string) => void;
+    setActiveTab?: (tab: any) => void;
 }

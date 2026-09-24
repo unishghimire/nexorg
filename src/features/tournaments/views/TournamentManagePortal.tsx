@@ -1,10 +1,10 @@
 import React, { useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useNotification } from '../../../shared/context/NotificationContext';
-import { Settings, Users, Calendar, Trophy, ArrowLeft, ShieldCheck, Download } from 'lucide-react';
+import { Settings, Users, Calendar, Trophy, ArrowLeft, ShieldCheck, Download, CheckCircle2 } from 'lucide-react';
 import { AnimatePresence } from 'motion/react';
 
-import { OverviewTab, GroupsTab, MatchesTab, BracketsTab, SettingsTab, ParticipantsTab } from './tournament-manage-tabs';
+import { OverviewTab, GroupsTab, MatchesTab, BracketsTab, SettingsTab, ParticipantsTab, StageValidationTab } from './tournament-manage-tabs';
 import { useTournamentManage } from '../hooks/useTournamentManage';
 import TabErrorBoundary from '../../../shared/components/TabErrorBoundary';
 
@@ -131,7 +131,8 @@ export default function TournamentManagePortal() {
         handleGenerateBracket,
         handleGenerateGroupMatches,
         getTeamName,
-        showToast
+        showToast,
+        setActiveTab
     };
 
     return (
@@ -198,6 +199,7 @@ export default function TournamentManagePortal() {
             <div className="flex overflow-x-auto gap-2 sm:gap-3 mb-6 sm:mb-8 pb-2 custom-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0">
                 {[
                     { id: 'overview', label: 'Overview', icon: Settings },
+                    { id: 'stages', label: 'Stage Validation', icon: CheckCircle2 },
                     { id: 'groups', label: 'Groups & Teams', icon: Users },
                     { id: 'matches', label: 'Match Schedule', icon: Calendar },
                     { id: 'brackets', label: 'Brackets', icon: Trophy },
@@ -221,6 +223,7 @@ export default function TournamentManagePortal() {
             <div className="bg-dark/50 rounded-2xl sm:rounded-[2rem] border border-gray-800 p-4 sm:p-6 lg:p-8">
                 <AnimatePresence mode="wait">
                     {activeTab === 'overview' && <TabErrorBoundary tabName="Overview Tab" resetKey={activeTab}><OverviewTab {...tabProps} /></TabErrorBoundary>}
+                    {activeTab === 'stages' && <TabErrorBoundary tabName="Stage Validation Tab" resetKey={activeTab}><StageValidationTab {...tabProps} /></TabErrorBoundary>}
                     {activeTab === 'groups' && <TabErrorBoundary tabName="Groups Tab" resetKey={activeTab}><GroupsTab {...tabProps} /></TabErrorBoundary>}
                     {activeTab === 'matches' && <TabErrorBoundary tabName="Matches Tab" resetKey={activeTab}><MatchesTab {...tabProps} /></TabErrorBoundary>}
                     {activeTab === 'brackets' && <TabErrorBoundary tabName="Brackets Tab" resetKey={activeTab}><BracketsTab {...tabProps} /></TabErrorBoundary>}

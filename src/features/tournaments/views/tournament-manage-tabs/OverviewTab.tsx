@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { RotateCcw, DollarSign, TrendingUp, TrendingDown, Play, Pause, Send, Lock, Award, Archive, Plus } from 'lucide-react';
+import { RotateCcw, DollarSign, TrendingUp, TrendingDown, Play, Pause, Send, Lock, Award, Archive, Plus, CheckCircle2 } from 'lucide-react';
 import { formatCurrency } from '../../../../shared/utils/utils';
 import { TournamentAdminTabProps } from './types';
 import { TournamentRoadmap } from '../../../tournaments/components/TournamentRoadmap';
@@ -55,6 +55,28 @@ export const OverviewTab: React.FC<TournamentAdminTabProps> = (props) => {
                              {/* Dynamic roadmap — derived from actual tournament state */}
                              <div className="rounded-xl bg-card border border-gray-800 p-4">
                                  <TournamentRoadmap tournament={tournament} />
+                             </div>
+
+                             {/* Stage Validation Callout Banner */}
+                             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-dark/60 border border-gray-800 rounded-2xl p-4">
+                                 <div className="flex items-center gap-3">
+                                     <div className="p-2 rounded-xl bg-brand-500/10 text-brand-400 border border-brand-500/20">
+                                         <CheckCircle2 className="w-5 h-5" />
+                                     </div>
+                                     <div>
+                                         <h4 className="text-xs font-black uppercase tracking-wider text-white">Stage Result Validation & Processing</h4>
+                                         <p className="text-[10px] text-gray-400">Deep validation verifies all groups, teams, and matches before allowing stage progression.</p>
+                                     </div>
+                                 </div>
+                                 {props.setActiveTab && (
+                                     <button
+                                         type="button"
+                                         onClick={() => props.setActiveTab?.('stages')}
+                                         className="px-4 py-2 bg-brand-500 hover:bg-brand-400 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-colors shrink-0 flex items-center justify-center gap-1.5"
+                                     >
+                                         Stage Console →
+                                     </button>
+                                 )}
                              </div>
 
                              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -206,21 +228,17 @@ export const OverviewTab: React.FC<TournamentAdminTabProps> = (props) => {
                                          >
                                              Generate All Matches
                                          </button>
-                                         {roundStatus.complete && roundStatus.totalMatches > 0 ? (
-                                             <button type="button" 
-                                                 onClick={() => setShowQualification(true)}
-                                                 className="flex-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 py-4 rounded-full text-[10px] font-black uppercase tracking-widest transition-colors"
-                                             >
-                                                 Review Qualification
-                                             </button>
-                                         ) : (
-                                             <button type="button" 
-                                                 onClick={handleAdvanceRound}
-                                                 className="flex-1 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/20 py-4 rounded-full text-[10px] font-black uppercase tracking-widest transition-colors"
-                                             >
-                                                 Advance Stage
-                                             </button>
-                                         )}
+                                         <button type="button" 
+                                             onClick={() => props.setActiveTab ? props.setActiveTab('stages') : (roundStatus.complete && roundStatus.totalMatches > 0 ? setShowQualification(true) : handleAdvanceRound())}
+                                             className={`flex-1 py-4 rounded-full text-[10px] font-black uppercase tracking-widest transition-colors flex items-center justify-center gap-1.5 ${
+                                                 roundStatus.complete && roundStatus.totalMatches > 0
+                                                     ? 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20'
+                                                     : 'bg-brand-500/10 hover:bg-brand-500/20 text-brand-400 border border-brand-500/20'
+                                             }`}
+                                         >
+                                             <CheckCircle2 className="w-3.5 h-3.5" />
+                                             {roundStatus.complete && roundStatus.totalMatches > 0 ? 'Validate & Advance Stage' : 'Validate Stage Results'}
+                                         </button>
                                      </div>
                                      {roundStatus.totalMatches > 0 && !roundStatus.complete && (
                                          <p className="text-[10px] text-gray-500 mt-2 text-center">
