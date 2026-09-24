@@ -2,6 +2,10 @@ import { auth, db } from '../config/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { Tournament, TournamentGroup } from '../types/types';
 import { formatCurrency, formatDate } from '../utils/utils';
+import { BASE_URL } from '../constants/constants';
+
+// Canonical public domain for player access: https://www.nexplayorg.app
+export const PUBLIC_APP_URL = BASE_URL || 'https://www.nexplayorg.app';
 
 export type DiscordCategory = 
   | 'announcement'
@@ -65,82 +69,180 @@ export function getCategoryForType(type: DiscordAnnouncementType): DiscordCatego
 }
 
 /**
- * Builds fallback Discord embed if proxy is unreachable.
+ * Builds resilient Discord embed for tournaments and scrims.
+ * Ensures canonical public domain (https://www.nexplayorg.app) is used with tournament/scrim ID.
  */
 function buildFallbackEmbed(type: DiscordAnnouncementType, data: Record<string, any>) {
   const isScrim = type.startsWith('scrim_');
   const title = data.title || (isScrim ? 'Practice Scrim' : 'Esports Tournament');
-  const appUrl = window.location.origin;
-  const link = isScrim
-    ? `${appUrl}/organizer/scrim/${data.tournamentId || ''}`
-    : `${appUrl}/tournaments/${data.tournamentId || ''}`;
+  const targetId = String(data.tournamentId || data.id || data.scrimId || '').trim();
+  const domain = PUBLIC_APP_URL.replace(/\/+$/, '');
+
+  const link = targetId
+    ? (isScrim ? `${domain}/scrims/${targetId}` : `${domain}/tournaments/${targetId}`)
+    : (isScrim ? `${domain}/scrims` : `${domain}/tournaments`);
+
+  const eventLabel = isScrim ? '🎯 Scrim ID' : '🏆 Tournament ID';
+  const idFields = targetId
+    ? [
+        { name: eventLabel, value: `\`${targetId}\``, inline: true },
+        { name: '🔗 Official Link', value: `[Open on NexPlay](${link})`, inline: true },
+      ]
+    : [{ name: '🔗 Official Link', value: `[Open on NexPlay](${link})`, inline: true }];
 
   switch (type) {
     case 'tournament_published':
       return {
         title: `🏆 New Tournament Announced: ${title}`,
+        url: link,
         description: `**Game:** ${data.game || 'Esports'}\n**Prize Pool:** ${data.prizePool || 'Rs. 0'}\n**Entry Fee:** ${data.entryFee || 'FREE'}\n**Start Time:** ${data.startTime || 'TBD'}\n\n[Register Now on NexPlay](${link})`,
         color: 0x6366f1,
-        footer: { text: 'NexPlay Esports • Official Tournament' },
+        fields: idFields,
+        image: data.bannerUrl ? { url: data.bannerUrl } : undefined,
+        footer: { text: targetId ? `NexPlay Esports • Tournament ID: ${targetId}` : 'NexPlay Esports • Official Tournament' },
         timestamp: new Date().toISOString(),
       };
+
     case 'scrim_published':
       return {
         title: `🔥 New Practice Scrim Opened: ${title}`,
+        url: link,
         description: `**Game:** ${data.game || 'Esports'}\n**Format:** ${data.teamType || 'Squad'}\n**Entry Fee:** ${data.entryFee || 'FREE'}\n**Slots:** ${data.slots || 12}\n\n[Book Your Slot Now](${link})`,
         color: 0x10b981,
-        footer: { text: 'NexPlay Scrims Hub • Instant Match Lobby' },
+        fields: idFields,
+        image: data.bannerUrl ? { url: data.bannerUrl } : undefined,
+        footer: { text: targetId ? `NexPlay Scrims Hub • Scrim ID: ${targetId}` : 'NexPlay Scrims Hub • Instant Match Lobby' },
         timestamp: new Date().toISOString(),
       };
+
+    case 'tournament_registration':
+    case 'scrim_registration':
+      return {
+        title: isScrim ? `🎯 Slot Booked — ${title}` : `📝 Team Registered — ${title}`,
+        url: link,
+        description: `**Participant:** **${data.teamName || 'Player/Team'}**\n${data.slotNumber ? `**Slot Assigned:** #${data.slotNumber}\n` : ''}**Current Registrations:** ${data.currentPlayers || 0}/${data.slots || 0}\n\n[View Event on NexPlay](${link})`,
+        color: 0x06b6d4,
+        fields: idFields,
+        footer: { text: targetId ? `NexPlay • ID: ${targetId}` : 'NexPlay Esports' },
+        timestamp: new Date().toISOString(),
+      };
+
+    case 'group_published':
+    case 'scrim_group':
+      return {
+        title: isScrim ? `📋 Practice Lobby Slots — ${title}` : `📋 Group Draw Published — ${title}`,
+        url: link,
+        description: isScrim
+          ? `Lobby slots have been refreshed for this practice scrim.\n\n[Open Scrim Lobby](${link})`
+          : `Tournament brackets & groups are officially confirmed!\n\n[View Full Bracket & Groups](${link})`,
+        color: 0x8b5cf6,
+        fields: idFields,
+        footer: { text: targetId ? `NexPlay • ID: ${targetId}` : 'NexPlay Esports' },
+        timestamp: new Date().toISOString(),
+      };
+
     case 'scrim_game_start':
     case 'game_start':
       return {
         title: `⚔️ Match Starting Now — ${title}`,
+        url: link,
         description: `**Map:** ${data.map || 'TBD'}\n**Room ID:** \`${data.roomId || 'Check app'}\`\n**Password:** \`${data.roomPass || 'Check app'}\`\n\n[Open Match Lobby](${link})`,
         color: 0xef4444,
-        footer: { text: isScrim ? 'NexPlay Scrims • Room Dispatch' : 'NexPlay Esports • Room Dispatch' },
+        fields: idFields,
+        footer: { text: isScrim ? (targetId ? `NexPlay Scrims • ID: ${targetId}` : 'NexPlay Scrims • Room Dispatch') : (targetId ? `NexPlay Esports • ID: ${targetId}` : 'NexPlay Esports • Room Dispatch') },
         timestamp: new Date().toISOString(),
       };
+
+    case 'game_time':
+    case 'scrim_game_time':
+      return {
+        title: `⏰ Match Starting Soon — ${title}`,
+        url: link,
+        description: `**Start Time:** ${data.startTime || 'Soon'}\n**Time Remaining:** ${data.timeLeft || 'Check app'}\n${data.map ? `**Map:** ${data.map}\n` : ''}\n[Prepare in Match Lobby](${link})`,
+        color: 0xeab308,
+        fields: idFields,
+        footer: { text: targetId ? `NexPlay • ID: ${targetId}` : 'NexPlay Esports' },
+        timestamp: new Date().toISOString(),
+      };
+
     case 'scrim_live':
     case 'tournament_live':
       return {
         title: `🔴 Match is LIVE — ${title}`,
+        url: link,
         description: `**Participants:** ${data.currentPlayers || 0}/${data.slots || 0}\n\n[Follow Live Scoring](${link})`,
         color: 0x22c55e,
-        footer: { text: 'NexPlay Live Broadcast' },
+        fields: idFields,
+        footer: { text: targetId ? `NexPlay • ID: ${targetId}` : 'NexPlay Live Broadcast' },
         timestamp: new Date().toISOString(),
       };
+
+    case 'tournament_result':
+    case 'scrim_result':
+      return {
+        title: `📊 Match Results Published — ${title}`,
+        url: link,
+        description: `${data.resultsSummary || 'Round scores have been calculated.'}\n\n[View Full Standings](${link})`,
+        color: 0x3b82f6,
+        fields: idFields,
+        footer: { text: targetId ? `NexPlay • ID: ${targetId}` : 'NexPlay Results' },
+        timestamp: new Date().toISOString(),
+      };
+
     case 'scrim_completed':
     case 'tournament_completed':
+    case 'tournament_champion':
+    case 'scrim_champion':
       return {
         title: `👑 Match Finalized — ${title}`,
-        description: `🏆 **Winner:** **${data.winner || 'Champion'}**\n💰 **Prize Distributed:** ${data.prizeAmount || data.prizePool || 'Rs. 0'}\n\nGGs to all participants!`,
+        url: link,
+        description: `🏆 **Winner:** **${data.winner || 'Champion'}**\n💰 **Prize Distributed:** ${data.prizeAmount || data.prizePool || 'Rs. 0'}\n\nGGs to all participants!\n\n[View Full Standings & Podium](${link})`,
         color: 0xf59e0b,
-        footer: { text: 'NexPlay Hall of Champions' },
+        fields: idFields,
+        image: data.bannerUrl ? { url: data.bannerUrl } : undefined,
+        footer: { text: targetId ? `NexPlay Hall of Champions • ID: ${targetId}` : 'NexPlay Hall of Champions' },
         timestamp: new Date().toISOString(),
       };
+
     default:
       return {
         title: `📢 ${title}`,
+        url: link,
         description: `Update broadcasted for **${title}**.\n\n[View Details](${link})`,
         color: 0x5865f2,
+        fields: idFields,
+        footer: { text: targetId ? `NexPlay • ID: ${targetId}` : 'NexPlay Platform' },
         timestamp: new Date().toISOString(),
       };
   }
 }
 
 /**
- * Sends a Discord announcement via the secure server-side proxy.
- * Falls back to direct webhook post if server-side proxy is unavailable.
+ * Sends a Discord announcement via the secure server-side proxy or direct webhook dispatch.
+ * Enforces canonical domain (https://www.nexplayorg.app) and supports both site and organizer webhooks.
  */
 async function sendAnnouncement(
     type: DiscordAnnouncementType,
     data: Record<string, any>,
     channel: 'tournaments' | 'scrims' = 'tournaments'
 ): Promise<{ success: boolean; message: string }> {
+    const isScrim = type.startsWith('scrim_') || channel === 'scrims';
+    const targetId = String(data.tournamentId || data.id || data.scrimId || '').trim();
+    const domain = PUBLIC_APP_URL.replace(/\/+$/, '');
+    const link = targetId
+        ? (isScrim ? `${domain}/scrims/${targetId}` : `${domain}/tournaments/${targetId}`)
+        : (isScrim ? `${domain}/scrims` : `${domain}/tournaments`);
+
+    const enrichedData = {
+        ...data,
+        tournamentId: targetId,
+        url: link,
+        link,
+    };
+
     const token = await auth.currentUser?.getIdToken().catch(() => null);
 
-    // 1. Try server-side proxy first
+    // 1. Try server-side proxy first (if available)
     if (token) {
         try {
             const res = await fetch('/api/discord/announce', {
@@ -149,7 +251,7 @@ async function sendAnnouncement(
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`,
                 },
-                body: JSON.stringify({ type, data, channel }),
+                body: JSON.stringify({ type, data: enrichedData, channel }),
             });
 
             if (res.ok) {
@@ -159,9 +261,13 @@ async function sendAnnouncement(
         } catch {}
     }
 
-    // 2. Resilient Client-Side Fallback directly to Discord webhook configured in Firestore
+    // 2. Resilient Direct Webhook Dispatch (Site Settings + Organizer Profile)
     try {
         const category = getCategoryForType(type);
+        const embed = buildFallbackEmbed(type, enrichedData);
+        const webhookUrls = new Set<string>();
+
+        // Check site settings for global webhooks
         const settingsSnap = await getDoc(doc(db, 'settings', 'site')).catch(() => null);
         if (settingsSnap && settingsSnap.exists()) {
             const sData = settingsSnap.data();
@@ -171,23 +277,53 @@ async function sendAnnouncement(
             }
 
             const channelWebhooks = sData?.discordWebhooks?.[channel];
-            let webhookUrl = channelWebhooks?.[category]?.trim() || channelWebhooks?.announcement?.trim();
-            if (!webhookUrl) {
-                webhookUrl = channel === 'tournaments'
+            let siteWebhook = channelWebhooks?.[category]?.trim() || channelWebhooks?.announcement?.trim();
+            if (!siteWebhook) {
+                siteWebhook = channel === 'tournaments'
                     ? sData?.discordWebhookTournaments?.trim()
                     : sData?.discordWebhookScrims?.trim();
             }
 
-            if (webhookUrl && (webhookUrl.startsWith('https://discord.com/api/webhooks/') || webhookUrl.startsWith('https://discordapp.com/api/webhooks/'))) {
-                const embed = buildFallbackEmbed(type, data);
-                const postRes = await fetch(webhookUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ embeds: [embed] }),
-                });
-                if (postRes.ok) {
-                    return { success: true, message: `Direct Discord broadcast dispatched to [${category}]` };
+            if (siteWebhook && (siteWebhook.startsWith('https://discord.com/api/webhooks/') || siteWebhook.startsWith('https://discordapp.com/api/webhooks/'))) {
+                webhookUrls.add(siteWebhook);
+            }
+        }
+
+        // Also check if current organizer has an individual Discord webhook in their profile
+        const userUid = auth.currentUser?.uid;
+        if (userUid) {
+            const userSnap = await getDoc(doc(db, 'users', userUid)).catch(() => null);
+            if (userSnap && userSnap.exists()) {
+                const uData = userSnap.data();
+                const orgWebhook = (uData?.discordWebhook || uData?.discord || '').trim();
+                if (orgWebhook.startsWith('https://discord.com/api/webhooks/') || orgWebhook.startsWith('https://discordapp.com/api/webhooks/')) {
+                    webhookUrls.add(orgWebhook);
                 }
+            }
+        }
+
+        if (webhookUrls.size > 0) {
+            let dispatchedCount = 0;
+            for (const url of webhookUrls) {
+                try {
+                    const postRes = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ embeds: [embed] }),
+                    });
+                    if (postRes.ok) {
+                        dispatchedCount++;
+                    }
+                } catch (postErr) {
+                    console.warn('[DiscordService] Failed to post to webhook:', url, postErr);
+                }
+            }
+
+            if (dispatchedCount > 0) {
+                return {
+                    success: true,
+                    message: `Discord broadcast dispatched to ${dispatchedCount} webhook(s) [${category}] (${link})`,
+                };
             }
         }
     } catch (fallbackErr) {
@@ -400,7 +536,38 @@ export const testSpecificDiscordWebhook = async (
     category: DiscordCategory,
     webhookUrl?: string
 ): Promise<{ success: boolean; message: string }> => {
-    const token = await auth.currentUser?.getIdToken();
+    // If a direct webhook URL is passed, test directly via client fetch
+    if (webhookUrl && (webhookUrl.startsWith('https://discord.com/api/webhooks/') || webhookUrl.startsWith('https://discordapp.com/api/webhooks/'))) {
+        try {
+            const domain = PUBLIC_APP_URL.replace(/\/+$/, '');
+            const testEmbed = {
+                title: `🧪 NexPlay Discord Webhook Diagnostic`,
+                url: domain,
+                description: `Webhook test broadcast successfully received for channel **#${channel}** (category: **${category}**).\n\nTournaments and Scrims are officially hosted on [nexplayorg.app](${domain}).`,
+                color: 0x6366f1,
+                fields: [
+                    { name: '🌐 Official Domain', value: `[${domain}](${domain})`, inline: true },
+                    { name: '📡 Channel', value: channel, inline: true },
+                    { name: '📂 Category', value: category, inline: true },
+                ],
+                footer: { text: 'NexPlay Esports Platform • Webhook Diagnostic' },
+                timestamp: new Date().toISOString(),
+            };
+            const postRes = await fetch(webhookUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ embeds: [testEmbed] }),
+            });
+            if (postRes.ok) {
+                return { success: true, message: `Direct test broadcast delivered to Discord [${category}]!` };
+            }
+            return { success: false, message: `Discord rejected webhook: HTTP ${postRes.status}` };
+        } catch (e: any) {
+            return { success: false, message: e.message || 'Direct webhook test failed' };
+        }
+    }
+
+    const token = await auth.currentUser?.getIdToken().catch(() => null);
     if (!token) return { success: false, message: 'Not authenticated.' };
 
     try {

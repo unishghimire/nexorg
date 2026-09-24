@@ -1170,6 +1170,26 @@ export default function ScrimDetailPage() {
               )}
               <button
                 type="button"
+                onClick={() => {
+                  const shareUrl = `https://www.nexplayorg.app/scrims/${id}`;
+                  if (navigator.share) {
+                    navigator.share({
+                      title: scrim.title || 'Practice Scrim',
+                      text: `Join ${scrim.title || 'this practice scrim'} on NexPlay!`,
+                      url: shareUrl,
+                    });
+                  } else {
+                    navigator.clipboard.writeText(shareUrl);
+                    showToast('Public scrim link copied to clipboard!', 'success');
+                  }
+                }}
+                className="px-3.5 py-2 rounded-xl bg-white/10 backdrop-blur-md hover:bg-white/20 text-white text-xs font-bold flex items-center gap-1.5 border border-white/10 shadow-lg transition-colors min-h-[38px]"
+                title="Share Scrim Link"
+              >
+                <Share2 className="w-3.5 h-3.5" /> Share
+              </button>
+              <button
+                type="button"
                 onClick={handleDeleteScrim}
                 className="px-3.5 py-2 rounded-xl bg-red-600/30 backdrop-blur-md hover:bg-red-600/50 text-red-300 hover:text-white border border-red-500/40 text-xs font-bold flex items-center gap-1.5 shadow-lg transition-colors min-h-[38px]"
                 title="Delete Scrim"

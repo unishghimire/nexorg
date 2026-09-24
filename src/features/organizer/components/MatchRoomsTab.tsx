@@ -150,6 +150,10 @@ export const MatchRoomsTab: React.FC<MatchRoomsTabProps> = ({
     const roomId = room.roomId || 'TBA';
     const roomPass = room.roomPass || 'TBA';
     const stream = room.streamUrl || room.ytLink;
+    const eventId = String(room.id || room.tournamentId || room.scrimId || '').trim();
+    const eventLink = eventId
+      ? (isScrim ? `https://www.nexplayorg.app/scrims/${eventId}` : `https://www.nexplayorg.app/tournaments/${eventId}`)
+      : (isScrim ? `https://www.nexplayorg.app/scrims` : `https://www.nexplayorg.app/tournaments`);
 
     let text = `🎮 [${typeLabel}] ${title}\n` +
       `━━━━━━━━━━━━━━━━━━━━\n` +
@@ -158,6 +162,10 @@ export const MatchRoomsTab: React.FC<MatchRoomsTabProps> = ({
 
     if (room.map) {
       text += `🗺️ Map: ${room.map}\n`;
+    }
+    if (eventId) {
+      text += `🆔 ${isScrim ? 'Scrim ID' : 'Tournament ID'}: ${eventId}\n`;
+      text += `🔗 Official Link: ${eventLink}\n`;
     }
     if (stream) {
       text += `📺 Live Stream: ${stream}\n`;

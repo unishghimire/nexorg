@@ -432,15 +432,20 @@ export default function TournamentDetails() {
     };
 
     const handleShare = () => {
+        const isScrim = tournament?.matchType === 'scrims' || (tournament as any)?.isScrim === true;
+        const shareUrl = isScrim
+            ? `https://www.nexplayorg.app/scrims/${id}`
+            : `https://www.nexplayorg.app/tournaments/${id}`;
+
         if (navigator.share) {
             navigator.share({
-                title: tournament.title,
-                text: `Join ${tournament.title} on our platform!`,
-                url: window.location.href,
+                title: tournament?.title || 'NexPlay Esports',
+                text: `Join ${tournament?.title || 'tournament'} on NexPlay!`,
+                url: shareUrl,
             });
         } else {
-            navigator.clipboard.writeText(window.location.href);
-            showToast("Link copied to clipboard!", "success");
+            navigator.clipboard.writeText(shareUrl);
+            showToast("Public link copied to clipboard!", "success");
         }
     };
 
