@@ -20,7 +20,7 @@ import {
 import { db, auth } from '../../../shared/config/firebase';
 import { useAuth } from '../../../shared/context/AuthContext';
 import { Tournament, Participant, Transaction } from '../../../shared/types/types';
-import { fetchRoomCredentials, broadcastRoomCredentials } from '../../../shared/services/roomCredentials';
+import { fetchRoomCredentials, broadcastRoomCredentials, saveDraftRoomCredentials } from '../../../shared/services/roomCredentials';
 import { NotificationService } from '../../../shared/services/NotificationService';
 import { commitFirestoreBatches } from '../../../shared/utils/firestoreBatches';
 import { toDateSafe, cleanFirestoreData } from '../../../shared/utils/utils';
@@ -751,6 +751,26 @@ export function useOrgData() {
     await broadcastRoomCredentials(tournamentId, roomId, roomPass, ytLink, collectionName);
   }, [assertTournamentHost]);
 
+  const saveLobbyDraft = useCallback(async (
+    tournamentId: string,
+    roomId: string,
+    roomPass: string,
+    ytLink: string,
+    collectionName: 'tournaments' | 'scrims' = 'tournaments'
+  ) => {
+    // 0ms Optimistic update
+    setHostedTournaments(prev => prev.map(t => t.id === tournamentId ? {
+      ...t,
+      draftRoomId: roomId,
+      draftRoomPass: roomPass,
+      draftStreamUrl: ytLink,
+      roomStatus: 'draft' as const,
+    } : t));
+
+    await assertTournamentHost(tournamentId);
+    await saveDraftRoomCredentials(tournamentId, roomId, roomPass, ytLink, collectionName);
+  }, [assertTournamentHost]);
+
   const updateParticipantStatus = useCallback(async (participantId: string, status: 'approved' | 'rejected', tournamentId: string) => {
     // 0ms Optimistic update
     setParticipants(prev => prev.map(p => p.id === participantId ? { ...p, status } : p));
@@ -1298,6 +1318,7 @@ export function useOrgData() {
     assertTournamentHost,
     assertScrimHost,
     broadcastLobby,
+    saveLobbyDraft,
     updateParticipantStatus,
     requestWithdrawal,
     broadcastAnnouncement,

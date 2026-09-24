@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import {
-    Plus, Trash2, Users, CheckCircle2, Key, Save,
+    Plus, Trash2, Users, CheckCircle2, Key, Save, Radio,
 } from 'lucide-react';
 import { TournamentAdminTabProps } from './types';
 import Modal from '../../../../shared/components/Modal';
@@ -15,7 +15,7 @@ export const GroupsTab: React.FC<TournamentAdminTabProps> = (props) => {
         setIsAddMatchModalOpen,
         handleAutoGenerateGroups, handleCreateGroup, handleDeleteGroup,
         handleAssignTeam, handleRemoveTeam, handleGenerateGroupMatches,
-        handleSetGroupRoom, } = props;
+        handleSetGroupRoom, handleSaveGroupRoomDraft, handlePublishGroupRoom } = props;
 
     // ponytail: compute available teams locally — moved from main file with the modal
     const groupedParticipants = participants.reduce((acc: any, p) => {
@@ -70,6 +70,8 @@ export const GroupsTab: React.FC<TournamentAdminTabProps> = (props) => {
                                             isBR={isBRTournament(tournament)}
                                             onDelete={handleDeleteGroup}
                                             onSetRoom={handleSetGroupRoom}
+                                            onSaveRoomDraft={handleSaveGroupRoomDraft}
+                                            onPublishRoom={handlePublishGroupRoom}
                                             onAddMatch={() => { setSelectedGroup(group); setIsAddMatchModalOpen(true); }}
                                             onManageTeams={() => { setSelectedGroup(group); setIsManageTeamsModalOpen(true); }}
                                             onGenerateMatches={(mode) => handleGenerateGroupMatches(group.id, mode)}
@@ -258,25 +260,44 @@ interface GroupCardProps {
     isBR?: boolean;
     onDelete: (groupId: string) => void;
     onSetRoom: (groupId: string, field: 'roomId' | 'roomPass', value: string) => void;
+    onSaveRoomDraft?: (groupId: string, roomId: string, roomPass: string) => void;
+    onPublishRoom?: (groupId: string, roomId: string, roomPass: string) => void;
     onAddMatch: () => void;
     onManageTeams: () => void;
     onGenerateMatches: (mode: 'round-robin' | 'single') => void;
 }
 
-function GroupCard({ group, isBR, onDelete, onSetRoom, onAddMatch, onManageTeams, onGenerateMatches }: GroupCardProps) {
+function GroupCard({ group, isBR, onDelete, onSetRoom, onSaveRoomDraft, onPublishRoom, onAddMatch, onManageTeams, onGenerateMatches }: GroupCardProps) {
     const [showRoom, setShowRoom] = useState(false);
-    const [roomId, setRoomId] = useState(group.roomId || '');
-    const [roomPass, setRoomPass] = useState(group.roomPass || '');
+    const [roomId, setRoomId] = useState(group.draftRoomId || group.roomId || '');
+    const [roomPass, setRoomPass] = useState(group.draftRoomPass || group.roomPass || '');
 
     // Sync local state when group updates from Firestore
     React.useEffect(() => {
-        setRoomId(group.roomId || '');
-        setRoomPass(group.roomPass || '');
-    }, [group.roomId, group.roomPass]);
+        setRoomId(group.draftRoomId || group.roomId || '');
+        setRoomPass(group.draftRoomPass || group.roomPass || '');
+    }, [group.roomId, group.roomPass, group.draftRoomId, group.draftRoomPass]);
 
-    const saveRoom = () => {
-        onSetRoom(group.id, 'roomId', roomId);
-        onSetRoom(group.id, 'roomPass', roomPass);
+    const isLive = Boolean(group.roomStatus === 'published' || (group.roomId && group.roomStatus !== 'draft'));
+    const isDraft = Boolean(group.roomStatus === 'draft' || group.draftRoomId);
+
+    const handleSaveDraft = () => {
+        if (onSaveRoomDraft) {
+            onSaveRoomDraft(group.id, roomId, roomPass);
+        } else {
+            onSetRoom(group.id, 'roomId', roomId);
+            onSetRoom(group.id, 'roomPass', roomPass);
+        }
+        setShowRoom(false);
+    };
+
+    const handlePublish = () => {
+        if (onPublishRoom) {
+            onPublishRoom(group.id, roomId, roomPass);
+        } else {
+            onSetRoom(group.id, 'roomId', roomId);
+            onSetRoom(group.id, 'roomPass', roomPass);
+        }
         setShowRoom(false);
     };
 
@@ -320,9 +341,17 @@ function GroupCard({ group, isBR, onDelete, onSetRoom, onAddMatch, onManageTeams
                         <span className="text-gray-500 flex items-center gap-1">
                             <Key className="w-3 h-3 text-brand-500" /> Room
                         </span>
-                        <span className={group.roomId ? 'text-green-500' : 'text-gray-600'}>
-                            {group.roomId ? 'SET ✓' : 'NOT SET'}
-                        </span>
+                        {isLive ? (
+                            <span className="text-emerald-400 flex items-center gap-1 font-black">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> LIVE
+                            </span>
+                        ) : isDraft ? (
+                            <span className="text-amber-400 flex items-center gap-1 font-black">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400" /> DRAFT
+                            </span>
+                        ) : (
+                            <span className="text-gray-600 font-bold">NOT SET</span>
+                        )}
                     </button>
 
                     {showRoom && (
@@ -341,12 +370,24 @@ function GroupCard({ group, isBR, onDelete, onSetRoom, onAddMatch, onManageTeams
                                 placeholder="Password"
                                 className="w-full bg-black border border-gray-800 text-white rounded-lg p-2 text-xs font-mono focus:border-brand-500 focus-visible:outline-none"
                             />
-                            <button
-                                onClick={saveRoom}
-                                className="w-full bg-brand-600 hover:bg-brand-500 text-white py-2 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5 transition"
-                            >
-                                <Save className="w-3 h-3" /> Save Room
-                            </button>
+                            <div className="grid grid-cols-2 gap-1.5 pt-1">
+                                <button
+                                    type="button"
+                                    onClick={handleSaveDraft}
+                                    className="bg-surface hover:bg-card border border-gray-700 text-gray-300 hover:text-white py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center justify-center gap-1 transition"
+                                    title="Save credentials privately without alerting players"
+                                >
+                                    <Save className="w-3 h-3 text-amber-400" /> Save Draft
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handlePublish}
+                                    className="bg-brand-600 hover:bg-brand-500 text-white py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center justify-center gap-1 transition shadow-sm"
+                                    title="Publish live to players in this group"
+                                >
+                                    <Radio className="w-3 h-3" /> Publish Live
+                                </button>
+                            </div>
                         </div>
                     )}
                 </div>

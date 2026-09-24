@@ -7,7 +7,14 @@ export interface RoomCredentials {
     roomId?: string;
     roomPass?: string;
     streamUrl?: string;
-    updatedAt?: number;
+    draftRoomId?: string;
+    draftRoomPass?: string;
+    draftStreamUrl?: string;
+    roomStatus?: 'draft' | 'published';
+    status?: 'draft' | 'published';
+    savedAt?: number | any;
+    publishedAt?: number | any;
+    updatedAt?: number | any;
 }
 
 // In-memory cache for sub-millisecond retrieval
@@ -38,8 +45,13 @@ export async function fetchRoomCredentials(
             if (rtdbSnap.exists()) {
                 const data = rtdbSnap.val() as RoomCredentials;
                 if (data && (data.roomId || data.roomPass)) {
-                    credentialsCache.set(cacheKey, data);
-                    return data;
+                    const creds: RoomCredentials = {
+                        ...data,
+                        roomStatus: data.roomStatus || 'published',
+                        status: data.status || 'published',
+                    };
+                    credentialsCache.set(cacheKey, creds);
+                    return creds;
                 }
             }
         } catch {
@@ -57,10 +69,24 @@ export async function fetchRoomCredentials(
             try {
                 const credSnap = await getDoc(doc(db, col, id, 'credentials', credId));
                 if (credSnap.exists()) {
-                    const data = credSnap.data() as RoomCredentials;
-                    if (data && (data.roomId || data.roomPass)) {
-                        credentialsCache.set(cacheKey, data);
-                        return data;
+                    const data = credSnap.data() as any;
+                    if (data && (data.roomId || data.roomPass || data.draftRoomId || data.draftRoomPass)) {
+                        const status = data.roomStatus || (data.roomId ? 'published' : data.draftRoomId ? 'draft' : 'none');
+                        const creds: RoomCredentials = {
+                            roomId: data.roomId || '',
+                            roomPass: data.roomPass || '',
+                            streamUrl: data.streamUrl || '',
+                            draftRoomId: data.draftRoomId || data.roomId || '',
+                            draftRoomPass: data.draftRoomPass || data.roomPass || '',
+                            draftStreamUrl: data.draftStreamUrl || data.streamUrl || '',
+                            roomStatus: status,
+                            status: status,
+                            savedAt: data.savedAt,
+                            publishedAt: data.publishedAt,
+                            updatedAt: data.updatedAt,
+                        };
+                        credentialsCache.set(cacheKey, creds);
+                        return creds;
                     }
                 }
             } catch {}
@@ -71,12 +97,21 @@ export async function fetchRoomCredentials(
             try {
                 const docSnap = await getDoc(doc(db, col, id));
                 if (docSnap.exists()) {
-                    const data = docSnap.data();
-                    if (data && (data.roomId || data.roomPass)) {
+                    const data = docSnap.data() as any;
+                    if (data && (data.roomId || data.roomPass || data.draftRoomId || data.draftRoomPass)) {
+                        const status = data.roomStatus || (data.roomId ? 'published' : data.draftRoomId ? 'draft' : 'none');
                         const creds: RoomCredentials = {
-                            roomId: data.roomId,
-                            roomPass: data.roomPass,
+                            roomId: data.roomId || '',
+                            roomPass: data.roomPass || '',
                             streamUrl: data.ytLink || data.streamUrl || '',
+                            draftRoomId: data.draftRoomId || data.roomId || '',
+                            draftRoomPass: data.draftRoomPass || data.roomPass || '',
+                            draftStreamUrl: data.draftStreamUrl || data.ytLink || data.streamUrl || '',
+                            roomStatus: status,
+                            status: status,
+                            savedAt: data.roomDraftSavedAt || data.savedAt,
+                            publishedAt: data.roomPublishedAt || data.publishedAt,
+                            updatedAt: data.updatedAt,
                         };
                         credentialsCache.set(cacheKey, creds);
                         return creds;
@@ -124,7 +159,10 @@ export function subscribeRoomCredentials(
 
     // 1. Initial cached return
     if (credentialsCache.has(cacheKey)) {
-        callback(credentialsCache.get(cacheKey)!);
+        const cached = credentialsCache.get(cacheKey)!;
+        if (cached.roomId || cached.roomPass) {
+            callback(cached);
+        }
     }
 
     // 2. Realtime Database WebSocket listener (sub-30ms transfer)
@@ -158,6 +196,7 @@ export function subscribeRoomCredentials(
                         roomId: data.roomId,
                         roomPass: data.roomPass,
                         streamUrl: data.ytLink || data.streamUrl,
+                        roomStatus: data.roomStatus || 'published',
                     });
                 }
             }
@@ -176,6 +215,63 @@ export function subscribeRoomCredentials(
 }
 
 /**
+ * Saves room credentials privately as a draft in Firestore without broadcasting to RTDB,
+ * without sending player notifications, and without revealing them on the public player portal.
+ */
+export async function saveDraftRoomCredentials(
+    id: string,
+    roomId: string,
+    roomPass: string,
+    streamUrl?: string,
+    collectionName: 'tournaments' | 'scrims' = 'tournaments',
+    groupId?: string,
+): Promise<void> {
+    const credId = groupId ? `group_${groupId}` : 'main';
+    const draftData: RoomCredentials = {
+        draftRoomId: roomId,
+        draftRoomPass: roomPass,
+        draftStreamUrl: streamUrl || '',
+        roomStatus: 'draft',
+        status: 'draft',
+        savedAt: Date.now(),
+        updatedAt: Date.now(),
+    };
+
+    // Update in-memory cache
+    const existing = credentialsCache.get(`${collectionName}_${id}_${credId}`) || {};
+    credentialsCache.set(`${collectionName}_${id}_${credId}`, {
+        ...existing,
+        ...draftData,
+    });
+
+    const rootPayload = {
+        draftRoomId: roomId,
+        draftRoomPass: roomPass,
+        draftStreamUrl: streamUrl || '',
+        roomStatus: 'draft',
+        roomDraftSavedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+    };
+
+    const promises: Promise<any>[] = [
+        // 1. Save to protected subcollection
+        setDoc(doc(db, collectionName, id, 'credentials', credId), {
+            draftRoomId: roomId,
+            draftRoomPass: roomPass,
+            draftStreamUrl: streamUrl || '',
+            roomStatus: 'draft',
+            savedAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+        }, { merge: true }).catch(() => {}),
+
+        // 2. Save draft indicators to root doc
+        setDoc(doc(db, collectionName, id), rootPayload, { merge: true }).catch(() => {}),
+    ];
+
+    await Promise.all(promises);
+}
+
+/**
  * Broadcasts room credentials atomically to RTDB, Firestore subcollections, root docs, and dispatches in-app notifications.
  * Strictly operates on the target collection (tournaments vs scrims) without cross-collection pollution.
  */
@@ -185,31 +281,56 @@ export async function broadcastRoomCredentials(
     roomPass: string,
     streamUrl?: string,
     collectionName: 'tournaments' | 'scrims' = 'tournaments',
+    groupId?: string,
 ): Promise<void> {
+    const credId = groupId ? `group_${groupId}` : 'main';
     const creds: RoomCredentials = {
         roomId,
         roomPass,
         streamUrl: streamUrl || '',
+        draftRoomId: roomId,
+        draftRoomPass: roomPass,
+        draftStreamUrl: streamUrl || '',
+        roomStatus: 'published',
+        status: 'published',
+        publishedAt: Date.now(),
         updatedAt: Date.now(),
     };
 
     // Update memory cache instantly
-    credentialsCache.set(`${collectionName}_${id}_main`, creds);
+    credentialsCache.set(`${collectionName}_${id}_${credId}`, creds);
 
     const docPayload = {
         roomId,
         roomPass,
         ytLink: streamUrl || '',
         streamUrl: streamUrl || '',
+        draftRoomId: roomId,
+        draftRoomPass: roomPass,
+        draftStreamUrl: streamUrl || '',
+        roomStatus: 'published',
+        roomPublishedAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
     };
 
+    const rtdbPath = groupId ? `rooms/${id}/group_${groupId}` : `rooms/${id}/credentials`;
+
     const promises: Promise<any>[] = [
         // 1. RTDB instant websocket push
-        rtdbSet(rtdbRef(rtdb, `rooms/${id}/credentials`), creds).catch(() => {}),
+        rtdbSet(rtdbRef(rtdb, rtdbPath), creds).catch(() => {}),
 
         // 2. Firestore subcollections - strictly the designated collection
-        setDoc(doc(db, collectionName, id, 'credentials', 'main'), { roomId, roomPass, streamUrl: streamUrl || '' }, { merge: true }).catch(() => {}),
+        setDoc(doc(db, collectionName, id, 'credentials', credId), {
+            roomId,
+            roomPass,
+            streamUrl: streamUrl || '',
+            draftRoomId: roomId,
+            draftRoomPass: roomPass,
+            draftStreamUrl: streamUrl || '',
+            roomStatus: 'published',
+            publishedAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+        }, { merge: true }).catch(() => {}),
 
         // 3. Root doc for stream url / room preview - strictly the designated collection
         setDoc(doc(db, collectionName, id), docPayload, { merge: true }).catch(() => {}),
@@ -228,4 +349,35 @@ export async function broadcastRoomCredentials(
             targetLink
         ).catch(() => {});
     } catch {}
+}
+
+/**
+ * Retracts / unpublishes room credentials back to draft mode, removing RTDB entry and clearing active live credentials.
+ */
+export async function unpublishRoomCredentials(
+    id: string,
+    collectionName: 'tournaments' | 'scrims' = 'tournaments',
+    groupId?: string,
+): Promise<void> {
+    const credId = groupId ? `group_${groupId}` : 'main';
+    const rtdbPath = groupId ? `rooms/${id}/group_${groupId}` : `rooms/${id}/credentials`;
+
+    const promises: Promise<any>[] = [
+        rtdbSet(rtdbRef(rtdb, rtdbPath), null).catch(() => {}),
+        setDoc(doc(db, collectionName, id, 'credentials', credId), {
+            roomId: '',
+            roomPass: '',
+            roomStatus: 'draft',
+            updatedAt: serverTimestamp(),
+        }, { merge: true }).catch(() => {}),
+        setDoc(doc(db, collectionName, id), {
+            roomId: '',
+            roomPass: '',
+            roomStatus: 'draft',
+            updatedAt: serverTimestamp(),
+        }, { merge: true }).catch(() => {}),
+    ];
+
+    credentialsCache.delete(`${collectionName}_${id}_${credId}`);
+    await Promise.all(promises);
 }

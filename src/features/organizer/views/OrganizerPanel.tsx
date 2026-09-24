@@ -91,6 +91,9 @@ const OrganizerPanel: React.FC = () => {
   const [roomId, setRoomId] = useState('');
   const [roomPass, setRoomPass] = useState('');
   const [streamUrl, setStreamUrl] = useState('');
+  const [roomStatus, setRoomStatus] = useState<'none' | 'draft' | 'published'>('none');
+  const [isSavingRoomDraft, setIsSavingRoomDraft] = useState(false);
+  const [isBroadcastingRoom, setIsBroadcastingRoom] = useState(false);
 
   // Tournament & Scrim create modals
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -243,24 +246,55 @@ const OrganizerPanel: React.FC = () => {
     const targetId = target.id || target.tournamentId;
     const isScrim = target.isScrim === true || target.matchType === 'scrims' || target.type === 'scrim';
     const credentials = await fetchRoomCredentials(targetId, undefined, isScrim ? 'scrims' : 'tournaments');
-    setRoomId(credentials?.roomId || target?.roomId || '');
-    setRoomPass(credentials?.roomPass || target?.roomPass || '');
-    setStreamUrl(target?.ytLink || target?.streamUrl || credentials?.streamUrl || '');
+    const status = (credentials?.roomStatus || target?.roomStatus || (credentials?.roomId || target?.roomId ? 'published' : (credentials?.draftRoomId || target?.draftRoomId ? 'draft' : 'none'))) as 'none' | 'draft' | 'published';
+    setRoomStatus(status);
+    setRoomId(credentials?.draftRoomId || credentials?.roomId || target?.draftRoomId || target?.roomId || '');
+    setRoomPass(credentials?.draftRoomPass || credentials?.roomPass || target?.draftRoomPass || target?.roomPass || '');
+    setStreamUrl(credentials?.draftStreamUrl || credentials?.streamUrl || target?.draftStreamUrl || target?.ytLink || target?.streamUrl || '');
     setActiveOverlay('ROOM_DISPATCH');
   }, []);
 
-  const handleBroadcastRoom = useCallback(async () => {
+  const handleSaveDraftRoom = useCallback(async () => {
     if (!roomDispatchTarget) return;
+    if (!roomId.trim() && !roomPass.trim()) {
+      showToast('Please enter a Room ID or Password to save draft', 'warning');
+      return;
+    }
+    setIsSavingRoomDraft(true);
     try {
       const targetId = roomDispatchTarget.id || roomDispatchTarget.tournamentId;
       const isScrim = roomDispatchTarget.isScrim === true || roomDispatchTarget.matchType === 'scrims' || roomDispatchTarget.type === 'scrim';
-      await org.broadcastLobby(targetId, roomId, roomPass, streamUrl, isScrim ? 'scrims' : 'tournaments');
-      showToast('Room credentials broadcasted to all players', 'success');
+      await org.saveLobbyDraft(targetId, roomId.trim(), roomPass.trim(), streamUrl.trim(), isScrim ? 'scrims' : 'tournaments');
+      setRoomStatus('draft');
+      showToast('Room credentials saved as draft (hidden from players)', 'success');
+      setActiveOverlay(null);
+      setRoomDispatchTarget(null);
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to save room draft', 'error');
+    } finally {
+      setIsSavingRoomDraft(false);
+    }
+  }, [roomDispatchTarget, roomId, roomPass, streamUrl, org, showToast]);
+
+  const handleBroadcastRoom = useCallback(async () => {
+    if (!roomDispatchTarget) return;
+    if (!roomId.trim() || !roomPass.trim()) {
+      showToast('Please enter both Room ID and Room Password to publish', 'warning');
+      return;
+    }
+    setIsBroadcastingRoom(true);
+    try {
+      const targetId = roomDispatchTarget.id || roomDispatchTarget.tournamentId;
+      const isScrim = roomDispatchTarget.isScrim === true || roomDispatchTarget.matchType === 'scrims' || roomDispatchTarget.type === 'scrim';
+      await org.broadcastLobby(targetId, roomId.trim(), roomPass.trim(), streamUrl.trim(), isScrim ? 'scrims' : 'tournaments');
+      setRoomStatus('published');
+      showToast('Room credentials published live to all players', 'success');
+      setActiveOverlay(null);
+      setRoomDispatchTarget(null);
     } catch (err: any) {
       showToast(err?.message || 'Failed to broadcast room details', 'error');
     } finally {
-      setActiveOverlay(null);
-      setRoomDispatchTarget(null);
+      setIsBroadcastingRoom(false);
     }
   }, [roomDispatchTarget, roomId, roomPass, streamUrl, org, showToast]);
 
@@ -740,7 +774,11 @@ const OrganizerPanel: React.FC = () => {
         setRoomPass={setRoomPass}
         streamUrl={streamUrl}
         setStreamUrl={setStreamUrl}
+        roomStatus={roomStatus}
+        onSaveDraftRoom={handleSaveDraftRoom}
         onBroadcastRoom={handleBroadcastRoom}
+        isSavingDraftRoom={isSavingRoomDraft}
+        isBroadcastingRoom={isBroadcastingRoom}
         disputeId={disputeTarget ?? undefined}
         dispute={org.disputes.find(d => d.id === disputeTarget)}
         onResolveDispute={handleResolveDispute}

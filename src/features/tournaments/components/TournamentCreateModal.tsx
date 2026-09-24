@@ -33,7 +33,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import PrizeDistributionInput from './PrizeDistributionInput';
 import { formatCurrency, formatGameModeLabel, formatGameName, toDateSafe, cleanFirestoreData } from '../../../shared/utils/utils';
 import { commitFirestoreBatches } from '../../../shared/utils/firestoreBatches';
-import { fetchRoomCredentials, broadcastRoomCredentials } from '../../../shared/services/roomCredentials';
+import { fetchRoomCredentials, broadcastRoomCredentials, saveDraftRoomCredentials } from '../../../shared/services/roomCredentials';
 import { awardOrgExp } from '../../../shared/services/orgLevelService';
 import { ORG_EXP_REWARDS } from '../../../shared/utils/utils';
 
@@ -295,7 +295,11 @@ const TournamentCreateModal: React.FC<TournamentCreateModalProps> = ({ isOpen, o
       if (editTournament) {
         await setDoc(doc(db, 'tournaments', editTournament.id), cleanedTournamentData, { merge: true });
         if (roomId || roomPass) {
-          await broadcastRoomCredentials(editTournament.id, roomId, roomPass, formData.bannerUrl, 'tournaments');
+          if ((editTournament as any).roomStatus === 'published') {
+            await broadcastRoomCredentials(editTournament.id, roomId, roomPass, formData.bannerUrl, 'tournaments');
+          } else {
+            await saveDraftRoomCredentials(editTournament.id, roomId, roomPass, formData.bannerUrl, 'tournaments');
+          }
         }
         showToast('Tournament updated successfully!', 'success');
       } else {

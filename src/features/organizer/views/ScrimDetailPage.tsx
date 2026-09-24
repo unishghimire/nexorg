@@ -4,7 +4,7 @@ import { doc, getDoc, onSnapshot, setDoc, updateDoc, deleteDoc, collection, quer
 import { db, auth } from '../../../shared/config/firebase';
 import { useAuth } from '../../../shared/context/AuthContext';
 import { useNotification } from '../../../shared/context/NotificationContext';
-import { fetchRoomCredentials, broadcastRoomCredentials } from '../../../shared/services/roomCredentials';
+import { fetchRoomCredentials, broadcastRoomCredentials, saveDraftRoomCredentials } from '../../../shared/services/roomCredentials';
 import { countFilledScrimSlots, normalizeScrimSlots, getScrimSlotCount, createResetScrimSlots, getSlotCount } from '../../../shared/utils/scrimSlots';
 import { fetchDedicatedTeams, resolveSlotTeam, DedicatedTeamsLookup } from '../../../shared/utils/teamUtils';
 import { releaseSlotWithRefund } from '../../../shared/services/slotRefundService';
@@ -55,6 +55,9 @@ export default function ScrimDetailPage() {
   const [roomId, setRoomId] = useState('');
   const [roomPass, setRoomPass] = useState('');
   const [streamUrl, setStreamUrl] = useState('');
+  const [roomStatus, setRoomStatus] = useState<'none' | 'draft' | 'published'>('none');
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [isBroadcasting, setIsBroadcasting] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
 
   // Multi-tier winners modal state
@@ -114,12 +117,14 @@ export default function ScrimDetailPage() {
         setScrim(data);
         setScrimCollection('scrims');
         fetchRoomCredentials(id, undefined, 'scrims').then(credentials => {
-          setRoomId(credentials?.roomId || data.roomId || '');
-          setRoomPass(credentials?.roomPass || data.roomPass || '');
+          const effectiveStatus = (credentials?.roomStatus || data.roomStatus || (credentials?.roomId || data.roomId ? 'published' : (credentials?.draftRoomId || data.draftRoomId ? 'draft' : 'none'))) as 'none' | 'draft' | 'published';
+          setRoomStatus(effectiveStatus);
+          setRoomId(credentials?.draftRoomId || credentials?.roomId || data.draftRoomId || data.roomId || '');
+          setRoomPass(credentials?.draftRoomPass || credentials?.roomPass || data.draftRoomPass || data.roomPass || '');
+          setStreamUrl(credentials?.draftStreamUrl || credentials?.streamUrl || data.draftStreamUrl || data.ytLink || data.streamUrl || '');
         }).catch(e => {
           console.warn('Room credentials fetch warning:', e);
         });
-        setStreamUrl(data.ytLink || data.streamUrl || '');
         setLoading(false);
       } else {
         // Fallback: subscribe to 'tournaments' collection for legacy records
@@ -148,12 +153,14 @@ export default function ScrimDetailPage() {
               setScrim(data);
               setScrimCollection('tournaments');
               fetchRoomCredentials(id, undefined, 'tournaments').then(credentials => {
-                setRoomId(credentials?.roomId || data.roomId || '');
-                setRoomPass(credentials?.roomPass || data.roomPass || '');
+                const effectiveStatus = (credentials?.roomStatus || data.roomStatus || (credentials?.roomId || data.roomId ? 'published' : (credentials?.draftRoomId || data.draftRoomId ? 'draft' : 'none'))) as 'none' | 'draft' | 'published';
+                setRoomStatus(effectiveStatus);
+                setRoomId(credentials?.draftRoomId || credentials?.roomId || data.draftRoomId || data.roomId || '');
+                setRoomPass(credentials?.draftRoomPass || credentials?.roomPass || data.draftRoomPass || data.roomPass || '');
+                setStreamUrl(credentials?.draftStreamUrl || credentials?.streamUrl || data.draftStreamUrl || data.ytLink || data.streamUrl || '');
               }).catch(e => {
                 console.warn('Room credentials fetch warning:', e);
               });
-              setStreamUrl(data.ytLink || data.streamUrl || '');
               setLoading(false);
             } else {
               setScrim(null);
@@ -546,27 +553,69 @@ export default function ScrimDetailPage() {
     }
   }, [scrim, id, handleReleaseSlot, showToast]);
 
+  const handleSaveDraft = useCallback(async () => {
+    if (!id || !scrim) return;
+    if (!roomId.trim() && !roomPass.trim()) {
+      showToast('Please enter a Room ID or Room Password to save draft', 'warning');
+      return;
+    }
+    setIsSavingDraft(true);
+    try {
+      await saveDraftRoomCredentials(id, roomId.trim(), roomPass.trim(), streamUrl.trim(), scrimCollection);
+      setRoomStatus('draft');
+      setScrim((prev: any) => prev ? {
+        ...prev,
+        draftRoomId: roomId.trim(),
+        draftRoomPass: roomPass.trim(),
+        draftStreamUrl: streamUrl.trim(),
+        roomStatus: 'draft',
+      } : prev);
+      showToast('Room credentials saved as draft (hidden from players)', 'success');
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to save room draft', 'error');
+    } finally {
+      setIsSavingDraft(false);
+    }
+  }, [id, scrim, roomId, roomPass, streamUrl, scrimCollection, showToast]);
+
   const handleBroadcast = useCallback(async () => {
     if (!id || !scrim) return;
+    if (!roomId.trim() || !roomPass.trim()) {
+      showToast('Please enter both Room ID and Room Password before publishing', 'warning');
+      return;
+    }
     const readiness = checkFinancialReadiness(scrim);
     if (readiness.isLocked) {
       showToast(`Cannot broadcast room credentials: Match is locked until ${readiness.slotsRemaining} more registered slots fulfill the prize pool (Rs. ${readiness.shortfall.toLocaleString()} needed).`, 'warning');
       return;
     }
+    setIsBroadcasting(true);
     try {
-      await broadcastRoomCredentials(id, roomId, roomPass, streamUrl, 'scrims');
-      setScrim((prev: any) => prev ? { ...prev, roomId, roomPass, ytLink: streamUrl } : prev);
+      await broadcastRoomCredentials(id, roomId.trim(), roomPass.trim(), streamUrl.trim(), scrimCollection);
+      setRoomStatus('published');
+      setScrim((prev: any) => prev ? {
+        ...prev,
+        roomId: roomId.trim(),
+        roomPass: roomPass.trim(),
+        ytLink: streamUrl.trim(),
+        draftRoomId: roomId.trim(),
+        draftRoomPass: roomPass.trim(),
+        draftStreamUrl: streamUrl.trim(),
+        roomStatus: 'published',
+      } : prev);
       announceScrimGameStart({
         id,
         title: scrim.title,
         game: scrim.game,
         map: scrim.map || 'Bermuda',
-      } as any, scrim.map || 'Bermuda', roomId, roomPass).catch(e => console.warn('Discord scrim start announcement error:', e));
-      showToast('Room credentials broadcasted to all players!', 'success');
+      } as any, scrim.map || 'Bermuda', roomId.trim(), roomPass.trim()).catch(e => console.warn('Discord scrim start announcement error:', e));
+      showToast('Room credentials published live to all registered players!', 'success');
     } catch (err: any) {
-      showToast(err?.message || 'Failed to broadcast', 'error');
+      showToast(err?.message || 'Failed to publish room credentials', 'error');
+    } finally {
+      setIsBroadcasting(false);
     }
-  }, [id, scrim, roomId, roomPass, streamUrl, showToast]);
+  }, [id, scrim, roomId, roomPass, streamUrl, scrimCollection, showToast]);
 
   const handleStatusChange = useCallback(async (newStatus: string) => {
     if (!id || !scrim) return;
@@ -1669,36 +1718,101 @@ export default function ScrimDetailPage() {
           </div>
 
           {/* Room dispatch */}
-          <div className="bg-dark/50 border border-gray-800 rounded-lg p-5">
-            <h3 className="text-base font-semibold text-white mb-4 flex items-center gap-2">
-              <Radio className="w-4 h-4 text-brand-500" /> Room Dispatch
-            </h3>
+          <div className="bg-dark/50 border border-gray-800 rounded-xl p-5 shadow-lg">
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <h3 className="text-base font-semibold text-white flex items-center gap-2">
+                <Radio className="w-4 h-4 text-brand-500" /> Room Dispatch
+              </h3>
+              {roomStatus === 'published' ? (
+                <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5 shadow-sm">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> Live to Players
+                </span>
+              ) : roomStatus === 'draft' ? (
+                <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/15 text-amber-400 border border-amber-500/30 flex items-center gap-1.5 shadow-sm">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" /> Draft Saved (Private)
+                </span>
+              ) : (
+                <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-gray-800/80 text-gray-400 border border-gray-700/60">
+                  Not Set
+                </span>
+              )}
+            </div>
+
+            <p className="text-xs text-gray-400 mb-4 leading-relaxed">
+              Save credentials as a draft ahead of time, then push live to all registered players when match time arrives.
+            </p>
+
             <div className="space-y-3">
               <div>
-                <label className="block text-xs text-gray-500 uppercase tracking-wider mb-1.5">Room ID</label>
+                <label className="block text-xs text-gray-500 uppercase tracking-wider mb-1.5 font-bold">Room ID</label>
                 <div className="flex gap-2">
-                  <input value={roomId} onChange={e => setRoomId(e.target.value)} placeholder="5240212" className="flex-1 bg-black border border-gray-800 rounded-lg p-2.5 text-sm text-white font-mono focus-visible:outline-none focus:border-brand-500" />
-                  <button type="button" onClick={() => copyToClipboard(roomId, 'roomid')} className="px-3 rounded-lg bg-surface hover:bg-surface text-gray-400">
+                  <input
+                    value={roomId}
+                    onChange={e => setRoomId(e.target.value)}
+                    placeholder="e.g. 5240212"
+                    className="flex-1 bg-black border border-gray-800 rounded-lg p-2.5 text-sm text-white font-mono focus-visible:outline-none focus:border-brand-500"
+                  />
+                  <button type="button" onClick={() => copyToClipboard(roomId, 'roomid')} className="px-3 rounded-lg bg-surface hover:bg-card text-gray-400 border border-gray-800 transition-colors">
                     {copied === 'roomid' ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
                   </button>
                 </div>
               </div>
+
               <div>
-                <label className="block text-xs text-gray-500 uppercase tracking-wider mb-1.5">Room Password</label>
+                <label className="block text-xs text-gray-500 uppercase tracking-wider mb-1.5 font-bold">Room Password</label>
                 <div className="flex gap-2">
-                  <input value={roomPass} onChange={e => setRoomPass(e.target.value)} placeholder="ffpro2026" className="flex-1 bg-black border border-gray-800 rounded-lg p-2.5 text-sm text-white font-mono focus-visible:outline-none focus:border-brand-500" />
-                  <button type="button" onClick={() => copyToClipboard(roomPass, 'roompass')} className="px-3 rounded-lg bg-surface hover:bg-surface text-gray-400">
+                  <input
+                    value={roomPass}
+                    onChange={e => setRoomPass(e.target.value)}
+                    placeholder="e.g. ffpro2026"
+                    className="flex-1 bg-black border border-gray-800 rounded-lg p-2.5 text-sm text-white font-mono focus-visible:outline-none focus:border-brand-500"
+                  />
+                  <button type="button" onClick={() => copyToClipboard(roomPass, 'roompass')} className="px-3 rounded-lg bg-surface hover:bg-card text-gray-400 border border-gray-800 transition-colors">
                     {copied === 'roompass' ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
                   </button>
                 </div>
               </div>
+
               <div>
-                <label className="block text-xs text-gray-500 uppercase tracking-wider mb-1.5">Stream Link (Optional)</label>
-                <input value={streamUrl} onChange={e => setStreamUrl(e.target.value)} placeholder="https://youtube.com/live/..." className="w-full bg-black border border-gray-800 rounded-lg p-2.5 text-sm text-white focus-visible:outline-none focus:border-brand-500" />
+                <label className="block text-xs text-gray-500 uppercase tracking-wider mb-1.5 font-bold">Stream Link (Optional)</label>
+                <input
+                  value={streamUrl}
+                  onChange={e => setStreamUrl(e.target.value)}
+                  placeholder="https://youtube.com/live/..."
+                  className="w-full bg-black border border-gray-800 rounded-lg p-2.5 text-sm text-white focus-visible:outline-none focus:border-brand-500"
+                />
               </div>
-              <button type="button" onClick={handleBroadcast} className="w-full bg-brand-500 hover:bg-brand-400 text-white py-2.5 rounded-lg font-medium text-sm flex items-center justify-center gap-2 min-h-[44px]">
-                <Radio className="w-4 h-4" /> Broadcast to Players
-              </button>
+
+              {/* Action Buttons: Save Draft vs Publish Live */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={handleSaveDraft}
+                  disabled={isSavingDraft || isBroadcasting}
+                  className="w-full bg-surface hover:bg-card border border-gray-700 hover:border-gray-600 text-gray-200 py-2.5 rounded-lg font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 min-h-[44px] transition-colors disabled:opacity-50 cursor-pointer"
+                >
+                  <Save className="w-4 h-4 text-amber-400" />
+                  {isSavingDraft ? 'Saving Draft...' : 'Save Draft'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleBroadcast}
+                  disabled={isSavingDraft || isBroadcasting}
+                  className={`w-full py-2.5 rounded-lg font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 min-h-[44px] transition-all shadow-md cursor-pointer disabled:opacity-50 ${
+                    roomStatus === 'published'
+                      ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-950/40'
+                      : 'bg-brand-500 hover:bg-brand-400 text-white shadow-brand-950/40'
+                  }`}
+                >
+                  <Radio className="w-4 h-4" />
+                  {isBroadcasting
+                    ? 'Publishing...'
+                    : roomStatus === 'published'
+                    ? 'Re-Publish Live'
+                    : 'Publish to Players'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

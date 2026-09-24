@@ -495,15 +495,24 @@ export default function TournamentDetails() {
     useEffect(() => {
         if (!tournament?.id || !user) return;
 
+        const isPublished = tournament.roomStatus === 'published' || (!tournament.roomStatus && Boolean(tournament.roomId || tournament.roomPass));
+
         // Immediate doc-level credentials check
-        if (tournament.roomId || tournament.roomPass) {
-            setRoomCreds({ roomId: tournament.roomId, roomPass: tournament.roomPass });
+        if (isPublished || isHostOrAdmin) {
+            if (tournament.roomId || tournament.roomPass || (tournament as any).draftRoomId) {
+                setRoomCreds({
+                    roomId: (isPublished ? tournament.roomId : '') || (isHostOrAdmin ? ((tournament as any).draftRoomId || tournament.roomId) : ''),
+                    roomPass: (isPublished ? tournament.roomPass : '') || (isHostOrAdmin ? ((tournament as any).draftRoomPass || tournament.roomPass) : ''),
+                });
+            }
         }
 
         const unsub = subscribeRoomCredentials(
             tournament.id,
             (creds) => {
-                if (creds && (creds.roomId || creds.roomPass)) {
+                if (creds && (creds.roomId || creds.roomPass || creds.draftRoomId)) {
+                    const pub = creds.roomStatus === 'published' || (!creds.roomStatus && Boolean(creds.roomId || creds.roomPass));
+                    if (!pub && !isHostOrAdmin) return;
                     setRoomCreds(creds);
                 }
             },
@@ -512,7 +521,7 @@ export default function TournamentDetails() {
         );
 
         return () => unsub();
-    }, [tournament?.id, tournament?.roomId, tournament?.roomPass, user, eventCollection]);
+    }, [tournament?.id, tournament?.roomId, tournament?.roomPass, tournament?.roomStatus, isHostOrAdmin, user, eventCollection]);
 
     if (loading) {
         return (
@@ -547,8 +556,16 @@ export default function TournamentDetails() {
         )
     );
     const canAccessRoom = Boolean(isJoined || isSlotReserved || isUserInParticipants || isHostOrAdmin);
-    const effectiveRoomId = roomCreds?.roomId || tournament.roomId;
-    const effectiveRoomPass = roomCreds?.roomPass || tournament.roomPass;
+    const isRoomPublished = Boolean(
+        tournament.roomStatus === 'published' ||
+        (!tournament.roomStatus && (tournament.roomId || roomCreds?.roomId))
+    );
+    const effectiveRoomId = (isRoomPublished || isHostOrAdmin)
+        ? (roomCreds?.roomId || tournament.roomId || (isHostOrAdmin ? (roomCreds?.draftRoomId || (tournament as any).draftRoomId) : ''))
+        : '';
+    const effectiveRoomPass = (isRoomPublished || isHostOrAdmin)
+        ? (roomCreds?.roomPass || tournament.roomPass || (isHostOrAdmin ? (roomCreds?.draftRoomPass || (tournament as any).draftRoomPass) : ''))
+        : '';
     const showRoom = Boolean(
         canAccessRoom &&
         (Boolean(effectiveRoomId) || tournament.status === 'live' || tournament.status === 'upcoming')
@@ -781,10 +798,17 @@ export default function TournamentDetails() {
                                         </div>
                                         <div className="relative z-10">
                                             <div className="flex items-center justify-between gap-3 mb-4">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
-                                                    <span className="text-emerald-400 text-xs font-black uppercase tracking-widest">Match Room Ready / Live</span>
-                                                </div>
+                                                {!isRoomPublished && isHostOrAdmin ? (
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+                                                        <span className="text-amber-400 text-xs font-black uppercase tracking-widest">Match Room (Draft - Hidden from Players)</span>
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+                                                        <span className="text-emerald-400 text-xs font-black uppercase tracking-widest">Match Room Ready / Live</span>
+                                                    </div>
+                                                )}
                                                 {tournament.status === 'live' && (
                                                     <span className="px-2.5 py-0.5 rounded-full bg-red-500/20 text-red-400 border border-red-500/30 text-[10px] font-bold uppercase animate-pulse">
                                                         Live Match

@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatCurrency, formatGameName, toDateSafe, cleanFirestoreData } from '../../../shared/utils/utils';
-import { fetchRoomCredentials, broadcastRoomCredentials } from '../../../shared/services/roomCredentials';
+import { fetchRoomCredentials, broadcastRoomCredentials, saveDraftRoomCredentials } from '../../../shared/services/roomCredentials';
 import { announceNewScrim } from '../../../shared/services/DiscordService';
 import { awardOrgExp } from '../../../shared/services/orgLevelService';
 import { ORG_EXP_REWARDS } from '../../../shared/utils/utils';
@@ -318,7 +318,11 @@ export default function ScrimCreateModal({
         await updateDoc(doc(db, 'scrims', editScrim.id), cleanedPayload);
 
         if (formData.roomId || formData.roomPass) {
-          await broadcastRoomCredentials(editScrim.id, formData.roomId, formData.roomPass, formData.streamUrl, 'scrims').catch(() => {});
+          if (editScrim.roomStatus === 'published') {
+            await broadcastRoomCredentials(editScrim.id, formData.roomId, formData.roomPass, formData.streamUrl, 'scrims').catch(() => {});
+          } else {
+            await saveDraftRoomCredentials(editScrim.id, formData.roomId, formData.roomPass, formData.streamUrl, 'scrims').catch(() => {});
+          }
         }
         showToast('Scrim updated successfully!', 'success');
       } else {
@@ -363,7 +367,7 @@ export default function ScrimCreateModal({
         }
 
         if (formData.roomId || formData.roomPass) {
-          await broadcastRoomCredentials(docRef.id, formData.roomId, formData.roomPass, formData.streamUrl, 'scrims').catch(() => {});
+          await saveDraftRoomCredentials(docRef.id, formData.roomId, formData.roomPass, formData.streamUrl, 'scrims').catch(() => {});
         }
 
         // Automated Discord announcement for newly created scrim

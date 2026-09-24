@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Trash2, Radio, ShieldAlert, Sparkles, Send, User, Gamepad2, AlertOctagon, Image as ImageIcon, ZoomIn, ExternalLink, Check, X, Shield, UserCheck } from 'lucide-react';
+import { Trash2, Radio, ShieldAlert, Sparkles, Send, User, Gamepad2, AlertOctagon, Image as ImageIcon, ZoomIn, ExternalLink, Check, X, Shield, UserCheck, Save } from 'lucide-react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../../shared/config/firebase';
 import Modal from '../../../shared/components/Modal';
@@ -34,6 +34,10 @@ interface OrgOverlayManagerProps {
   streamUrl?: string;
   setStreamUrl?: (v: string) => void;
   onBroadcastRoom?: () => void;
+  onSaveDraftRoom?: () => void;
+  roomStatus?: 'none' | 'draft' | 'published';
+  isSavingDraftRoom?: boolean;
+  isBroadcastingRoom?: boolean;
   // Dispute resolver
   disputeId?: string;
   dispute?: any;
@@ -64,6 +68,10 @@ export const OrgOverlayManager: React.FC<OrgOverlayManagerProps> = ({
   streamUrl,
   setStreamUrl,
   onBroadcastRoom,
+  onSaveDraftRoom,
+  roomStatus = 'none',
+  isSavingDraftRoom = false,
+  isBroadcastingRoom = false,
   disputeId,
   dispute,
   onResolveDispute,
@@ -246,15 +254,30 @@ export const OrgOverlayManager: React.FC<OrgOverlayManagerProps> = ({
 
       {/* ROOM DISPATCH */}
       {activeOverlay === 'ROOM_DISPATCH' && (
-        <Modal isOpen onClose={onClose} title="Broadcast Room Credentials">
+        <Modal isOpen onClose={onClose} title="Room Dispatch & Credentials">
           <div className="p-6 space-y-4">
             {roomTargetTitle && (
-              <div className="p-3 bg-dark/60 rounded-xl border border-gray-800 text-xs font-bold text-gray-300">
-                Lobby: <span className="text-white">{roomTargetTitle}</span>
+              <div className="flex items-center justify-between p-3 bg-dark/60 rounded-xl border border-gray-800 text-xs font-bold text-gray-300">
+                <div className="truncate">
+                  Lobby: <span className="text-white">{roomTargetTitle}</span>
+                </div>
+                {roomStatus === 'published' ? (
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5 shrink-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> Live to Players
+                  </span>
+                ) : roomStatus === 'draft' ? (
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/15 text-amber-400 border border-amber-500/30 flex items-center gap-1.5 shrink-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400" /> Draft Saved (Private)
+                  </span>
+                ) : (
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-gray-800 text-gray-400 border border-gray-700 shrink-0">
+                    Not Set
+                  </span>
+                )}
               </div>
             )}
-            <p className="text-xs text-gray-400">
-              These credentials will be pushed to all registered players instantly via in-app alert.
+            <p className="text-xs text-gray-400 leading-relaxed">
+              Save credentials privately as a draft ahead of time, or publish live to broadcast credentials and send push notifications to all registered players.
             </p>
             <div className="space-y-3">
               <div>
@@ -307,12 +330,37 @@ export const OrgOverlayManager: React.FC<OrgOverlayManagerProps> = ({
                 </p>
               </div>
             </div>
-            <button
-              onClick={onBroadcastRoom}
-              className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-colors flex items-center justify-center gap-2 min-h-[44px] shadow-lg shadow-emerald-950/20"
-            >
-              <Radio className="w-4 h-4" /> Broadcast to Players
-            </button>
+
+            {/* Action Buttons: Save Draft vs Broadcast / Publish */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
+              <button
+                type="button"
+                onClick={onSaveDraftRoom}
+                disabled={isSavingDraftRoom || isBroadcastingRoom}
+                className="w-full bg-surface hover:bg-card border border-gray-700 hover:border-gray-600 text-gray-200 py-3 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 min-h-[44px] transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                <Save className="w-4 h-4 text-amber-400" />
+                {isSavingDraftRoom ? 'Saving Draft...' : 'Save Draft (Private)'}
+              </button>
+
+              <button
+                type="button"
+                onClick={onBroadcastRoom}
+                disabled={isSavingDraftRoom || isBroadcastingRoom}
+                className={`w-full py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-colors flex items-center justify-center gap-2 min-h-[44px] shadow-lg cursor-pointer disabled:opacity-50 ${
+                  roomStatus === 'published'
+                    ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-950/20'
+                    : 'bg-brand-500 hover:bg-brand-400 text-white shadow-brand-950/20'
+                }`}
+              >
+                <Radio className="w-4 h-4" />
+                {isBroadcastingRoom
+                  ? 'Publishing...'
+                  : roomStatus === 'published'
+                  ? 'Update & Re-Publish'
+                  : 'Publish to Players'}
+              </button>
+            </div>
           </div>
         </Modal>
       )}

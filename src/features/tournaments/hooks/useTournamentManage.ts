@@ -41,6 +41,7 @@ import {
     getEligibleParticipants,
 } from '../../../shared/services/tournamentEngine';
 import { TournamentAuditEntry } from '../../../shared/types/tournament-engine';
+import { broadcastRoomCredentials, saveDraftRoomCredentials } from '../../../shared/services/roomCredentials';
 
 export function useTournamentManage(
     id: string | undefined,
@@ -512,6 +513,48 @@ export function useTournamentManage(
         }
     };
 
+    const handleSaveGroupRoomDraft = async (groupId: string, roomId: string, roomPass: string) => {
+        if (!tournament) return;
+        try {
+            await saveDraftRoomCredentials(tournament.id, roomId, roomPass, undefined, 'tournaments', groupId);
+            const updatedGroups = (tournament.groups || []).map(g => {
+                if (g.id === groupId) {
+                    return { ...g, draftRoomId: roomId, draftRoomPass: roomPass, roomStatus: 'draft' as const };
+                }
+                return g;
+            });
+            await updateDoc(doc(db, 'tournaments', tournament.id), cleanFirestoreData({ groups: updatedGroups }));
+            setTournament({ ...tournament, groups: updatedGroups });
+            showToast('Group room credentials saved as draft (hidden from players)', 'success');
+        } catch (error) {
+            console.error("Error saving group room draft:", error);
+            showToast('Failed to save group room draft', 'error');
+        }
+    };
+
+    const handlePublishGroupRoom = async (groupId: string, roomId: string, roomPass: string) => {
+        if (!tournament) return;
+        if (!roomId.trim() || !roomPass.trim()) {
+            showToast('Please enter both Room ID and Room Password to publish', 'warning');
+            return;
+        }
+        try {
+            await broadcastRoomCredentials(tournament.id, roomId.trim(), roomPass.trim(), undefined, 'tournaments', groupId);
+            const updatedGroups = (tournament.groups || []).map(g => {
+                if (g.id === groupId) {
+                    return { ...g, roomId: roomId.trim(), roomPass: roomPass.trim(), draftRoomId: roomId.trim(), draftRoomPass: roomPass.trim(), roomStatus: 'published' as const };
+                }
+                return g;
+            });
+            await updateDoc(doc(db, 'tournaments', tournament.id), cleanFirestoreData({ groups: updatedGroups }));
+            setTournament({ ...tournament, groups: updatedGroups });
+            showToast('Group room credentials published live to players!', 'success');
+        } catch (error) {
+            console.error("Error publishing group room:", error);
+            showToast('Failed to publish group room credentials', 'error');
+        }
+    };
+
     const handleAssignTeam = async (participantId: string) => {
         if (!tournament || !selectedGroup) return;
         
@@ -955,6 +998,8 @@ export function useTournamentManage(
         handleCreateGroup,
         handleDeleteGroup,
         handleSetGroupRoom,
+        handleSaveGroupRoomDraft,
+        handlePublishGroupRoom,
         handleDiscord,
         handleRemoveTeam,
         handleUpdateStage,

@@ -103,6 +103,9 @@ export interface TournamentGroup {
     inviteLink?: string;
     roomId?: string;
     roomPass?: string;
+    draftRoomId?: string;
+    draftRoomPass?: string;
+    roomStatus?: 'draft' | 'published';
     // ─── Engine fields (optional, backward compat) ───
     status?: 'draft' | 'preview' | 'locked' | 'active' | 'completed';
     roundNumber?: number;
