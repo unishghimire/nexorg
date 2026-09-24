@@ -576,6 +576,10 @@ export function useOrgData() {
   const updateTournamentStatus = useCallback(async (id: string, status: Tournament['status']) => {
     const target = hostedTournaments.find(t => t.id === id);
 
+    if (target && (target.status === 'completed' || target.status === 'cancelled')) {
+      throw new Error(`This tournament is already ${target.status} and archived in history. It cannot be restarted or reopened. Organizers must create a new tournament.`);
+    }
+
     if (status === 'live' && target) {
       const readiness = checkFinancialReadiness(target);
       if (readiness.isLocked) {
@@ -629,6 +633,10 @@ export function useOrgData() {
   const updateScrimStatus = useCallback(async (id: string, status: Tournament['status']) => {
     const target = hostedScrims.find(s => s.id === id);
 
+    if (target && (target.status === 'completed' || target.status === 'cancelled')) {
+      throw new Error(`This scrim is already ${target.status} and archived in history. It cannot be restarted or reopened. Organizers must create a new scrim.`);
+    }
+
     const updatePayload: Record<string, any> = { status, updatedAt: serverTimestamp() };
     if (status === 'completed' && target && Array.isArray(target?.slots)) {
       updatePayload.stage = 'completed';
@@ -649,6 +657,10 @@ export function useOrgData() {
 
   const activateTournament = useCallback(async (id: string) => {
     if (!user) throw new Error('Not authenticated');
+    const target = hostedTournaments.find(t => t.id === id);
+    if (target && (target.status === 'completed' || target.status === 'cancelled')) {
+      throw new Error(`This tournament is already ${target.status} and archived in history. It cannot be restarted or reopened.`);
+    }
     // 0ms Optimistic local update
     setHostedTournaments(prev => prev.map(t => t.id === id ? { ...t, status: 'upcoming', fundingStatus: 'RESERVED', stage: 'registration' } : t));
 

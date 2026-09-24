@@ -356,7 +356,7 @@ const TournamentsTab: React.FC<TournamentsTabProps> = ({
                   {onEditTournament && (
                     <button
                       onClick={() => onEditTournament(tournament)}
-                      className="min-h-[44px] px-3.5 py-2 rounded-lg text-sm font-medium border border-gray-700 hover:border-gray-600 hover:bg-slate-800/80/80 text-zinc-200 transition-colors flex items-center justify-center gap-2"
+                      className="min-h-[44px] px-3.5 py-2 rounded-lg text-sm font-medium border border-gray-700 hover:border-gray-600 hover:bg-slate-800/80 text-zinc-200 transition-colors flex items-center justify-center gap-2"
                     >
                       <Edit2 className="w-4 h-4" />
                       <span>Edit</span>
@@ -366,7 +366,7 @@ const TournamentsTab: React.FC<TournamentsTabProps> = ({
                   {/* Room Details */}
                   <button
                     onClick={() => onOpenRoomDispatch(tournament)}
-                    className="min-h-[44px] px-3.5 py-2 rounded-lg text-sm font-medium border border-gray-700 hover:border-gray-600 hover:bg-slate-800/80/80 text-zinc-200 transition-colors flex items-center justify-center gap-2"
+                    className="min-h-[44px] px-3.5 py-2 rounded-lg text-sm font-medium border border-gray-700 hover:border-gray-600 hover:bg-slate-800/80 text-zinc-200 transition-colors flex items-center justify-center gap-2"
                   >
                     <Radio className="w-4 h-4 text-brand-400" />
                     <span>Room Details</span>

@@ -109,7 +109,7 @@ export default function ScrimCreateModal({
     totalSlots: 12,
     scrimMode: (initialMode || 'STANDARD') as 'STANDARD' | 'PER_KILL',
     rewardPerKill: initialMode === 'PER_KILL' ? 20 : 0,
-    minimumKillsForReward: 0,
+    minimumKillsForReward: 1,
     entryFee: 0,
     prizePool: initialMode === 'PER_KILL' ? 960 : 0,
     startTime: '',
@@ -138,7 +138,7 @@ export default function ScrimCreateModal({
         totalSlots: editScrim.totalSlots || (Array.isArray(editScrim.slots) ? editScrim.slots.length : Number(editScrim.slots) || 12),
         scrimMode: (editScrim.scrimMode || (editScrim.rewardPerKill > 0 ? 'PER_KILL' : 'STANDARD')) as 'STANDARD' | 'PER_KILL',
         rewardPerKill: editScrim.rewardPerKill || 0,
-        minimumKillsForReward: editScrim.minimumKillsForReward || 0,
+        minimumKillsForReward: editScrim.minimumKillsForReward || 1,
         entryFee: editScrim.entryFee || 0,
         prizePool: editScrim.prizePool || 0,
         startTime: formattedStartTime,
@@ -179,7 +179,7 @@ export default function ScrimCreateModal({
         totalSlots: defaultSlots,
         scrimMode: mode,
         rewardPerKill: defaultKillRate,
-        minimumKillsForReward: 0,
+        minimumKillsForReward: 1,
         entryFee: 0,
         prizePool: estimatedPool,
         startTime: '',
@@ -299,7 +299,7 @@ export default function ScrimCreateModal({
         collectedEntryFees: editScrim ? ((editScrim as any).collectedEntryFees || 0) : 0,
         scrimMode: formData.scrimMode,
         rewardPerKill: formData.scrimMode === 'PER_KILL' ? Number(formData.rewardPerKill) || 0 : 0,
-        minimumKillsForReward: formData.scrimMode === 'PER_KILL' ? Number(formData.minimumKillsForReward) || 0 : 0,
+        minimumKillsForReward: formData.scrimMode === 'PER_KILL' ? Math.max(1, Number(formData.minimumKillsForReward) || 1) : 0,
         currency: 'NPR',
         startTime: startTimestamp,
         bannerUrl: formData.bannerUrl || 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&q=80',
@@ -747,12 +747,13 @@ export default function ScrimCreateModal({
                     </label>
                     <input
                       type="number"
-                      min="0"
-                      placeholder="0 (no minimum)"
-                      value={formData.minimumKillsForReward || ''}
-                      onChange={(e) => setFormData({ ...formData, minimumKillsForReward: Math.max(0, Number(e.target.value)) })}
-                      className="w-full bg-black border border-gray-800 rounded-xl p-2.5 text-xs text-white font-bold focus-visible:outline-none focus:border-brand-500"
+                      min="1"
+                      disabled
+                      value={1}
+                      title="Minimum kill threshold is fixed at 1 kill"
+                      className="w-full bg-black/60 border border-gray-800 rounded-xl p-2.5 text-xs text-brand-400 font-bold cursor-not-allowed opacity-90"
                     />
+                    <span className="text-[10px] text-gray-500 font-medium mt-0.5 block">Fixed at 1 kill minimum</span>
                   </div>
                 </div>
 

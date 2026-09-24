@@ -106,6 +106,6 @@ export const FREE_FIRE_DEFAULT_SCORING: Omit<GameScoringConfig, 'updatedAt' | 'u
         enabled: false,
         rewardPerKill: 10,
         currency: 'NPR',
-        minimumKillsForReward: 0,
+        minimumKillsForReward: 1,
     },
 };

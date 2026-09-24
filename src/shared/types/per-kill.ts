@@ -35,7 +35,7 @@ export const DEFAULT_REWARD_CONFIG: Omit<RewardConfig, never> = {
     enabled: false,
     rewardPerKill: 0,
     currency: 'NPR',
-    minimumKillsForReward: 0,
+    minimumKillsForReward: 1, // Fixed minimum 1 kill to earn reward
 };
 
 /**

@@ -202,6 +202,7 @@ export const MatchesTab: React.FC<TournamentAdminTabProps> = (props) => {
                         <div>
                             <label htmlFor="map-name" className="block text-xs font-bold text-gray-500 uppercase mb-2">Map Name</label>
                             <input
+                                id="map-name"
                                 type="text"
                                 value={matchScore.map || ''}
                                 onChange={(e) => setMatchScore({...matchScore, map: e.target.value})}
@@ -213,6 +214,7 @@ export const MatchesTab: React.FC<TournamentAdminTabProps> = (props) => {
                         <div>
                             <label htmlFor="match-status" className="block text-xs font-bold text-gray-500 uppercase mb-2">Match Status</label>
                             <select
+                                id="match-status"
                                 value={matchScore.status}
                                 onChange={(e) => setMatchScore({...matchScore, status: e.target.value as any})}
                                 className="w-full bg-dark border border-gray-800 text-white rounded-xl p-3 focus:border-brand-500 focus-visible:outline-none transition"

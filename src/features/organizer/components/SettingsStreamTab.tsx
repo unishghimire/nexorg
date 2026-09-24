@@ -141,10 +141,11 @@ export const SettingsStreamTab: React.FC<SettingsStreamTabProps> = ({
           <form onSubmit={handleSave} className="space-y-4">
             {/* Org Name */}
             <div>
-              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+              <label htmlFor="org-name" className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
                 Org Name
               </label>
               <input
+                id="org-name"
                 type="text"
                 value={orgName}
                 onChange={(e) => setOrgName(e.target.value)}
@@ -156,10 +157,11 @@ export const SettingsStreamTab: React.FC<SettingsStreamTabProps> = ({
 
             {/* Bio (textarea 3 rows) */}
             <div>
-              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+              <label htmlFor="org-bio" className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
                 Bio
               </label>
               <textarea
+                id="org-bio"
                 rows={3}
                 value={bio}
                 onChange={(e) => setBio(e.target.value)}
@@ -170,10 +172,11 @@ export const SettingsStreamTab: React.FC<SettingsStreamTabProps> = ({
 
             {/* WhatsApp Number */}
             <div>
-              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+              <label htmlFor="org-whatsapp" className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
                 WhatsApp Number
               </label>
               <input
+                id="org-whatsapp"
                 type="text"
                 value={whatsapp}
                 onChange={(e) => setWhatsapp(e.target.value)}
@@ -184,10 +187,11 @@ export const SettingsStreamTab: React.FC<SettingsStreamTabProps> = ({
 
             {/* Contact Email */}
             <div>
-              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+              <label htmlFor="org-contact-email" className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
                 Contact Email
               </label>
               <input
+                id="org-contact-email"
                 type="email"
                 value={contactInfo}
                 onChange={(e) => setContactInfo(e.target.value)}
@@ -198,10 +202,11 @@ export const SettingsStreamTab: React.FC<SettingsStreamTabProps> = ({
 
             {/* Discord Community Link */}
             <div>
-              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+              <label htmlFor="org-discord" className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
                 <Link2 className="w-3.5 h-3.5 text-brand-400" /> Discord Server / Community Link
               </label>
               <input
+                id="org-discord"
                 type="text"
                 value={discord}
                 onChange={(e) => setDiscord(e.target.value)}
@@ -248,10 +253,11 @@ export const SettingsStreamTab: React.FC<SettingsStreamTabProps> = ({
           <div className="space-y-4">
             {/* YouTube Live URL */}
             <div>
-              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+              <label htmlFor="stream-youtube-url" className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
                 <Youtube className="w-4 h-4 text-red-500" /> YouTube Live URL
               </label>
               <input
+                id="stream-youtube-url"
                 type="url"
                 value={youtubeUrl}
                 onChange={(e) => setYoutubeUrl(e.target.value)}
@@ -262,10 +268,11 @@ export const SettingsStreamTab: React.FC<SettingsStreamTabProps> = ({
 
             {/* Twitch URL (Using Radio icon as requested) */}
             <div>
-              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+              <label htmlFor="stream-twitch-url" className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
                 <Radio className="w-4 h-4 text-brand-400" /> Twitch Broadcast URL
               </label>
               <input
+                id="stream-twitch-url"
                 type="url"
                 value={twitchUrl}
                 onChange={(e) => setTwitchUrl(e.target.value)}

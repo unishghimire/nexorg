@@ -200,14 +200,16 @@ export const ParticipantsTab: React.FC<TournamentAdminTabProps> = (props) => {
                                                 {p.status !== 'approved' && (
                                                     <button type="button" onClick={() => handleApprove(p.id)}
                                                         className="p-2 border border-green-500/20 text-green-500 hover:bg-green-500/10 rounded-lg transition-colors touch-target"
-                                                        title="Approve">
+                                                        title="Approve"
+                                                        aria-label={`Approve ${p.username}`}>
                                                         <CheckCircle2 className="w-4 h-4" />
                                                     </button>
                                                 )}
                                                 {p.status !== 'rejected' && (
                                                     <button type="button" onClick={() => handleReject(p.id)}
                                                         className="p-2 border border-red-500/20 text-red-500 hover:bg-red-500/10 rounded-lg transition-colors touch-target"
-                                                        title="Reject">
+                                                        title="Reject"
+                                                        aria-label={`Reject ${p.username}`}>
                                                         <XCircle className="w-4 h-4" />
                                                     </button>
                                                 )}
@@ -218,7 +220,8 @@ export const ParticipantsTab: React.FC<TournamentAdminTabProps> = (props) => {
                                                                 ? 'border-green-500/30 bg-green-500/10 text-green-500'
                                                                 : 'border-blue-500/20 text-blue-500 hover:bg-blue-500/10'
                                                         }`}
-                                                        title={p.checkedIn ? 'Checked In' : 'Check In'}>
+                                                        title={p.checkedIn ? 'Checked In' : 'Check In'}
+                                                        aria-label={p.checkedIn ? `Check out ${p.username}` : `Check in ${p.username}`}>
                                                         <CheckCircle2 className="w-4 h-4" />
                                                     </button>
                                                 )}

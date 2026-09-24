@@ -272,6 +272,13 @@ export const ScrimsService = {
 
         try {
             const docRef = doc(db, SCRIMS_COLLECTION, scrimId);
+            const snap = await getDoc(docRef);
+            if (snap.exists()) {
+                const currentData = snap.data();
+                if (currentData.status === 'completed' || currentData.status === 'cancelled') {
+                    throw new Error(`Scrim is already ${currentData.status} and archived in history. It cannot be restarted or modified. Please create a new scrim.`);
+                }
+            }
             await updateDoc(docRef, updatePayload);
             // Write credentials to protected subcollection
             if (roomDetails?.roomId || roomDetails?.roomPassword) {

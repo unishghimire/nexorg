@@ -477,16 +477,6 @@ export const ScrimsHubTab: React.FC<ScrimsHubTabProps> = ({
                             <CheckCircle2 className="w-3.5 h-3.5" />
                           </button>
                         )}
-                        {scrim.status === 'completed' && (
-                          <button
-                            type="button"
-                            onClick={() => onUpdateStatus(scrim.id, 'open')}
-                            className="bg-surface hover:bg-card text-gray-300 border border-gray-700 p-2 rounded-lg text-xs font-semibold transition-colors"
-                            title="Reopen"
-                          >
-                            <RotateCcw className="w-3.5 h-3.5" />
-                          </button>
-                        )}
                       </div>
                     )}
 

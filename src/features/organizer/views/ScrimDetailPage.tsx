@@ -258,7 +258,7 @@ export default function ScrimDetailPage() {
         map: editForm.map || 'Bermuda',
         scrimMode: editForm.scrimMode || 'STANDARD',
         rewardPerKill,
-        minimumKillsForReward: isPk ? Number(editForm.minimumKillsForReward) || 0 : 0,
+        minimumKillsForReward: isPk ? Math.max(1, Number(editForm.minimumKillsForReward) || 1) : 0,
         updatedAt: serverTimestamp(),
       };
       const cleanedUpdatePayload = cleanFirestoreData(updatePayload);
@@ -273,6 +273,10 @@ export default function ScrimDetailPage() {
 
   const handleReleaseSlot = useCallback(async (slotNumber: number) => {
     if (!scrim || !id) return;
+    if (scrim.status === 'completed' || scrim.status === 'cancelled') {
+      showToast('Cannot modify slots: This scrim is archived in history as completed/cancelled.', 'warning');
+      return;
+    }
     try {
       const currentSlots = normalizeScrimSlots(scrim.slots, scrim.totalSlots, scrim.filledSlots ?? scrim.currentPlayers);
       const targetSlot: any = currentSlots.find((s: any) => Number(s.slotNumber) === Number(slotNumber));
@@ -322,6 +326,10 @@ export default function ScrimDetailPage() {
     const trimmedTeam = (teamName || '').trim();
     if (!scrim || !id || !trimmedTeam) {
       showToast('Please enter a team name', 'error');
+      return;
+    }
+    if (scrim.status === 'completed' || scrim.status === 'cancelled') {
+      showToast('Cannot assign slots: This scrim is archived in history as completed/cancelled.', 'error');
       return;
     }
     const trimmedCaptainUid = (captainUid || '').trim();
@@ -476,6 +484,10 @@ export default function ScrimDetailPage() {
 
   const handleToggleLockRemainingSlots = useCallback(async () => {
     if (!scrim || !id) return;
+    if (scrim.status === 'completed' || scrim.status === 'cancelled') {
+      showToast('Cannot modify slots: This scrim is archived in history as completed/cancelled.', 'warning');
+      return;
+    }
     try {
       const currentSlots = normalizeScrimSlots(scrim.slots, scrim.totalSlots, scrim.filledSlots ?? scrim.currentPlayers);
       const hasLocked = currentSlots.some((s: any) => s.status === 'locked');
@@ -506,6 +518,10 @@ export default function ScrimDetailPage() {
 
   const handleToggleSlot = useCallback(async (slotNumber: number) => {
     if (!scrim || !id) return;
+    if (scrim.status === 'completed' || scrim.status === 'cancelled') {
+      showToast('Cannot modify slots: This scrim is archived in history as completed/cancelled.', 'warning');
+      return;
+    }
 
     try {
       const slotsArray = normalizeScrimSlots(scrim.slots, scrim.totalSlots, scrim.filledSlots ?? scrim.currentPlayers);
@@ -554,6 +570,11 @@ export default function ScrimDetailPage() {
 
   const handleStatusChange = useCallback(async (newStatus: string) => {
     if (!id || !scrim) return;
+
+    if (scrim.status === 'completed' || scrim.status === 'cancelled') {
+      showToast(`This scrim is ${scrim.status} and archived in history. It cannot be restarted or reopened. Organizers must create a new scrim to host again.`, 'error');
+      return;
+    }
 
     if (newStatus === 'live') {
       const readiness = checkFinancialReadiness(scrim);
@@ -685,7 +706,7 @@ export default function ScrimDetailPage() {
         prize: calculatePlayerReward({
           verifiedKills: Number(t.kills) || 0,
           rewardPerKill,
-          minimumKillsForReward: Number(scrim?.minimumKillsForReward) || 0,
+          minimumKillsForReward: Math.max(1, Number(scrim?.minimumKillsForReward) || 1),
         }).rewardAmount,
       })));
       return;
@@ -1073,29 +1094,31 @@ export default function ScrimDetailPage() {
             </>
           ) : (
             <>
-              <button 
-                type="button" 
-                onClick={() => {
-                  const startDate = toDateSafe(scrim.startTime);
-                  const startFormatted = startDate ? new Date(startDate.getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
-                  setEditForm({
-                    title: scrim.title || '',
-                    startTime: startFormatted,
-                    entryFee: scrim.entryFee ?? scrim.requirements?.entryFee ?? 0,
-                    prizePool: scrim.prizePool || 0,
-                    slots: scrim.totalSlots || (Array.isArray(scrim.slots) ? scrim.slots.length : Number(scrim.slots) || 12),
-                    map: scrim.map || '',
-                    scrimMode: scrim.scrimMode || (scrim.rewardPerKill > 0 ? 'PER_KILL' : 'STANDARD'),
-                    rewardPerKill: scrim.rewardPerKill || 0,
-                    minimumKillsForReward: scrim.minimumKillsForReward || 0,
-                  });
-                  setIsEditing(true);
-                }} 
-                className="px-3.5 py-2 rounded-xl bg-white/10 backdrop-blur-md text-white text-xs font-bold hover:bg-white/20 flex items-center gap-1.5 border border-white/10 shadow-lg transition-colors min-h-[38px]"
-                title="Edit Scrim"
-              >
-                <Edit2 className="w-3.5 h-3.5" /> Edit
-              </button>
+              {scrim.status !== 'completed' && scrim.status !== 'cancelled' && (
+                <button 
+                  type="button" 
+                  onClick={() => {
+                    const startDate = toDateSafe(scrim.startTime);
+                    const startFormatted = startDate ? new Date(startDate.getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
+                    setEditForm({
+                      title: scrim.title || '',
+                      startTime: startFormatted,
+                      entryFee: scrim.entryFee ?? scrim.requirements?.entryFee ?? 0,
+                      prizePool: scrim.prizePool || 0,
+                      slots: scrim.totalSlots || (Array.isArray(scrim.slots) ? scrim.slots.length : Number(scrim.slots) || 12),
+                      map: scrim.map || '',
+                      scrimMode: scrim.scrimMode || (scrim.rewardPerKill > 0 ? 'PER_KILL' : 'STANDARD'),
+                      rewardPerKill: scrim.rewardPerKill || 0,
+                      minimumKillsForReward: Math.max(1, Number(scrim.minimumKillsForReward) || 1),
+                    });
+                    setIsEditing(true);
+                  }} 
+                  className="px-3.5 py-2 rounded-xl bg-white/10 backdrop-blur-md text-white text-xs font-bold hover:bg-white/20 flex items-center gap-1.5 border border-white/10 shadow-lg transition-colors min-h-[38px]"
+                  title="Edit Scrim"
+                >
+                  <Edit2 className="w-3.5 h-3.5" /> Edit
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleDeleteScrim}
@@ -1158,11 +1181,7 @@ export default function ScrimDetailPage() {
               </div>
               <p className="text-xs text-gray-400 mt-0.5">
                 Every verified kill earns instant cash rewards.
-                {Number(scrim.minimumKillsForReward || 0) > 0 ? (
-                  <span className="text-amber-300/90 font-medium"> (Min. {scrim.minimumKillsForReward} kills threshold required)</span>
-                ) : (
-                  <span> No minimum kill threshold — all kills rewarded!</span>
-                )}
+                <span className="text-amber-300/90 font-medium"> (Fixed 1-kill threshold required to qualify for rewards)</span>
               </p>
             </div>
           </div>
@@ -1210,9 +1229,38 @@ export default function ScrimDetailPage() {
             </button>
           )}
           {scrim.status === 'completed' && (
-            <button type="button" onClick={() => handleStatusChange('open')} className="px-3 py-1.5 rounded-lg bg-surface text-gray-300 border border-gray-700 text-xs font-semibold hover:bg-card flex items-center gap-1.5 transition-colors">
-              <RotateCcw className="w-3.5 h-3.5" /> Reopen Scrim
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="px-3 py-1.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20 text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Scrim Concluded (Archived)
+              </span>
+              <span className="text-xs text-gray-400 hidden sm:inline">
+                Archived in history. Cannot be reopened with same details.
+              </span>
+              <button
+                type="button"
+                onClick={() => navigate('/organizer?tab=scrims')}
+                className="px-3 py-1.5 rounded-lg bg-brand-500 hover:bg-brand-400 text-white text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" /> Host New Scrim
+              </button>
+            </div>
+          )}
+          {scrim.status === 'cancelled' && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="px-3 py-1.5 rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/20 text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
+                <X className="w-3.5 h-3.5" /> Scrim Cancelled (Archived)
+              </span>
+              <span className="text-xs text-gray-400 hidden sm:inline">
+                Archived in history. Cannot be reopened.
+              </span>
+              <button
+                type="button"
+                onClick={() => navigate('/organizer?tab=scrims')}
+                className="px-3 py-1.5 rounded-lg bg-brand-500 hover:bg-brand-400 text-white text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" /> Host New Scrim
+              </button>
+            </div>
           )}
         </div>
 
@@ -1526,10 +1574,13 @@ export default function ScrimDetailPage() {
                           <label className="block text-xs text-amber-400 uppercase tracking-wider mb-1">Min Kills For Reward</label>
                           <input
                             type="number"
-                            value={editForm.minimumKillsForReward ?? 1}
-                            onChange={e => setEditForm({ ...editForm, minimumKillsForReward: Number(e.target.value) })}
-                            className="w-full bg-black border border-amber-500/30 rounded-lg p-2 text-sm text-white focus-visible:outline-none focus:border-amber-400"
+                            min="1"
+                            disabled
+                            value={1}
+                            title="Minimum kill threshold is fixed at 1 kill"
+                            className="w-full bg-black/60 border border-amber-500/30 rounded-lg p-2 text-sm text-brand-400 font-bold cursor-not-allowed opacity-90"
                           />
+                          <span className="text-[10px] text-gray-500 font-medium mt-0.5 block">Fixed at 1 kill minimum</span>
                         </div>
                       </div>
 
@@ -1608,7 +1659,7 @@ export default function ScrimDetailPage() {
                         <Target className="w-3.5 h-3.5 text-amber-400" /> Min Kills Required
                       </p>
                       <p className="text-sm text-amber-300 font-black">
-                        {scrim.minimumKillsForReward || 1} kill{Number(scrim.minimumKillsForReward) === 1 ? '' : 's'}
+                        1 kill (Fixed minimum)
                       </p>
                     </div>
                   </>

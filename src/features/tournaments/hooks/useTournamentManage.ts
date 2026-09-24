@@ -134,6 +134,11 @@ export function useTournamentManage(
     const handleUpdateStatus = async (status: 'upcoming' | 'live' | 'completed' | 'paused') => {
         if (!tournament) return;
 
+        if (tournament.status === 'completed' || tournament.status === 'cancelled') {
+            showToast(`This tournament is ${tournament.status} and archived in history. It cannot be restarted or reopened. Organizers must create a new tournament.`, 'error');
+            return;
+        }
+
         if (status === 'live') {
             const readiness = checkFinancialReadiness(tournament);
             if (readiness.isLocked) {
@@ -182,6 +187,11 @@ export function useTournamentManage(
 
     const handleUpdateStage = async (stage: string) => {
         if (!tournament) return;
+
+        if (tournament.status === 'completed' || tournament.status === 'cancelled') {
+            showToast(`This tournament is ${tournament.status} and archived in history. Stage cannot be modified. Organizers must create a new tournament.`, 'error');
+            return;
+        }
         // GUARD: points & kills must be updated before the completed stage finalizes the event
         if (stage === 'completed') {
             const resultsReadiness = isScrimEvent(tournament)

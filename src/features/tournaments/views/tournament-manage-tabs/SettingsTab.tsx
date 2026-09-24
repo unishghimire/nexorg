@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'motion/react';
 import {
-    Plus, Trash2, Save, XCircle,
+    Plus, Trash2, Save, XCircle, Archive,
     } from 'lucide-react';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../../../shared/config/firebase';
@@ -11,6 +11,8 @@ export const SettingsTab: React.FC<TournamentAdminTabProps> = (props) => {
     const {
         tournament, setTournament, showToast,
     } = props;
+    const isArchived = tournament.status === 'completed' || tournament.status === 'cancelled';
+
     return (
                         <motion.div 
                             key="settings"
@@ -19,6 +21,20 @@ export const SettingsTab: React.FC<TournamentAdminTabProps> = (props) => {
                             exit={{ opacity: 0, y: -10 }}
                             className="bg-surface p-4 sm:p-8 rounded-2xl sm:rounded-3xl border border-gray-800 space-y-6 sm:space-y-8"
                         >
+                            {isArchived && (
+                                <div className="bg-blue-500/10 border border-blue-500/30 rounded-2xl p-4 sm:p-5 flex items-center gap-3">
+                                    <span className="p-2 rounded-xl bg-blue-500/20 text-blue-400 shrink-0">
+                                        <Archive className="w-5 h-5" />
+                                    </span>
+                                    <div>
+                                        <h3 className="text-sm font-black text-white uppercase tracking-wider">Tournament Concluded (Archived Read-Only)</h3>
+                                        <p className="text-xs text-gray-400 mt-0.5">
+                                            This tournament is {tournament.status} and archived. Settings and configurations are permanently locked to preserve match history.
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+
                             <div>
                                 <h2 className="text-xl font-black uppercase tracking-tighter text-white mb-2">Automated Point System</h2>
                                 <p className="text-gray-500 text-sm font-medium">Configure how points are calculated for uploaded match results.</p>
@@ -42,14 +58,14 @@ export const SettingsTab: React.FC<TournamentAdminTabProps> = (props) => {
                                             />
                                         </div>
                                         <div>
-                                            <label htmlFor="placement-scale" className="block text-[10px] font-black text-gray-500 uppercase mb-2 tracking-widest">Placement Scale</label>
+                                            <span className="block text-[10px] font-black text-gray-500 uppercase mb-2 tracking-widest">Placement Scale</span>
                                             <div className="text-[10px] text-gray-400 mb-2 font-bold italic">Configured in placement points list</div>
                                         </div>
                                     </div>
 
                                     <div className="space-y-3">
-                                        <label htmlFor="placement-points" className="block text-[10px] font-black text-gray-500 uppercase mb-2 tracking-widest flex justify-between">
-                                            Placement Points
+                                        <div className="text-[10px] font-black text-gray-500 uppercase mb-2 tracking-widest flex justify-between">
+                                            <span>Placement Points</span>
                                             <button type="button" 
                                                 onClick={() => {
                                                     const current = tournament!.pointSystem?.placementPoints || [];
@@ -61,7 +77,7 @@ export const SettingsTab: React.FC<TournamentAdminTabProps> = (props) => {
                                             >
                                                 + Add Rank
                                             </button>
-                                        </label>
+                                        </div>
                                         <div className="max-h-[300px] overflow-y-auto custom-scrollbar space-y-2 pr-2">
                                             {tournament.pointSystem?.placementPoints?.map((p, idx) => (
                                                 <div key={idx} className="flex items-center gap-3 bg-dark p-2 rounded-xl border border-gray-800 group">
@@ -130,8 +146,9 @@ export const SettingsTab: React.FC<TournamentAdminTabProps> = (props) => {
                                     </div>
 
                                     <button type="button" 
+                                        disabled={isArchived}
                                         onClick={async () => {
-                                            if (!tournament) return;
+                                            if (!tournament || isArchived) return;
                                             try {
                                                 const tRef = doc(db, 'tournaments', tournament.id);
                                                 await updateDoc(tRef, { pointSystem: tournament.pointSystem });
@@ -140,9 +157,13 @@ export const SettingsTab: React.FC<TournamentAdminTabProps> = (props) => {
                                                 showToast('Failed to save point system', 'error');
                                             }
                                         }}
-                                        className="w-full bg-brand-600 hover:bg-brand-500 text-white py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-brand-600/20 transition-colors active:scale-95 flex items-center justify-center gap-2"
+                                        className={`w-full py-4 rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-2 ${
+                                            isArchived
+                                                ? 'bg-gray-800 text-gray-500 cursor-not-allowed border border-gray-700'
+                                                : 'bg-brand-600 hover:bg-brand-500 text-white shadow-xl shadow-brand-600/20 transition-colors active:scale-95'
+                                        }`}
                                     >
-                                        <Save className="w-5 h-5" /> Save Configuration
+                                        <Save className="w-5 h-5" /> {isArchived ? 'Locked (Tournament Concluded)' : 'Save Configuration'}
                                     </button>
                                 </div>
                             </div>
@@ -222,23 +243,27 @@ export const SettingsTab: React.FC<TournamentAdminTabProps> = (props) => {
                                             </div>
                                         </div>
                                     ))}
-                                    <button type="button" 
-                                        onClick={() => {
-                                            const current = tournament.roadmap || [];
-                                            const nextRound = current.length + 1;
-                                            const newList = [...current, { roundNumber: nextRound, numGroups: 1, qualificationRule: 1, maps: [], status: 'upcoming', stageName: '' } as any];
-                                            setTournament({...tournament, roadmap: newList});
-                                        }}
-                                        className="h-full min-h-[160px] border-2 border-dashed border-gray-800 hover:border-brand-500/50 rounded-2xl flex flex-col items-center justify-center gap-2 text-gray-600 hover:text-brand-500 transition-colors group"
-                                    >
-                                        <Plus className="w-8 h-8 group-hover:scale-110 transition-transform" />
-                                        <span className="text-[10px] font-black uppercase tracking-widest">Add Roadmap Stage</span>
-                                    </button>
+                                    {!isArchived && (
+                                        <button type="button" 
+                                            onClick={() => {
+                                                const current = tournament.roadmap || [];
+                                                const nextRound = current.length + 1;
+                                                const newList = [...current, { roundNumber: nextRound, numGroups: 1, qualificationRule: 1, maps: [], status: 'upcoming', stageName: '' } as any];
+                                                setTournament({...tournament, roadmap: newList});
+                                            }}
+                                            className="h-full min-h-[160px] border-2 border-dashed border-gray-800 hover:border-brand-500/50 rounded-2xl flex flex-col items-center justify-center gap-2 text-gray-600 hover:text-brand-500 transition-colors group cursor-pointer"
+                                        >
+                                            <Plus className="w-8 h-8 group-hover:scale-110 transition-transform" />
+                                            <span className="text-[10px] font-black uppercase tracking-widest">Add Roadmap Stage</span>
+                                        </button>
+                                    )}
                                 </div>
 
                                 <div className="flex justify-end pt-4">
                                     <button type="button" 
+                                        disabled={isArchived}
                                         onClick={async () => {
+                                            if (isArchived) return;
                                             try {
                                                 const tRef = doc(db, 'tournaments', tournament.id);
                                                 await updateDoc(tRef, { roadmap: tournament.roadmap });
@@ -247,9 +272,13 @@ export const SettingsTab: React.FC<TournamentAdminTabProps> = (props) => {
                                                 showToast('Failed to save roadmap', 'error');
                                             }
                                         }}
-                                        className="bg-brand-600 hover:bg-brand-500 text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-brand-600/20 transition-colors active:scale-95 flex items-center gap-2"
+                                        className={`px-8 py-4 rounded-2xl font-black uppercase tracking-widest flex items-center gap-2 ${
+                                            isArchived
+                                                ? 'bg-gray-800 text-gray-500 cursor-not-allowed border border-gray-700'
+                                                : 'bg-brand-600 hover:bg-brand-500 text-white shadow-xl shadow-brand-600/20 transition-colors active:scale-95'
+                                        }`}
                                     >
-                                        <Save className="w-5 h-5" /> Save Roadmap
+                                        <Save className="w-5 h-5" /> {isArchived ? 'Locked (Archived)' : 'Save Roadmap'}
                                     </button>
                                 </div>
                             </div>

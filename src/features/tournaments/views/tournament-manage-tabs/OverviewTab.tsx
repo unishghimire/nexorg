@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { RotateCcw, DollarSign, TrendingUp, TrendingDown, Play, Pause, Send, Lock, Award } from 'lucide-react';
+import { RotateCcw, DollarSign, TrendingUp, TrendingDown, Play, Pause, Send, Lock, Award, Archive, Plus } from 'lucide-react';
 import { formatCurrency } from '../../../../shared/utils/utils';
 import { TournamentAdminTabProps } from './types';
 import { TournamentRoadmap } from '../../../tournaments/components/TournamentRoadmap';
@@ -105,48 +105,75 @@ export const OverviewTab: React.FC<TournamentAdminTabProps> = (props) => {
                              )}
 
                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-                                 <div className="bg-card/50 p-4 sm:p-6 rounded-2xl sm:rounded-[2rem] border border-gray-800">
-                                     <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-6">Status Control</h3>
-                                     <div className="flex gap-3">
-                                         {readiness.isLocked ? (
-                                             <button type="button" 
-                                                 onClick={() => showToast(readiness.statusText, 'warning')}
-                                                 className="flex-1 bg-amber-500/10 text-amber-400 border border-amber-500/30 py-4 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 cursor-not-allowed transition-colors"
-                                                 title={readiness.statusText}
+                                 {tournament.status === 'completed' || tournament.status === 'cancelled' ? (
+                                     <div className="bg-card/50 p-4 sm:p-6 rounded-2xl sm:rounded-[2rem] border border-blue-500/20 sm:col-span-2">
+                                         <div className="flex items-center gap-3 mb-2">
+                                             <span className="p-2.5 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/30">
+                                                 <Archive className="w-5 h-5" />
+                                             </span>
+                                             <div>
+                                                 <h3 className="text-sm font-black text-white uppercase tracking-wider">Tournament Finalized & Archived</h3>
+                                                 <p className="text-xs text-gray-400 mt-0.5">
+                                                     This tournament is {tournament.status} and safely preserved in history as read-only.
+                                                     It cannot be restarted or reopened with the same details.
+                                                 </p>
+                                             </div>
+                                         </div>
+                                         <div className="mt-4 flex items-center gap-3">
+                                             <a
+                                                 href="/organizer?tab=tournaments"
+                                                 className="px-4 py-2 rounded-full bg-brand-500 hover:bg-brand-400 text-white text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-colors cursor-pointer"
                                              >
-                                                 <Lock className="w-3 h-3 text-amber-400" /> Locked
-                                             </button>
-                                         ) : (
-                                             <button type="button" 
-                                                 onClick={() => handleUpdateStatus('live')}
-                                                 disabled={tournament.status === 'live'}
-                                                 className="flex-1 bg-green-500/10 hover:bg-green-500/20 text-green-500 border border-green-500/20 disabled:opacity-30 disabled:cursor-not-allowed py-4 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-colors"
-                                             >
-                                                 <Play className="w-3 h-3" /> Start
-                                             </button>
-                                         )}
-                                         <button type="button" 
-                                             onClick={() => handleUpdateStatus('paused')}
-                                             disabled={tournament.status === 'paused'}
-                                             className="flex-1 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-500 border border-yellow-500/20 disabled:opacity-30 disabled:cursor-not-allowed py-4 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-colors"
-                                         >
-                                             <Pause className="w-3 h-3" /> Pause
-                                         </button>
+                                                 <Plus className="w-3.5 h-3.5" /> Host New Tournament
+                                             </a>
+                                         </div>
                                      </div>
-                                 </div>
-                                 <div className="bg-card/50 p-4 sm:p-6 rounded-2xl sm:rounded-[2rem] border border-gray-800">
-                                     <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-6">Stage Progression</h3>
-                                     <select 
-                                         value={tournament.stage || 'registration'}
-                                         onChange={(e) => handleUpdateStage(e.target.value)}
-                                         className="w-full bg-dark border border-gray-800 rounded-full p-4 text-[10px] text-white font-black uppercase tracking-widest focus:border-brand-500 focus-visible:outline-none cursor-pointer transition-colors"
-                                     >
-                                         <option value="registration">Registration</option>
-                                         <option value="group_stage">Group Stage</option>
-                                         <option value="knockout">Knockout Stage</option>
-                                         <option value="completed">Completed</option>
-                                     </select>
-                                 </div>
+                                 ) : (
+                                     <>
+                                         <div className="bg-card/50 p-4 sm:p-6 rounded-2xl sm:rounded-[2rem] border border-gray-800">
+                                             <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-6">Status Control</h3>
+                                             <div className="flex gap-3">
+                                                 {readiness.isLocked ? (
+                                                     <button type="button" 
+                                                         onClick={() => showToast(readiness.statusText, 'warning')}
+                                                         className="flex-1 bg-amber-500/10 text-amber-400 border border-amber-500/30 py-4 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 cursor-not-allowed transition-colors"
+                                                         title={readiness.statusText}
+                                                     >
+                                                         <Lock className="w-3 h-3 text-amber-400" /> Locked
+                                                     </button>
+                                                 ) : (
+                                                     <button type="button" 
+                                                         onClick={() => handleUpdateStatus('live')}
+                                                         disabled={tournament.status === 'live'}
+                                                         className="flex-1 bg-green-500/10 hover:bg-green-500/20 text-green-500 border border-green-500/20 disabled:opacity-30 disabled:cursor-not-allowed py-4 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-colors"
+                                                     >
+                                                         <Play className="w-3 h-3" /> Start
+                                                     </button>
+                                                 )}
+                                                 <button type="button" 
+                                                     onClick={() => handleUpdateStatus('paused')}
+                                                     disabled={tournament.status === 'paused'}
+                                                     className="flex-1 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-500 border border-yellow-500/20 disabled:opacity-30 disabled:cursor-not-allowed py-4 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-colors"
+                                                 >
+                                                     <Pause className="w-3 h-3" /> Pause
+                                                 </button>
+                                             </div>
+                                         </div>
+                                         <div className="bg-card/50 p-4 sm:p-6 rounded-2xl sm:rounded-[2rem] border border-gray-800">
+                                             <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-6">Stage Progression</h3>
+                                             <select 
+                                                 value={tournament.stage || 'registration'}
+                                                 onChange={(e) => handleUpdateStage(e.target.value)}
+                                                 className="w-full bg-dark border border-gray-800 rounded-full p-4 text-[10px] text-white font-black uppercase tracking-widest focus:border-brand-500 focus-visible:outline-none cursor-pointer transition-colors"
+                                             >
+                                                 <option value="registration">Registration</option>
+                                                 <option value="group_stage">Group Stage</option>
+                                                 <option value="knockout">Knockout Stage</option>
+                                                 <option value="completed">Completed</option>
+                                             </select>
+                                         </div>
+                                     </>
+                                 )}
                                  <div className="bg-card/50 p-4 sm:p-6 rounded-2xl sm:rounded-[2rem] border border-gray-800 sm:col-span-2 lg:col-span-1">
                                      <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-6">Quick Actions</h3>
                                      <div className="flex flex-col sm:flex-row lg:flex-col gap-3">

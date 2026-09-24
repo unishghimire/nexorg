@@ -9,7 +9,7 @@ interface ProtectedRouteProps {
 }
 
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles }) => {
-    const { user, profile, loading, authError, retryAuth } = useAuth();
+    const { user, profile, loading, authError, retryAuth, logout } = useAuth();
     const location = useLocation();
     const [profileTimeout, setProfileTimeout] = useState(false);
 
@@ -99,12 +99,18 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles 
                 <p className="text-sm text-gray-400 max-w-md">
                     Your account (<span className="text-white font-mono">{user.email}</span>) currently has the <span className="text-brand-400 font-bold uppercase">{effectiveRole}</span> role. This portal is strictly for verified tournament organizers and admins.
                 </p>
-                <div className="flex items-center gap-3 mt-2">
+                <div className="flex flex-wrap items-center justify-center gap-3 mt-2">
                     <button
-                        onClick={() => window.location.href = 'https://nexplay.gg'}
-                        className="px-5 py-2.5 bg-gray-800 hover:bg-gray-700 text-white text-xs font-black uppercase tracking-widest rounded-xl transition"
+                        onClick={() => window.location.href = 'https://www.nexplayorg.app'}
+                        className="px-5 py-2.5 bg-brand-600 hover:bg-brand-500 text-white text-xs font-black uppercase tracking-widest rounded-xl transition"
                     >
                         Go to Player Portal
+                    </button>
+                    <button
+                        onClick={() => logout()}
+                        className="px-5 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white text-xs font-black uppercase tracking-widest rounded-xl transition"
+                    >
+                        Sign Out / Switch Account
                     </button>
                 </div>
             </div>

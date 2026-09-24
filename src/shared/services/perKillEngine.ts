@@ -52,14 +52,16 @@ export function validateKills(kills: unknown): { valid: boolean; value: number; 
 export function calculatePlayerReward(params: {
     verifiedKills: number;
     rewardPerKill: number;
-    minimumKillsForReward: number;
+    minimumKillsForReward?: number;
     maximumRewardPerMatch?: number;
     maximumRewardPerPlayer?: number;  // per tournament total
     currentTournamentReward?: number; // already earned this tournament (for cap check)
 }): { rewardAmount: number; capped: boolean } {
-    const { verifiedKills, rewardPerKill, minimumKillsForReward } = params;
+    const { verifiedKills, rewardPerKill } = params;
+    // Fixed minimum kill threshold is 1 kill (players must score at least 1 kill to earn rewards)
+    const minimumKillsForReward = Math.max(1, Number(params.minimumKillsForReward ?? 1));
 
-    // Below minimum threshold — no reward
+    // Below minimum threshold (0 kills) — no reward
     if (verifiedKills < minimumKillsForReward) {
         return { rewardAmount: 0, capped: false };
     }

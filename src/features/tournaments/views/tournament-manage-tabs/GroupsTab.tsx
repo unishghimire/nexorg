@@ -91,6 +91,7 @@ export const GroupsTab: React.FC<TournamentAdminTabProps> = (props) => {
                     <div>
                         <label htmlFor="group-name" className="block text-xs font-bold text-gray-500 uppercase mb-2">Group Name</label>
                         <input 
+                            id="group-name"
                             type="text" 
                             value={newGroup.name}
                             onChange={(e) => setNewGroup({...newGroup, name: e.target.value})}
@@ -101,6 +102,7 @@ export const GroupsTab: React.FC<TournamentAdminTabProps> = (props) => {
                     <div>
                         <label htmlFor="team-limit" className="block text-xs font-bold text-gray-500 uppercase mb-2">Team Limit</label>
                         <input 
+                            id="team-limit"
                             type="number" 
                             value={newGroup.teamLimit}
                             onChange={(e) => setNewGroup({...newGroup, teamLimit: parseInt(e.target.value) || 0})}
@@ -123,6 +125,7 @@ export const GroupsTab: React.FC<TournamentAdminTabProps> = (props) => {
                         <div>
                             <label htmlFor="group-passcode" className="block text-xs font-bold text-gray-500 uppercase mb-2">Passcode</label>
                             <input 
+                                id="group-passcode"
                                 type="text" 
                                 value={newGroup.passCode}
                                 onChange={(e) => setNewGroup({...newGroup, passCode: e.target.value})}

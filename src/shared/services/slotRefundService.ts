@@ -272,6 +272,7 @@ export async function releaseSlotWithRefund(
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       releasedBy: auth.currentUser?.uid || 'organizer',
+      hostUid: auth.currentUser?.uid || scrimData.hostUid || scrimData.createdBy || scrimData.userId || 'organizer',
     }, { merge: true }).catch((err) => {
       console.warn('Could not write to pending_refunds queue:', err);
     });

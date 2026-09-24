@@ -97,9 +97,16 @@ service cloud.firestore {
     match /tournaments/{tournamentId} {
       allow read: if true;
       allow create: if isOrganizer() || isAdmin();
-      // Allow updates if host/admin, OR allow player reserving/releasing a slot
-      allow update: if isHostOrAdmin(resource.data) ||
-        (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['slots', 'filledSlots', 'currentPlayers']));
+      // Invariant: Once completed or cancelled, event is archived and cannot be restarted/reopened
+      allow update: if (isHostOrAdmin(resource.data) && (
+        isAdmin() ||
+        !(resource.data.status in ['completed', 'cancelled']) ||
+        request.resource.data.status == resource.data.status
+      )) || (
+        isAuthenticated() && 
+        !(resource.data.status in ['completed', 'cancelled']) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['slots', 'filledSlots', 'currentPlayers'])
+      );
       allow delete: if isHostOrAdmin(resource.data);
 
       match /credentials/{credentialId} {
@@ -120,8 +127,16 @@ service cloud.firestore {
     match /scrims/{scrimId} {
       allow read: if true;
       allow create: if isOrganizer() || isAdmin();
-      allow update: if isHostOrAdmin(resource.data) ||
-        (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['slots', 'filledSlots', 'currentPlayers']));
+      // Invariant: Once completed or cancelled, scrim is archived and cannot be restarted/reopened
+      allow update: if (isHostOrAdmin(resource.data) && (
+        isAdmin() ||
+        !(resource.data.status in ['completed', 'cancelled']) ||
+        request.resource.data.status == resource.data.status
+      )) || (
+        isAuthenticated() && 
+        !(resource.data.status in ['completed', 'cancelled']) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['slots', 'filledSlots', 'currentPlayers'])
+      );
       allow delete: if isHostOrAdmin(resource.data);
 
       match /credentials/{credentialId} {
@@ -228,17 +243,23 @@ service cloud.firestore {
       allow read: if isAuthenticated() && (
         resource.data.userId == request.auth.uid ||
         (resource.data.hostUid != null && resource.data.hostUid == request.auth.uid) ||
+        (resource.data.releasedBy != null && resource.data.releasedBy == request.auth.uid) ||
         (resource.data.orgId != null && resource.data.orgId == request.auth.uid) ||
         isAdmin()
       );
-      // Only admin or an authentic host releasing another player's slot can create
+      // Admin or an authentic host releasing another player's slot can create
       allow create: if isAuthenticated() && (
         isAdmin() ||
-        (request.resource.data.hostUid == request.auth.uid &&
+        ((request.resource.data.hostUid == request.auth.uid || request.resource.data.releasedBy == request.auth.uid) &&
          request.resource.data.userId != request.auth.uid &&
          request.resource.data.amount > 0)
       );
-      allow update, delete: if isAdmin();
+      // Admin or the refund recipient marking their refund as completed
+      allow update: if isAuthenticated() && (
+        isAdmin() ||
+        (resource.data.userId == request.auth.uid && request.resource.data.status == 'completed')
+      );
+      allow delete: if isAdmin();
     }
 
     // ===============================================================

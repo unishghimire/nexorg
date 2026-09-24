@@ -186,7 +186,7 @@ export const PrizeDistributionModal: React.FC<PrizeDistributionModalProps> = ({
           const calc = calculatePlayerReward({
             verifiedKills: Number(t.kills) || 0,
             rewardPerKill: perKillRate,
-            minimumKillsForReward: Number(event?.minimumKillsForReward || event?.rewardSnapshot?.minimumKillsForReward || 0),
+            minimumKillsForReward: Math.max(1, Number(event?.minimumKillsForReward || event?.rewardSnapshot?.minimumKillsForReward || 1)),
             maximumRewardPerPlayer: Number(event?.maximumRewardPerPlayer || event?.rewardSnapshot?.maximumRewardPerPlayer || 0) || undefined,
           });
           return {
