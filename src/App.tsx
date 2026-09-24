@@ -1,4 +1,4 @@
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { HelmetProvider } from 'react-helmet-async';
 import { AuthProvider } from './shared/context/AuthContext';
@@ -10,6 +10,7 @@ import ProtectedRoute from './shared/components/ProtectedRoute';
 import ScrollToTop from './shared/components/ScrollToTop';
 import Footer from './shared/components/Footer';
 import InstallAppPrompt from './shared/components/pwa/InstallAppPrompt';
+import { initDeadlineMonitor } from './shared/services/eventSettlementService';
 
 const OrganizerPanel = lazy(() => import('./features/organizer/views/OrganizerPanel'));
 const TournamentManagePortal = lazy(() => import('./features/tournaments/views/TournamentManagePortal'));
@@ -26,6 +27,11 @@ const LoadingFallback = () => (
 );
 
 const AppContent = () => {
+  useEffect(() => {
+    // Authoritative background monitor: scans completed tournaments/scrims for 48h deadline breaches & enforces 10% penalty
+    const cleanup = initDeadlineMonitor(60);
+    return cleanup;
+  }, []);
   return (
     <div id="org-app" className="min-h-[100dvh] bg-dark flex flex-col relative overflow-x-hidden text-white">
       <OrgNavbar />

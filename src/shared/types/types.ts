@@ -243,6 +243,64 @@ export interface Scrim {
     minimumKillsForReward?: number;
     orgExpAwardedForCreate?: boolean;
     orgExpAwardedForComplete?: boolean;
+    // ─── Settlement & 48-Hour Deadline Fields ───
+    completedAt?: Timestamp | any;
+    resultDeadlineAt?: Timestamp | any;
+    resultStatus?: EventResultStatus;
+    settlementStatus?: EventSettlementStatus;
+    deadlineStatus?: EventDeadlineStatus;
+    resultsPublishedAt?: Timestamp | any;
+    // Lock Amount (Free Scrims)
+    lockAmount?: number;
+    lockAmountDeposited?: boolean;
+    lockAmountStatus?: EventLockAmountStatus;
+    lockAmountTxId?: string;
+    lockRefundTxId?: string;
+    // Organizer Profit (Paid Scrims)
+    organizerProfit?: number;
+    organizerProfitReleased?: boolean;
+    profitReleasedAt?: Timestamp | any;
+    profitStatus?: 'locked' | 'released' | 'zero_profit' | 'no_earnings';
+    profitTxId?: string;
+    // 48-Hour Penalty
+    penaltyApplied?: boolean;
+    penaltyAmount?: number;
+    penaltyBase?: string;
+    penaltyAppliedAt?: Timestamp | any;
+    penaltyReason?: string;
+    penaltyTxId?: string;
+    // Settlement Audit Log
+    settlementAuditLog?: SettlementAuditEntry[];
+}
+
+export type EventResultStatus = 'none' | 'result_pending' | 'draft' | 'published' | 'verified';
+export type EventSettlementStatus = 'unfunded' | 'escrow_locked' | 'pending_results' | 'penalty_applied' | 'settled';
+export type EventDeadlineStatus = 'none' | 'active' | 'met' | 'expired' | 'penalized';
+export type EventLockAmountStatus = 'none' | 'required' | 'deposited' | 'refunded' | 'penalized';
+
+export interface SettlementAuditEntry {
+    timestamp: string;
+    action:
+        | 'EVENT_COMPLETED'
+        | 'RESULT_SUBMITTED'
+        | 'RESULT_EDITED'
+        | 'RESULT_PUBLISHED'
+        | 'PROFIT_RELEASED'
+        | 'LOCK_AMOUNT_DEPOSITED'
+        | 'LOCK_AMOUNT_REFUNDED'
+        | 'PENALTY_APPLIED'
+        | 'SETTLEMENT_COMPLETED'
+        | 'ADMIN_CORRECTION';
+    actorUid: string;
+    actorName: string;
+    actorRole?: string;
+    eventId: string;
+    eventType: 'tournament' | 'scrim';
+    previousValue?: any;
+    newValue?: any;
+    reason?: string;
+    walletTxId?: string;
+    details?: string;
 }
 
 export interface Tournament {
@@ -319,6 +377,34 @@ export interface Tournament {
     rewardAuditLog?: RewardAuditEntry[];
     orgExpAwardedForCreate?: boolean;
     orgExpAwardedForComplete?: boolean;
+    // ─── Settlement & 48-Hour Deadline Fields ───
+    completedAt?: Timestamp | any;
+    resultDeadlineAt?: Timestamp | any;
+    resultStatus?: EventResultStatus;
+    settlementStatus?: EventSettlementStatus;
+    deadlineStatus?: EventDeadlineStatus;
+    resultsPublishedAt?: Timestamp | any;
+    // Lock Amount (Free Tournaments)
+    lockAmount?: number;
+    lockAmountDeposited?: boolean;
+    lockAmountStatus?: EventLockAmountStatus;
+    lockAmountTxId?: string;
+    lockRefundTxId?: string;
+    // Organizer Profit (Paid Tournaments)
+    organizerProfit?: number;
+    organizerProfitReleased?: boolean;
+    profitReleasedAt?: Timestamp | any;
+    profitStatus?: 'locked' | 'released' | 'zero_profit' | 'no_earnings';
+    profitTxId?: string;
+    // 48-Hour Penalty
+    penaltyApplied?: boolean;
+    penaltyAmount?: number;
+    penaltyBase?: string;
+    penaltyAppliedAt?: Timestamp | any;
+    penaltyReason?: string;
+    penaltyTxId?: string;
+    // Settlement Audit Log
+    settlementAuditLog?: SettlementAuditEntry[];
     // ─── Audit log — tracks all major tournament operations ───
     auditLog?: {
         timestamp: Timestamp | any;
@@ -368,7 +454,11 @@ export interface Transaction {
         | 'tournament_reservation'
         | 'tournament_release'
         | 'prize_payout'
-        | 'admin_adjustment';
+        | 'admin_adjustment'
+        | 'earnings_release'
+        | 'lock_amount_deposit'
+        | 'lock_amount_refund'
+        | 'penalty';
     amount: number;
     method: string;
     refId: string;

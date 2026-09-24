@@ -231,6 +231,7 @@ service cloud.firestore {
       );
       allow create: if isAuthenticated() && (
         request.resource.data.userId == request.auth.uid ||
+        isOrganizer() ||
         isAdmin()
       );
       allow update, delete: if isAdmin();
@@ -348,7 +349,8 @@ service cloud.firestore {
         (resource.data.orgId != null && resource.data.orgId == request.auth.uid) ||
         (resource.data.hostUid != null && resource.data.hostUid == request.auth.uid)
       ));
-      allow write: if isAdmin();
+      allow create: if isOrganizer() || isAdmin();
+      allow update, delete: if isAdmin();
     }
   }
 }

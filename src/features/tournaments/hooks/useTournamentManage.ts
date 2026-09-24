@@ -40,8 +40,12 @@ import {
     isParticipantEligible,
     getEligibleParticipants,
 } from '../../../shared/services/tournamentEngine';
-import { TournamentAuditEntry } from '../../../shared/types/tournament-engine';
 import { broadcastRoomCredentials, saveDraftRoomCredentials } from '../../../shared/services/roomCredentials';
+import {
+    markEventCompletedWithDeadline,
+    depositFreeEventLockAmount,
+    DEFAULT_FREE_LOCK_AMOUNT,
+} from '../../../shared/services/eventSettlementService';
 
 export function useTournamentManage(
     id: string | undefined,
@@ -132,6 +136,23 @@ export function useTournamentManage(
         };
     }, [id, user, profile?.role, navigate, showToast]);
 
+    const handleDepositLockAmount = async () => {
+        if (!tournament || !user) return;
+        try {
+            const res = await depositFreeEventLockAmount({
+                eventId: tournament.id,
+                eventType: 'tournament',
+                hostUid: tournament.hostUid || user.uid,
+                lockAmount: Number((tournament as any).lockAmount || DEFAULT_FREE_LOCK_AMOUNT),
+            });
+            if (res.success) {
+                showToast(res.message, 'success');
+            }
+        } catch (err: any) {
+            showToast(err.message || 'Failed to deposit lock amount', 'error');
+        }
+    };
+
     const handleUpdateStatus = async (status: 'upcoming' | 'live' | 'completed' | 'paused') => {
         if (!tournament) return;
 
@@ -141,6 +162,11 @@ export function useTournamentManage(
         }
 
         if (status === 'live') {
+            const entryFee = Math.max(0, Number(tournament.entryFee || (tournament as any).requirements?.entryFee || 0));
+            if (entryFee === 0 && !(tournament as any).lockAmountDeposited && (tournament as any).lockAmountStatus !== 'deposited') {
+                showToast(`Cannot start free tournament: Security lock deposit (Rs. ${Number((tournament as any).lockAmount || DEFAULT_FREE_LOCK_AMOUNT).toLocaleString()}) must be deposited first.`, 'warning');
+                return;
+            }
             const readiness = checkFinancialReadiness(tournament);
             if (readiness.isLocked) {
                 showToast(`Cannot start tournament: Paid events require full prize pool balance. Needs ${readiness.slotsRemaining} more registered ${readiness.slotsRemaining === 1 ? 'slot' : 'slots'} (Rs. ${readiness.shortfall.toLocaleString()} needed to fund Rs. ${readiness.prizePool.toLocaleString()} prize pool).`, 'error');
@@ -165,6 +191,14 @@ export function useTournamentManage(
             await updateDoc(doc(db, 'tournaments', tournament.id), cleanedPayload);
 
             if (status === 'completed') {
+                await markEventCompletedWithDeadline({
+                    eventId: tournament.id,
+                    eventType: 'tournament',
+                    actorUid: user?.uid || 'organizer',
+                    actorName: profile?.username || user?.displayName || 'Host',
+                    actorRole: profile?.role || 'organizer',
+                    lockAmount: Number((tournament as any).lockAmount || DEFAULT_FREE_LOCK_AMOUNT),
+                }).catch((err) => console.warn('markEventCompletedWithDeadline error:', err));
                 showToast('Tournament completed.', 'success');
             } else {
                 showToast(`Tournament status updated to ${status}`, 'success');
@@ -209,6 +243,18 @@ export function useTournamentManage(
                 status: stage === 'completed' ? 'completed' : 
                         stage === 'registration' ? 'upcoming' : 'live'
             }));
+
+            if (stage === 'completed') {
+                await markEventCompletedWithDeadline({
+                    eventId: tournament.id,
+                    eventType: 'tournament',
+                    actorUid: user?.uid || 'organizer',
+                    actorName: profile?.username || user?.displayName || 'Host',
+                    actorRole: profile?.role || 'organizer',
+                    lockAmount: Number((tournament as any).lockAmount || DEFAULT_FREE_LOCK_AMOUNT),
+                }).catch((err) => console.warn('markEventCompletedWithDeadline error:', err));
+            }
+
             showToast(`Tournament stage updated to ${stage}`, 'success');
         } catch (error) {
             showToast('Failed to update stage', 'error');
@@ -1004,6 +1050,7 @@ export function useTournamentManage(
         handleRemoveTeam,
         handleUpdateStage,
         handleUpdateStatus,
+        handleDepositLockAmount,
         isAddMatchModalOpen,
         isCreateGroupModalOpen,
         isManageTeamsModalOpen,

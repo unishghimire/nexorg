@@ -12,6 +12,8 @@ import {
   Edit2,
   Lock,
   AlertTriangle,
+  Clock,
+  CheckCircle2,
 } from 'lucide-react';
 import { getSlotCount, getFilledSlotCount } from '../../../shared/utils/scrimSlots';
 import { checkFinancialReadiness } from '../../../shared/services/prizeDistributionService';
@@ -112,6 +114,44 @@ const TournamentsTab: React.FC<TournamentsTabProps> = ({
           </span>
         );
     }
+  };
+
+  const renderSettlementBadges = (event: any) => {
+    if (event.status !== 'completed' && event.status !== 'finalized') return null;
+
+    const isPublished = event.resultStatus === 'published' || event.resultStatus === 'verified';
+    const isPenalty = event.penaltyApplied === true;
+    const isSettled = event.settlementStatus === 'settled';
+
+    return (
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {isPublished ? (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+            <CheckCircle2 className="w-3 h-3" /> Published
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/10 text-amber-400 border border-amber-500/30">
+            <Clock className="w-3 h-3" /> Result Pending
+          </span>
+        )}
+
+        {isPenalty ? (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-rose-500/10 text-rose-400 border border-rose-500/30">
+            <AlertTriangle className="w-3 h-3" /> Penalty Applied
+          </span>
+        ) : !isPublished ? (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-purple-500/10 text-purple-400 border border-purple-500/30">
+            <Clock className="w-3 h-3" /> 48h Deadline Active
+          </span>
+        ) : null}
+
+        {isSettled && (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-500/10 text-blue-400 border border-blue-500/30">
+            Settlement Complete
+          </span>
+        )}
+      </div>
+    );
   };
 
   const renderBracket = (matches: BracketMatch[]) => {
@@ -294,6 +334,7 @@ const TournamentsTab: React.FC<TournamentsTabProps> = ({
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
                     {getStatusBadge(tournament.status, tournament.fundingStatus)}
+                    {renderSettlementBadges(tournament)}
                     {readiness.isPaid && (
                       <FinancialLockBanner readiness={readiness} compact={true} />
                     )}

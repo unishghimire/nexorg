@@ -15,6 +15,7 @@ import { resolveAllScrimResults } from '../utils/scrimResults';
 import { cleanFirestoreData } from '../utils/utils';
 import { calculateRevenueSplit } from '../constants/finance';
 import { awardOrgEventCompletionExp } from './orgLevelService';
+import { publishResultsAndSettle } from './eventSettlementService';
 
 export interface WinnerPayoutEntry {
   rank: number;
@@ -614,6 +615,19 @@ export async function executePrizeDistribution(
       }
     }
   }
+
+  // Step 4.5: Authoritative 48-Hour Deadline, Profit Release & Settlement Engine
+  await publishResultsAndSettle({
+    eventId,
+    eventType: eventType || (existingData?.matchType === 'scrims' || existingData?.isScrim ? 'scrim' : 'tournament'),
+    actorUid: releasingHost,
+    actorName: existingData?.hostName || 'Organizer',
+    actorRole: 'organizer',
+    results: formattedManualResults,
+    winners: validWinners,
+  }).catch((settleErr) => {
+    console.warn('[PrizeDistribution] publishResultsAndSettle notice:', settleErr);
+  });
 
   // Step 5: Broadcast completion notification to all registered participants
   const targetRoute = eventType === 'scrim' ? `/organizer/scrim/${eventId}` : `/tournaments/${eventId}`;

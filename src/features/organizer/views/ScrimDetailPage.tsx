@@ -12,6 +12,13 @@ import { NotificationService } from '../../../shared/services/NotificationServic
 import { checkFinancialReadiness } from '../../../shared/services/prizeDistributionService';
 import { awardOrgEventCompletionExp } from '../../../shared/services/orgLevelService';
 import { FinancialLockBanner } from '../../../shared/components/FinancialLockBanner';
+import { EventSettlementBanner } from '../../../shared/components/EventSettlementBanner';
+import {
+  markEventCompletedWithDeadline,
+  publishResultsAndSettle,
+  depositFreeEventLockAmount,
+  DEFAULT_FREE_LOCK_AMOUNT,
+} from '../../../shared/services/eventSettlementService';
 import { PrizeDistributionModal } from '../../../shared/components/PrizeDistributionModal';
 import { toDateSafe, cleanFirestoreData } from '../../../shared/utils/utils';
 import { resolveAllScrimResults } from '../../../shared/utils/scrimResults';
@@ -578,10 +585,38 @@ export default function ScrimDetailPage() {
     }
   }, [id, scrim, roomId, roomPass, streamUrl, scrimCollection, showToast]);
 
+  const handleDepositLockAmount = useCallback(async () => {
+    if (!id || !scrim || !user) return;
+    try {
+      const res = await depositFreeEventLockAmount({
+        eventId: id,
+        eventType: 'scrim',
+        hostUid: scrim.hostUid || user.uid,
+        lockAmount: Number(scrim.lockAmount || DEFAULT_FREE_LOCK_AMOUNT),
+      });
+      if (res.success) {
+        showToast(res.message, 'success');
+        setScrim((prev: any) => prev ? {
+          ...prev,
+          lockAmountDeposited: true,
+          lockAmountStatus: 'deposited',
+          lockAmountTxId: res.txId,
+        } : prev);
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Failed to deposit lock amount', 'error');
+    }
+  }, [id, scrim, user, showToast]);
+
   const handleBroadcast = useCallback(async () => {
     if (!id || !scrim) return;
     if (!roomId.trim() || !roomPass.trim()) {
       showToast('Please enter both Room ID and Room Password before publishing', 'warning');
+      return;
+    }
+    const entryFee = Math.max(0, Number(scrim.entryFee ?? scrim.requirements?.entryFee ?? scrim.price ?? 0));
+    if (entryFee === 0 && !scrim.lockAmountDeposited && scrim.lockAmountStatus !== 'deposited') {
+      showToast(`Cannot publish room credentials: Free scrims require the organizer to deposit the security lock amount (Rs. ${Number(scrim.lockAmount || DEFAULT_FREE_LOCK_AMOUNT).toLocaleString()}) first.`, 'warning');
       return;
     }
     const readiness = checkFinancialReadiness(scrim);
@@ -626,6 +661,11 @@ export default function ScrimDetailPage() {
     }
 
     if (newStatus === 'live') {
+      const entryFee = Math.max(0, Number(scrim.entryFee ?? scrim.requirements?.entryFee ?? scrim.price ?? 0));
+      if (entryFee === 0 && !scrim.lockAmountDeposited && scrim.lockAmountStatus !== 'deposited') {
+        showToast(`Cannot start free scrim: Security lock amount deposit (Rs. ${Number(scrim.lockAmount || DEFAULT_FREE_LOCK_AMOUNT).toLocaleString()}) must be deposited first.`, 'warning');
+        return;
+      }
       const readiness = checkFinancialReadiness(scrim);
       if (readiness.isLocked) {
         showToast(`Cannot start scrim: Paid matches require full prize pool balance. Needs ${readiness.slotsRemaining} more registered ${readiness.slotsRemaining === 1 ? 'slot' : 'slots'} (Rs. ${readiness.shortfall.toLocaleString()} needed to fund Rs. ${readiness.prizePool.toLocaleString()} prize pool).`, 'error');
@@ -683,6 +723,18 @@ export default function ScrimDetailPage() {
       await updateDoc(doc(db, 'scrims', id), cleanedPayload);
       setScrim((prev: any) => prev ? { ...prev, ...cleanedPayload } : prev);
 
+      if (newStatus === 'completed') {
+        // Enforce 48-Hour Result Deadline & Settlement State Machine
+        await markEventCompletedWithDeadline({
+          eventId: id,
+          eventType: 'scrim',
+          actorUid: user?.uid || 'organizer',
+          actorName: profile?.username || user?.displayName || 'Host',
+          actorRole: profile?.role || 'organizer',
+          lockAmount: Number(scrim.lockAmount || DEFAULT_FREE_LOCK_AMOUNT),
+        }).catch((err) => console.warn('markEventCompletedWithDeadline error:', err));
+      }
+
       if (newStatus === 'live') {
         announceScrimLive({
           id,
@@ -708,7 +760,7 @@ export default function ScrimDetailPage() {
     } catch {
       showToast('Failed to update status', 'error');
     }
-  }, [id, scrim, participants, showToast]);
+  }, [id, scrim, participants, user, profile, showToast]);
 
   const handleDeleteScrim = useCallback(async () => {
     if (!id || !window.confirm(`Are you sure you want to permanently delete "${scrim?.title || 'this scrim'}"?`)) return;
@@ -952,6 +1004,19 @@ export default function ScrimDetailPage() {
       });
 
       await updateDoc(doc(db, 'scrims', id!), cleanedWinnerPayload);
+
+      // Release organizer profit (for paid) or refund lock amount (for free) & audit settlement
+      await publishResultsAndSettle({
+        eventId: id!,
+        eventType: 'scrim',
+        actorUid: user?.uid || 'organizer',
+        actorName: profile?.username || user?.displayName || 'Host',
+        actorRole: profile?.role || 'organizer',
+        results: cleanedWinnerPayload.manualResults,
+        winners: cleanedWinnerPayload.winners,
+      }).catch((settleErr: any) => {
+        console.warn('publishResultsAndSettle error:', settleErr);
+      });
 
       // Award +60 Organization EXP for completing a scrim (idempotent)
       awardOrgEventCompletionExp(id!, 'scrim', user?.uid || scrim?.hostUid).catch(() => {});
@@ -1267,6 +1332,16 @@ export default function ScrimDetailPage() {
 
       {/* Financial Readiness Lock Banner */}
       <FinancialLockBanner readiness={financialReadiness} className="mb-4" />
+
+      {/* 48-Hour Result Deadline, Profit Lock & Penalty Settlement Engine Banner */}
+      <EventSettlementBanner
+        event={scrim}
+        eventType="scrim"
+        onOpenResultModal={() => setShowWinnerModal(true)}
+        onDepositLockAmount={handleDepositLockAmount}
+        isAdmin={profile?.role === 'admin'}
+        isHost={Boolean(user && (scrim.hostUid === user.uid || scrim.createdBy === user.uid))}
+      />
 
       {/* Status control bar & Multi-Tier Settlement Trigger */}
       <div className="flex items-center justify-between gap-3 flex-wrap bg-dark/40 border border-gray-800 rounded-xl p-3">

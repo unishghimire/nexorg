@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Gamepad2, RefreshCw, Clock, DollarSign, Trophy, Plus, Settings2, Edit2, Trash2, Radio, Play, CheckCircle2, RotateCcw, XCircle, Users, Lock, Target } from 'lucide-react';
+import { Gamepad2, RefreshCw, Clock, DollarSign, Trophy, Plus, Settings2, Edit2, Trash2, Radio, Play, CheckCircle2, RotateCcw, XCircle, Users, Lock, Target, AlertTriangle } from 'lucide-react';
 import { toDateSafe } from '../../../shared/utils/utils';
 import { resolveSlotTeam, fetchDedicatedTeams, DedicatedTeamsLookup } from '../../../shared/utils/teamUtils';
 import { checkFinancialReadiness } from '../../../shared/services/prizeDistributionService';
@@ -65,6 +65,44 @@ export const ScrimsHubTab: React.FC<ScrimsHubTabProps> = ({
     if (formatStr.toLowerCase().includes('5v5')) return '5v5';
     if (formatStr.toLowerCase().includes('royale') || formatStr.toLowerCase().includes('br')) return 'Battle Royale';
     return formatStr;
+  };
+
+  const renderSettlementBadges = (event: any) => {
+    if (event.status !== 'completed' && event.status !== 'finalized') return null;
+
+    const isPublished = event.resultStatus === 'published' || event.resultStatus === 'verified';
+    const isPenalty = event.penaltyApplied === true;
+    const isSettled = event.settlementStatus === 'settled';
+
+    return (
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {isPublished ? (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+            <CheckCircle2 className="w-3 h-3" /> Published
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/10 text-amber-400 border border-amber-500/30">
+            <Clock className="w-3 h-3" /> Result Pending
+          </span>
+        )}
+
+        {isPenalty ? (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-rose-500/10 text-rose-400 border border-rose-500/30">
+            <AlertTriangle className="w-3 h-3" /> Penalty Applied
+          </span>
+        ) : !isPublished ? (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-purple-500/10 text-purple-400 border border-purple-500/30">
+            <Clock className="w-3 h-3" /> 48h Deadline Active
+          </span>
+        ) : null}
+
+        {isSettled && (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-500/10 text-blue-400 border border-blue-500/30">
+            Settlement Complete
+          </span>
+        )}
+      </div>
+    );
   };
 
   const [dedicatedTeamsData, setDedicatedTeamsData] = React.useState<DedicatedTeamsLookup>({
@@ -362,6 +400,7 @@ export const ScrimsHubTab: React.FC<ScrimsHubTabProps> = ({
                       >
                         {statusUpper}
                       </span>
+                      {renderSettlementBadges(scrim)}
                       {readiness.isPaid && (
                         <FinancialLockBanner readiness={readiness} compact={true} />
                       )}

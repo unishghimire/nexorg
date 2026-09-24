@@ -8,6 +8,7 @@ import { QualificationPanel } from '../../../tournaments/components/Qualificatio
 import { isRoundComplete } from '../../../../shared/services/tournamentEngine';
 import { checkFinancialReadiness } from '../../../../shared/services/prizeDistributionService';
 import { FinancialLockBanner } from '../../../../shared/components/FinancialLockBanner';
+import { EventSettlementBanner } from '../../../../shared/components/EventSettlementBanner';
 import { PrizeDistributionModal } from '../../../../shared/components/PrizeDistributionModal';
 
 export const OverviewTab: React.FC<TournamentAdminTabProps> = (props) => {
@@ -40,6 +41,16 @@ export const OverviewTab: React.FC<TournamentAdminTabProps> = (props) => {
                         >
                              {/* Financial Readiness Lock Banner */}
                              <FinancialLockBanner readiness={readiness} className="mb-2" />
+
+                             {/* 48-Hour Result Deadline, Profit Lock & Penalty Settlement Engine Banner */}
+                             <EventSettlementBanner
+                                 event={tournament}
+                                 eventType="tournament"
+                                 onOpenResultModal={() => setIsDistributeOpen(true)}
+                                 onDepositLockAmount={props.handleDepositLockAmount}
+                                 isAdmin={false}
+                                 isHost={true}
+                             />
 
                              {/* Dynamic roadmap — derived from actual tournament state */}
                              <div className="rounded-xl bg-card border border-gray-800 p-4">

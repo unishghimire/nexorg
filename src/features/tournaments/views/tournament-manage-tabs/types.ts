@@ -33,6 +33,7 @@ export interface TournamentAdminTabProps {
     setIsAddMatchModalOpen: (v: boolean) => void;
     handleUpdateStatus: (status: 'upcoming' | 'live' | 'completed' | 'paused') => void;
     handleUpdateStage: (stage: string) => void;
+    handleDepositLockAmount?: () => Promise<void> | void;
     handleAdvanceRound: () => void;
     handleAutoGenerateGroups: () => void;
     handleCreateGroup: () => void;
