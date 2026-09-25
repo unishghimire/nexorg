@@ -8,7 +8,8 @@ import TournamentCreateModal from '../../tournaments/components/TournamentCreate
 import ScrimCreateModal from '../../scrims/components/ScrimCreateModal';
 import {
   LayoutDashboard, Trophy, Gamepad2, Radio, Users,
-  Wallet, Settings as SettingsIcon, Menu, X, ShieldAlert
+  Wallet, Settings as SettingsIcon, Menu, X, ShieldAlert,
+  Lock, FileCheck, DollarSign
 } from 'lucide-react';
 import { useOrgData } from '../hooks/useOrgData';
 import { OrgOverlayManager, OverlayType } from '../components/OrgOverlayManager';
@@ -17,6 +18,7 @@ import TabErrorBoundary from '../../../shared/components/TabErrorBoundary';
 import { fetchRoomCredentials } from '../../../shared/services/roomCredentials';
 import { normalizeScrimSlots, countFilledScrimSlots } from '../../../shared/utils/scrimSlots';
 import { resolveSlotTeam, fetchDedicatedTeams } from '../../../shared/utils/teamUtils';
+import { validateAndStartEventServer } from '../../../shared/services/organizerFinancialsService';
 
 // Direct tab component imports for 0ms instant tab switching and zero chunk loading failures
 import OverviewTab from '../components/OverviewTab';
@@ -27,6 +29,9 @@ import { DisputesTab } from '../components/DisputesTab';
 import { TeamsRostersTab } from '../components/TeamsRostersTab';
 import { WalletPayoutsTab } from '../components/WalletPayoutsTab';
 import { SettingsStreamTab } from '../components/SettingsStreamTab';
+import LockAmountsTab from '../components/LockAmountsTab';
+import ResultsManagementTab from '../components/ResultsManagementTab';
+import SettlementsTab from '../components/SettlementsTab';
 import PowerOrgApplyModal from '../components/PowerOrgApplyModal';
 import PowerOrgLockedModal from '../components/PowerOrgLockedModal';
 
@@ -34,6 +39,9 @@ const NAV_ITEMS = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'tournaments', label: 'Tournaments', icon: Trophy },
   { id: 'scrims', label: 'Scrims Hub', icon: Gamepad2 },
+  { id: 'locks', label: 'Lock Amounts', icon: Lock },
+  { id: 'results', label: 'Results Hub', icon: FileCheck },
+  { id: 'settlements', label: 'Settlements', icon: DollarSign },
   { id: 'rooms', label: 'Match Rooms', icon: Radio },
   { id: 'disputes', label: 'Disputes', icon: ShieldAlert },
   { id: 'teams', label: 'Teams & Rosters', icon: Users },
@@ -56,6 +64,16 @@ const TAB_ALIASES: Record<string, TabId> = {
   setting: 'settings',
   tournament: 'tournaments',
   scrim: 'scrims',
+  lock: 'locks',
+  locks: 'locks',
+  lockamount: 'locks',
+  lockamounts: 'locks',
+  result: 'results',
+  results: 'results',
+  res: 'results',
+  settlement: 'settlements',
+  settlements: 'settlements',
+  settle: 'settlements',
 };
 
 const getActiveTab = (search: string): TabId => {
@@ -173,14 +191,26 @@ const OrganizerPanel: React.FC = () => {
     if (isUpdatingStatus) return;
     setIsUpdatingStatus(true);
     try {
-      await org.updateTournamentStatus(id, status as any);
-      showToast(`Tournament status: ${status.toUpperCase()}`, 'success');
-    } catch {
-      showToast('Failed to update tournament status — you may not own this tournament', 'error');
+      if (status === 'live') {
+        const res = await validateAndStartEventServer({
+          eventId: id,
+          eventType: 'tournament',
+          actorUid: profile?.uid || auth.currentUser?.uid || 'organizer',
+          actorName: profile?.username || auth.currentUser?.displayName || 'Organizer',
+          actorRole: profile?.role || 'organizer',
+        });
+        showToast(res.message, 'success');
+        org.fetchHostedTournaments();
+      } else {
+        await org.updateTournamentStatus(id, status as any);
+        showToast(`Tournament status: ${status.toUpperCase()}`, 'success');
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to update tournament status — you may not own this tournament', 'error');
     } finally {
       setIsUpdatingStatus(false);
     }
-  }, [org, showToast, isUpdatingStatus]);
+  }, [org, showToast, isUpdatingStatus, profile]);
 
   const handleUpdateScrimStatus = useCallback(async (id: string, status: string) => {
     if (isUpdatingStatus) return;
@@ -196,14 +226,26 @@ const OrganizerPanel: React.FC = () => {
 
     setIsUpdatingStatus(true);
     try {
-      await org.updateScrimStatus(id, status as any);
-      showToast(status === 'completed' ? 'Match finalized & all lobby slots released!' : `Scrim status: ${status.toUpperCase()}`, 'success');
+      if (status === 'live') {
+        const res = await validateAndStartEventServer({
+          eventId: id,
+          eventType: 'scrim',
+          actorUid: profile?.uid || auth.currentUser?.uid || 'organizer',
+          actorName: profile?.username || auth.currentUser?.displayName || 'Organizer',
+          actorRole: profile?.role || 'organizer',
+        });
+        showToast(res.message, 'success');
+        org.fetchHostedScrims();
+      } else {
+        await org.updateScrimStatus(id, status as any);
+        showToast(status === 'completed' ? 'Match finalized & all lobby slots released!' : `Scrim status: ${status.toUpperCase()}`, 'success');
+      }
     } catch (err: any) {
       showToast(err?.message || 'Failed to update scrim status — you may not own this scrim', 'error');
     } finally {
       setIsUpdatingStatus(false);
     }
-  }, [org, showToast, isUpdatingStatus, navigate]);
+  }, [org, showToast, isUpdatingStatus, navigate, profile]);
 
   const handleCreateTournament = useCallback(() => {
     if (!isPowerOrg) {
@@ -551,6 +593,9 @@ const OrganizerPanel: React.FC = () => {
               activityFeed={org.activityFeed}
               hostedTournaments={org.tournamentsOnly}
               hostedScrims={org.scrims}
+              disputes={org.disputes}
+              transactions={org.transactions}
+              profile={profile}
               isPowerOrg={isPowerOrg}
               powerOrgApplicationStatus={profile?.powerOrgApplicationStatus || 'none'}
               completedScrimsCount={completedScrimsCount}
@@ -595,6 +640,50 @@ const OrganizerPanel: React.FC = () => {
               onDeleteScrim={handleDeleteScrim}
               onUpdateStatus={handleUpdateScrimStatus}
               onOpenRoomDispatch={handleOpenRoomDispatch}
+            />
+          </TabErrorBoundary>
+        );
+      case 'locks':
+        return (
+          <TabErrorBoundary tabName="Lock Amounts Tab" resetKey={activeTab}>
+            <LockAmountsTab
+              hostedTournaments={org.tournamentsOnly}
+              hostedScrims={org.scrims}
+              onNavigateTab={(tabId) => handleTabChange(tabId as TabId)}
+              onRefreshData={() => {
+                org.fetchHostedTournaments();
+                org.fetchHostedScrims();
+              }}
+            />
+          </TabErrorBoundary>
+        );
+      case 'results':
+        return (
+          <TabErrorBoundary tabName="Results Hub Tab" resetKey={activeTab}>
+            <ResultsManagementTab
+              hostedTournaments={org.tournamentsOnly}
+              hostedScrims={org.scrims}
+              disputes={org.disputes}
+              onNavigateTab={(tabId) => handleTabChange(tabId as TabId)}
+              onRefreshData={() => {
+                org.fetchHostedTournaments();
+                org.fetchHostedScrims();
+              }}
+            />
+          </TabErrorBoundary>
+        );
+      case 'settlements':
+        return (
+          <TabErrorBoundary tabName="Settlements Tab" resetKey={activeTab}>
+            <SettlementsTab
+              hostedTournaments={org.tournamentsOnly}
+              hostedScrims={org.scrims}
+              transactions={org.transactions}
+              onNavigateTab={(tabId) => handleTabChange(tabId as TabId)}
+              onRefreshData={() => {
+                org.fetchHostedTournaments();
+                org.fetchHostedScrims();
+              }}
             />
           </TabErrorBoundary>
         );
@@ -717,7 +806,17 @@ const OrganizerPanel: React.FC = () => {
               <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">Workspace</span>
             </div>
             {NAV_ITEMS.map((item) => {
-              const pendingCount = item.id === 'disputes' ? org.disputes.filter(d => (d.status || 'pending') === 'pending').length : 0;
+              const pendingCount =
+                item.id === 'disputes'
+                  ? org.disputes.filter((d) => (d.status || 'pending') === 'pending').length
+                  : item.id === 'results'
+                  ? [...(org.tournamentsOnly || []), ...(org.scrims || [])].filter(
+                      (e) =>
+                        (e.status === 'completed' || e.status === 'finalized') &&
+                        e.resultStatus !== 'published' &&
+                        e.resultStatus !== 'verified'
+                    ).length
+                  : 0;
               const isActive = activeTab === item.id;
               return (
                 <button

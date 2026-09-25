@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "type-check": "tsc --noEmit",
-    "test:stages": "tsx src/shared/services/__tests__/stageValidation.test.ts"
+    "test:stages": "tsx src/shared/services/__tests__/stageValidation.test.ts",
+    "test:financials": "tsx src/shared/services/__tests__/organizerFinancials.test.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

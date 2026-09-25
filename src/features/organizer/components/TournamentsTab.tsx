@@ -19,6 +19,8 @@ import { getSlotCount, getFilledSlotCount } from '../../../shared/utils/scrimSlo
 import { checkFinancialReadiness } from '../../../shared/services/prizeDistributionService';
 import { FinancialLockBanner } from '../../../shared/components/FinancialLockBanner';
 import { PrizeDistributionModal } from '../../../shared/components/PrizeDistributionModal';
+import { useNotification } from '../../../shared/context/NotificationContext';
+import { getEventLockDetails } from '../../../shared/services/organizerFinancialsService';
 
 export interface BracketMatch {
   id?: string;
@@ -58,6 +60,7 @@ const TournamentsTab: React.FC<TournamentsTabProps> = ({
   onEditTournament,
   onActivateTournament,
 }) => {
+  const { showToast } = useNotification();
   const [expandedBrackets, setExpandedBrackets] = useState<Record<string, boolean>>({});
   const [finalizingTournament, setFinalizingTournament] = useState<any | null>(null);
 
@@ -319,6 +322,7 @@ const TournamentsTab: React.FC<TournamentsTabProps> = ({
             const isCompleted =
               tournament.status === 'completed' || tournament.status === 'finalized';
             const readiness = checkFinancialReadiness(tournament);
+            const lockDetails = getEventLockDetails(tournament);
 
             return (
               <div
@@ -340,6 +344,17 @@ const TournamentsTab: React.FC<TournamentsTabProps> = ({
                     )}
                   </div>
                 </div>
+
+                {/* Inline Lock Shortfall Warning */}
+                {!lockDetails.canStart && !isCompleted && tournament.status !== 'pending_funding' && (
+                  <div className="mb-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-2.5">
+                    <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
+                    <div>
+                      <span className="font-bold">Cannot Start Yet: </span>
+                      <span>{lockDetails.cannotStartReason}</span>
+                    </div>
+                  </div>
+                )}
 
                 {/* Stats Grid */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
@@ -433,11 +448,11 @@ const TournamentsTab: React.FC<TournamentsTabProps> = ({
                       </button>
                     )
                   ) : !isCompleted && tournament.status !== 'pending_funding' ? (
-                    readiness.isLocked ? (
+                    !lockDetails.canStart ? (
                       <button
-                        onClick={() => alert(readiness.statusText)}
+                        onClick={() => showToast(lockDetails.cannotStartReason || readiness.statusText, 'warning')}
                         className="min-h-[44px] px-3.5 py-2 rounded-lg text-sm font-medium bg-amber-500/10 text-amber-400 border border-amber-500/30 transition-colors flex items-center justify-center gap-2 cursor-not-allowed shadow-sm"
-                        title={readiness.statusText}
+                        title={lockDetails.cannotStartReason || readiness.statusText}
                       >
                         <Lock className="w-4 h-4 text-amber-400" />
                         <span>Go Live (Locked)</span>
@@ -445,7 +460,7 @@ const TournamentsTab: React.FC<TournamentsTabProps> = ({
                     ) : (
                       <button
                         onClick={() => onUpdateStatus(tournament.id, 'live')}
-                        className="min-h-[44px] px-3.5 py-2 rounded-lg text-sm font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition-colors flex items-center justify-center gap-2 shadow-sm"
+                        className="min-h-[44px] px-3.5 py-2 rounded-lg text-sm font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition-colors flex items-center justify-center gap-2 shadow-sm cursor-pointer"
                       >
                         <Play className="w-4 h-4 fill-current" />
                         <span>Go Live</span>

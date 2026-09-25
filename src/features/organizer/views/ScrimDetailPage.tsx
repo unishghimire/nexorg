@@ -19,6 +19,10 @@ import {
   depositFreeEventLockAmount,
   DEFAULT_FREE_LOCK_AMOUNT,
 } from '../../../shared/services/eventSettlementService';
+import {
+  getEventLockDetails,
+  validateAndStartEventServer,
+} from '../../../shared/services/organizerFinancialsService';
 import { PrizeDistributionModal } from '../../../shared/components/PrizeDistributionModal';
 import { toDateSafe, cleanFirestoreData } from '../../../shared/utils/utils';
 import { resolveAllScrimResults } from '../../../shared/utils/scrimResults';
@@ -90,6 +94,7 @@ export default function ScrimDetailPage() {
   const [dedicatedTeamsData, setDedicatedTeamsData] = useState<DedicatedTeamsLookup | null>(null);
 
   const financialReadiness = useMemo(() => checkFinancialReadiness(scrim), [scrim]);
+  const lockDetails = useMemo(() => getEventLockDetails(scrim), [scrim]);
 
   // --- Load scrim ---
   useEffect(() => {
@@ -276,7 +281,7 @@ export default function ScrimDetailPage() {
         updatedAt: serverTimestamp(),
       };
       const cleanedUpdatePayload = cleanFirestoreData(updatePayload);
-      await updateDoc(doc(db, 'scrims', id), cleanedUpdatePayload);
+      await updateDoc(doc(db, scrimCollection, id), cleanedUpdatePayload);
       setScrim((prev: any) => prev ? { ...prev, ...cleanedUpdatePayload } : prev);
       showToast('Scrim updated', 'success');
       setIsEditing(false);
@@ -466,7 +471,7 @@ export default function ScrimDetailPage() {
       }
       const cleanedPayload = cleanFirestoreData(updatePayload);
 
-      await updateDoc(doc(db, 'scrims', id), cleanedPayload);
+      await updateDoc(doc(db, scrimCollection, id), cleanedPayload);
 
       // Track locked entry fees into organizer's locked wallet
       const hostId = scrim.hostUid || scrim.createdBy || scrim.userId;
@@ -521,7 +526,7 @@ export default function ScrimDetailPage() {
       };
       const cleanedPayload = cleanFirestoreData(updatePayload);
 
-      await updateDoc(doc(db, 'scrims', id), cleanedPayload);
+      await updateDoc(doc(db, scrimCollection, id), cleanedPayload);
 
       setScrim((prev: any) => prev ? { ...prev, slots: newSlots } : prev);
       showToast(hasLocked ? 'All remaining slots unlocked!' : 'All remaining open slots locked!', 'info');
@@ -661,14 +666,25 @@ export default function ScrimDetailPage() {
     }
 
     if (newStatus === 'live') {
-      const entryFee = Math.max(0, Number(scrim.entryFee ?? scrim.requirements?.entryFee ?? scrim.price ?? 0));
-      if (entryFee === 0 && !scrim.lockAmountDeposited && scrim.lockAmountStatus !== 'deposited') {
-        showToast(`Cannot start free scrim: Security lock amount deposit (Rs. ${Number(scrim.lockAmount || DEFAULT_FREE_LOCK_AMOUNT).toLocaleString()}) must be deposited first.`, 'warning');
+      try {
+        const startResult = await validateAndStartEventServer({
+          eventId: id,
+          eventType: 'scrim',
+          actorUid: user?.uid || 'organizer',
+          actorName: profile?.username || user?.displayName || 'Host',
+          actorRole: profile?.role || 'organizer',
+        });
+        showToast(startResult.message, 'success');
+        setScrim((prev: any) => (prev ? { ...prev, status: 'live' } : prev));
+        announceScrimLive({
+          id,
+          title: scrim.title,
+          currentPlayers: scrim.currentPlayers || 0,
+          slots: scrim.slots,
+        } as any).catch((e) => console.warn('Discord scrim live announcement error:', e));
         return;
-      }
-      const readiness = checkFinancialReadiness(scrim);
-      if (readiness.isLocked) {
-        showToast(`Cannot start scrim: Paid matches require full prize pool balance. Needs ${readiness.slotsRemaining} more registered ${readiness.slotsRemaining === 1 ? 'slot' : 'slots'} (Rs. ${readiness.shortfall.toLocaleString()} needed to fund Rs. ${readiness.prizePool.toLocaleString()} prize pool).`, 'error');
+      } catch (startErr: any) {
+        showToast(startErr?.message || 'Failed to start scrim: Incomplete lock amount', 'error');
         return;
       }
     }
@@ -720,7 +736,7 @@ export default function ScrimDetailPage() {
 
       const cleanedPayload = cleanFirestoreData(updatePayload);
 
-      await updateDoc(doc(db, 'scrims', id), cleanedPayload);
+      await updateDoc(doc(db, scrimCollection, id), cleanedPayload);
       setScrim((prev: any) => prev ? { ...prev, ...cleanedPayload } : prev);
 
       if (newStatus === 'completed') {
@@ -778,14 +794,14 @@ export default function ScrimDetailPage() {
       }
 
       if (!deletedViaApi) {
-        await deleteDoc(doc(db, 'scrims', id));
+        await deleteDoc(doc(db, scrimCollection, id));
       }
       showToast('Scrim deleted successfully', 'success');
       navigate('/organizer?tab=scrims');
     } catch (err: any) {
       showToast(err.message || 'Failed to delete scrim', 'error');
     }
-  }, [id, scrim?.title, navigate, showToast]);
+  }, [id, scrim?.title, scrimCollection, navigate, showToast]);
 
   const copyToClipboard = async (text: string, label: string) => {
     try {
@@ -1003,7 +1019,7 @@ export default function ScrimDetailPage() {
         updatedAt: serverTimestamp(),
       });
 
-      await updateDoc(doc(db, 'scrims', id!), cleanedWinnerPayload);
+      await updateDoc(doc(db, scrimCollection, id!), cleanedWinnerPayload);
 
       // Release organizer profit (for paid) or refund lock amount (for free) & audit settlement
       await publishResultsAndSettle({
@@ -1348,12 +1364,12 @@ export default function ScrimDetailPage() {
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs text-gray-400 font-medium">Quick Status:</span>
           {scrim.status === 'open' && (
-            financialReadiness.isLocked ? (
+            !lockDetails.canStart ? (
               <button
                 type="button"
-                onClick={() => showToast(financialReadiness.statusText, 'warning')}
+                onClick={() => showToast(lockDetails.cannotStartReason || financialReadiness.statusText, 'warning')}
                 className="px-3 py-1.5 rounded-lg bg-amber-500/10 text-amber-400/90 border border-amber-500/30 text-xs font-semibold flex items-center gap-1.5 cursor-not-allowed transition-colors"
-                title={financialReadiness.statusText}
+                title={lockDetails.cannotStartReason || financialReadiness.statusText}
               >
                 <Lock className="w-3.5 h-3.5 text-amber-400" /> Go Live (Locked)
               </button>
@@ -1361,7 +1377,7 @@ export default function ScrimDetailPage() {
               <button
                 type="button"
                 onClick={() => handleStatusChange('live')}
-                className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-semibold hover:bg-emerald-500/20 flex items-center gap-1.5 transition-colors"
+                className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-semibold hover:bg-emerald-500/20 flex items-center gap-1.5 transition-colors cursor-pointer"
               >
                 <Play className="w-3.5 h-3.5" /> Go Live
               </button>

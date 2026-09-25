@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   Trophy,
   Users,
@@ -18,13 +18,22 @@ import {
   Clock,
   Sparkles,
   TrendingUp,
+  AlertCircle,
+  ArrowUpRight,
+  FileCheck,
 } from 'lucide-react';
 import { Tournament } from '../../../shared/types/types';
 import { getSlotCount, getFilledSlotCount } from '../../../shared/utils/scrimSlots';
 import { calculateLevel, getXPForNextLevel, getLevelProgress, ORG_EXP_REWARDS } from '../../../shared/utils/utils';
+import {
+  computeOrganizerEventOverview,
+  computeOrganizerFinancialOverview,
+  computeOrganizerAlerts,
+  OrganizerAlert,
+} from '../../../shared/services/organizerFinancialsService';
 
 export interface OverviewTabProps {
-  kpis: {
+  kpis?: {
     activeTournaments: number;
     liveScrims: number;
     totalTeams: number;
@@ -36,15 +45,18 @@ export interface OverviewTabProps {
     filledSlots: number;
     totalSlots: number;
   };
-  activityFeed: {
+  activityFeed?: {
     id: string;
     icon: string;
     text: string;
     time: string;
     type: string;
   }[];
-  hostedTournaments: Tournament[] | any[];
+  hostedTournaments?: Tournament[] | any[];
   hostedScrims?: Tournament[] | any[];
+  disputes?: any[];
+  transactions?: any[];
+  profile?: any;
   isPowerOrg?: boolean;
   powerOrgApplicationStatus?: 'none' | 'pending' | 'approved' | 'rejected';
   completedScrimsCount?: number;
@@ -133,6 +145,9 @@ const OverviewTab: React.FC<OverviewTabProps> = ({
   activityFeed = [],
   hostedTournaments = [],
   hostedScrims = [],
+  disputes = [],
+  transactions = [],
+  profile,
   isPowerOrg = false,
   powerOrgApplicationStatus = 'none',
   completedScrimsCount,
@@ -144,6 +159,31 @@ const OverviewTab: React.FC<OverviewTabProps> = ({
   onCreateTournament,
   onCreateScrim,
 }) => {
+  // Authoritative calculations from event data & wallet transactions
+  const eventOverview = useMemo(() => {
+    return computeOrganizerEventOverview({
+      tournaments: hostedTournaments || [],
+      scrims: hostedScrims || [],
+    });
+  }, [hostedTournaments, hostedScrims]);
+
+  const financialOverview = useMemo(() => {
+    return computeOrganizerFinancialOverview({
+      tournaments: hostedTournaments || [],
+      scrims: hostedScrims || [],
+      transactions: transactions || [],
+      profile,
+    });
+  }, [hostedTournaments, hostedScrims, transactions, profile]);
+
+  const eventAlerts = useMemo(() => {
+    return computeOrganizerAlerts({
+      tournaments: hostedTournaments || [],
+      scrims: hostedScrims || [],
+      disputes: disputes || [],
+    });
+  }, [hostedTournaments, hostedScrims, disputes]);
+
   // Calculate verified completed authentic scrims
   const effectiveCompletedCount = typeof completedScrimsCount === 'number'
     ? completedScrimsCount
@@ -408,6 +448,319 @@ const OverviewTab: React.FC<OverviewTabProps> = ({
             </div>
           </div>
         )}
+      </div>
+
+      {/* ─── EVENT ALERTS & ACTION HUB ─── */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between px-1">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className={`w-4 h-4 ${eventAlerts.length > 0 ? 'text-amber-400' : 'text-emerald-400'}`} />
+            <span className="text-xs font-black uppercase tracking-wider text-white">
+              {eventAlerts.length > 0 ? `Action Required (${eventAlerts.length})` : 'System Status'}
+            </span>
+          </div>
+          <span className="text-[10px] text-gray-500 font-medium">
+            {eventAlerts.length > 0 ? 'Prioritized Host Alerts' : 'All Clear'}
+          </span>
+        </div>
+
+        {eventAlerts.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {eventAlerts.map((alert) => (
+              <div
+                key={alert.id}
+                className={`p-4 rounded-2xl border flex flex-col justify-between transition-all backdrop-blur-sm ${
+                  alert.severity === 'error'
+                    ? 'bg-rose-950/20 border-rose-500/40 text-rose-300 shadow-md shadow-rose-950/20'
+                    : alert.severity === 'warning'
+                    ? 'bg-amber-950/20 border-amber-500/40 text-amber-300 shadow-md shadow-amber-950/20'
+                    : 'bg-blue-950/20 border-blue-500/40 text-blue-300 shadow-md shadow-blue-950/20'
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <div className="p-2 rounded-xl bg-black/40 border border-white/5 shrink-0 mt-0.5">
+                    {alert.severity === 'error' ? (
+                      <AlertCircle className="w-4 h-4 text-rose-400" />
+                    ) : alert.severity === 'warning' ? (
+                      <AlertTriangle className="w-4 h-4 text-amber-400" />
+                    ) : (
+                      <Clock className="w-4 h-4 text-blue-400" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h4 className="text-sm font-bold text-white leading-snug">{alert.title}</h4>
+                    <p className="text-xs text-gray-300 mt-1 leading-relaxed">{alert.message}</p>
+                  </div>
+                </div>
+
+                <div className="mt-3 pt-3 border-t border-white/10 flex items-center justify-between">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-gray-400">
+                    {alert.type.replace(/_/g, ' ')}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onNavigateTab?.(alert.targetTab)}
+                    className="text-xs font-black uppercase tracking-wider px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center gap-1.5 transition cursor-pointer"
+                  >
+                    <span>Resolve Now</span>
+                    <ArrowUpRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="bg-emerald-950/15 border border-emerald-500/30 p-3.5 rounded-2xl flex items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2.5">
+              <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400">
+                <CheckCircle2 className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="font-bold text-emerald-300">All Event Systems Operational</span>
+                <span className="text-gray-400 ml-2 hidden sm:inline">
+                  All active lock amounts are fully funded and no 48h result deadlines are pending.
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => onNavigateTab?.('locks')}
+              className="text-[11px] font-black uppercase text-emerald-400 hover:text-emerald-300 shrink-0"
+            >
+              View Locks &rarr;
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ─── EVENT OPERATIONS OVERVIEW (8 METRIC CARDS) ─── */}
+      <div className="bg-card/70 border border-gray-800/80 p-5 rounded-2xl shadow-lg backdrop-blur-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-800 pb-3">
+          <div>
+            <h3 className="text-base font-black text-white uppercase tracking-tight flex items-center gap-2">
+              <Trophy className="w-4 h-4 text-brand-400" /> Event Operations Overview
+            </h3>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Live status distribution across your hosted tournaments and scrims
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-400 font-bold">
+              Total Events: <span className="text-white font-mono">{eventOverview.totalTournaments + eventOverview.totalScrims}</span>
+            </span>
+          </div>
+        </div>
+
+        {/* Tournaments Row */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-bold text-brand-400 uppercase text-[11px] tracking-wider flex items-center gap-1.5">
+              <Trophy className="w-3.5 h-3.5" /> Tournaments ({eventOverview.totalTournaments})
+            </span>
+            <button
+              type="button"
+              onClick={() => onNavigateTab?.('tournaments')}
+              className="text-[11px] font-bold text-gray-400 hover:text-brand-400 transition flex items-center gap-1 cursor-pointer"
+            >
+              Manage Tournaments <ChevronRight className="w-3 h-3" />
+            </button>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <button
+              type="button"
+              onClick={() => onNavigateTab?.('tournaments')}
+              className="p-3 bg-dark/60 hover:bg-dark border border-gray-800 hover:border-gray-700 rounded-xl text-left transition cursor-pointer"
+            >
+              <span className="text-[10px] uppercase font-bold text-gray-400 block">Total</span>
+              <span className="text-xl font-black text-white font-mono">{eventOverview.totalTournaments}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigateTab?.('tournaments')}
+              className="p-3 bg-emerald-950/20 hover:bg-emerald-950/30 border border-emerald-500/30 rounded-xl text-left transition cursor-pointer"
+            >
+              <span className="text-[10px] uppercase font-black text-emerald-400 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> Live / Active
+              </span>
+              <span className="text-xl font-black text-emerald-300 font-mono">{eventOverview.activeTournaments}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigateTab?.('tournaments')}
+              className="p-3 bg-sky-950/20 hover:bg-sky-950/30 border border-sky-500/30 rounded-xl text-left transition cursor-pointer"
+            >
+              <span className="text-[10px] uppercase font-black text-sky-400 block">Upcoming / Open</span>
+              <span className="text-xl font-black text-sky-300 font-mono">{eventOverview.upcomingTournaments}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigateTab?.('tournaments')}
+              className="p-3 bg-dark/60 hover:bg-dark border border-gray-800 hover:border-gray-700 rounded-xl text-left transition cursor-pointer"
+            >
+              <span className="text-[10px] uppercase font-bold text-gray-400 block">Completed</span>
+              <span className="text-xl font-black text-gray-300 font-mono">{eventOverview.completedTournaments}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Scrims Row */}
+        <div className="space-y-2 pt-2 border-t border-gray-800/60">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-bold text-orange-400 uppercase text-[11px] tracking-wider flex items-center gap-1.5">
+              <Gamepad2 className="w-3.5 h-3.5" /> Scrims ({eventOverview.totalScrims})
+            </span>
+            <button
+              type="button"
+              onClick={() => onNavigateTab?.('scrims')}
+              className="text-[11px] font-bold text-gray-400 hover:text-orange-400 transition flex items-center gap-1 cursor-pointer"
+            >
+              Manage Scrims <ChevronRight className="w-3 h-3" />
+            </button>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <button
+              type="button"
+              onClick={() => onNavigateTab?.('scrims')}
+              className="p-3 bg-dark/60 hover:bg-dark border border-gray-800 hover:border-gray-700 rounded-xl text-left transition cursor-pointer"
+            >
+              <span className="text-[10px] uppercase font-bold text-gray-400 block">Total</span>
+              <span className="text-xl font-black text-white font-mono">{eventOverview.totalScrims}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigateTab?.('scrims')}
+              className="p-3 bg-emerald-950/20 hover:bg-emerald-950/30 border border-emerald-500/30 rounded-xl text-left transition cursor-pointer"
+            >
+              <span className="text-[10px] uppercase font-black text-emerald-400 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> Live / Active
+              </span>
+              <span className="text-xl font-black text-emerald-300 font-mono">{eventOverview.activeScrims}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigateTab?.('scrims')}
+              className="p-3 bg-sky-950/20 hover:bg-sky-950/30 border border-sky-500/30 rounded-xl text-left transition cursor-pointer"
+            >
+              <span className="text-[10px] uppercase font-black text-sky-400 block">Upcoming / Open</span>
+              <span className="text-xl font-black text-sky-300 font-mono">{eventOverview.upcomingScrims}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigateTab?.('scrims')}
+              className="p-3 bg-dark/60 hover:bg-dark border border-gray-800 hover:border-gray-700 rounded-xl text-left transition cursor-pointer"
+            >
+              <span className="text-[10px] uppercase font-bold text-gray-400 block">Completed</span>
+              <span className="text-xl font-black text-gray-300 font-mono">{eventOverview.completedScrims}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ─── FINANCIAL OVERVIEW & MAIN WALLET SYNC (5 METRIC CARDS) ─── */}
+      <div className="bg-gradient-to-br from-emerald-950/20 via-card to-card border border-emerald-500/30 p-5 rounded-2xl shadow-lg backdrop-blur-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-800 pb-3">
+          <div>
+            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-emerald-400 mb-0.5">
+              <DollarSign className="w-3.5 h-3.5" /> Single Source of Truth
+            </div>
+            <h3 className="text-base font-black text-white uppercase tracking-tight flex items-center gap-2">
+              Financial Overview &amp; Main Wallet Sync
+            </h3>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Strictly derived from your registered Main NexPlay Wallet and verified event transaction history.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => onNavigateTab?.('wallet')}
+            className="text-xs font-black uppercase tracking-wider px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 flex items-center gap-1.5 transition cursor-pointer shrink-0"
+          >
+            <span>Open Main Wallet</span>
+            <ArrowUpRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          {/* 1. Main Wallet Balance */}
+          <div className="bg-dark/70 border border-emerald-500/40 p-4 rounded-xl relative overflow-hidden">
+            <div className="text-[10px] uppercase font-black text-emerald-400 tracking-wider mb-1 flex items-center justify-between">
+              <span>Main Wallet</span>
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+            </div>
+            <div className="text-xl font-black text-white font-mono">
+              {formatRupees(financialOverview.mainWalletBalance)}
+            </div>
+            <div className="text-[10px] text-gray-400 mt-1">Available balance</div>
+          </div>
+
+          {/* 2. Total Locked Amount */}
+          <button
+            type="button"
+            onClick={() => onNavigateTab?.('locks')}
+            className="bg-dark/70 hover:bg-dark border border-amber-500/30 hover:border-amber-500/50 p-4 rounded-xl text-left transition cursor-pointer"
+          >
+            <div className="text-[10px] uppercase font-black text-amber-400 tracking-wider mb-1 flex items-center justify-between">
+              <span>Total Locked</span>
+              <Lock className="w-3.5 h-3.5 text-amber-400" />
+            </div>
+            <div className="text-xl font-black text-amber-300 font-mono">
+              {formatRupees(financialOverview.totalLockedAmount)}
+            </div>
+            <div className="text-[10px] text-gray-400 mt-1">In active event escrow</div>
+          </button>
+
+          {/* 3. Pending Host Commission */}
+          <button
+            type="button"
+            onClick={() => onNavigateTab?.('wallet')}
+            className="bg-dark/70 hover:bg-dark border border-purple-500/30 hover:border-purple-500/50 p-4 rounded-xl text-left transition cursor-pointer"
+          >
+            <div className="text-[10px] uppercase font-black text-purple-400 tracking-wider mb-1 flex items-center justify-between">
+              <span>Pending Commission</span>
+              <TrendingUp className="w-3.5 h-3.5 text-purple-400" />
+            </div>
+            <div className="text-xl font-black text-purple-300 font-mono">
+              {formatRupees(financialOverview.pendingCommission)}
+            </div>
+            <div className="text-[10px] text-gray-400 mt-1">
+              Released: {formatRupees(financialOverview.releasedCommission)}
+            </div>
+          </button>
+
+          {/* 4. Upcoming Settlement */}
+          <button
+            type="button"
+            onClick={() => onNavigateTab?.('settlements')}
+            className="bg-dark/70 hover:bg-dark border border-cyan-500/30 hover:border-cyan-500/50 p-4 rounded-xl text-left transition cursor-pointer"
+          >
+            <div className="text-[10px] uppercase font-black text-cyan-400 tracking-wider mb-1 flex items-center justify-between">
+              <span>Upcoming Settlement</span>
+              <Clock className="w-3.5 h-3.5 text-cyan-400" />
+            </div>
+            <div className="text-xl font-black text-cyan-300 font-mono">
+              {formatRupees(financialOverview.upcomingSettlement)}
+            </div>
+            <div className="text-[10px] text-gray-400 mt-1">85% host share pending</div>
+          </button>
+
+          {/* 5. Fine Amount Today */}
+          <button
+            type="button"
+            onClick={() => onNavigateTab?.('settlements')}
+            className="bg-dark/70 hover:bg-dark border border-rose-500/30 hover:border-rose-500/50 p-4 rounded-xl text-left transition cursor-pointer"
+          >
+            <div className="text-[10px] uppercase font-black text-rose-400 tracking-wider mb-1 flex items-center justify-between">
+              <span>Fine Amount Today</span>
+              <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
+            </div>
+            <div className="text-xl font-black text-rose-400 font-mono">
+              {formatRupees(financialOverview.fineAmountToday)}
+            </div>
+            <div className="text-[10px] text-gray-400 mt-1">
+              Total: {formatRupees(financialOverview.historicalFines)}
+            </div>
+          </button>
+        </div>
       </div>
 
       {/* 1. Interactive KPI Navigation Grid */}
